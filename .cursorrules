@@ -1,0 +1,14 @@
+# Vantage Platform Rules
+
+## Project Structure
+- **/frontend**: Next.js 14 (App Router), Shadcn UI, Tailwind. (Port 3000)
+- **/backend**: Python FastAPI, Supabase/SQL connections. (Port 8000)
+
+## Workflow
+1. When asked to "run the app," always specify if I should run the frontend, backend, or both.
+2. **Frontend commands** must run inside `/frontend` (cd frontend).
+3. **Backend commands** must run inside `/backend` (cd backend).
+
+## Coding Standards
+- **Frontend:** Use strictly typed interfaces for all API responses.
+- **Backend:** Ensure all API endpoints return JSON compatible with the Frontend interfaces.

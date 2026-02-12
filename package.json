@@ -1,0 +1,11 @@
+{
+  "name": "vantage-platform",
+  "private": true,
+  "description": "Vantage Donor Intelligence Platform",
+  "scripts": {
+    "dev": "npm run dev --prefix frontend",
+    "build": "npm run build --prefix frontend",
+    "start": "npm run start --prefix frontend",
+    "lint": "npm run lint --prefix frontend"
+  }
+}

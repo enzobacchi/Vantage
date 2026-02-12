@@ -1,0 +1,222 @@
+[
+  {
+    "id": 1,
+    "header": "John Smith",
+    "type": "Major Donor",
+    "status": "Active",
+    "target": "$5,000",
+    "limit": "$12,500",
+    "reviewer": "Sarah Chen",
+    "address": "123 Oak Street, San Francisco, CA 94102",
+    "latestNote": "Met at gala, interested in scholarship fund"
+  },
+  {
+    "id": 2,
+    "header": "Margaret Chen",
+    "type": "Recurring",
+    "status": "Active",
+    "target": "$200",
+    "limit": "$2,400",
+    "reviewer": "Sarah Chen",
+    "address": "456 Pine Avenue, Oakland, CA 94612",
+    "latestNote": "Increased monthly gift from $150"
+  },
+  {
+    "id": 3,
+    "header": "Robert Williams",
+    "type": "First-time",
+    "status": "Pending",
+    "target": "$150",
+    "limit": "$150",
+    "reviewer": "Mike Johnson",
+    "address": "789 Maple Drive, Berkeley, CA 94704",
+    "latestNote": "Referred by Margaret Chen"
+  },
+  {
+    "id": 4,
+    "header": "Emily Davis",
+    "type": "Major Donor",
+    "status": "Active",
+    "target": "$10,000",
+    "limit": "$45,000",
+    "reviewer": "Sarah Chen",
+    "address": "321 Elm Court, Palo Alto, CA 94301",
+    "latestNote": "Considering planned giving conversation"
+  },
+  {
+    "id": 5,
+    "header": "David Park",
+    "type": "Recurring",
+    "status": "Active",
+    "target": "$100",
+    "limit": "$1,200",
+    "reviewer": "Assign liaison",
+    "address": "654 Cedar Lane, San Jose, CA 95112",
+    "latestNote": "Auto-renewal set for January"
+  },
+  {
+    "id": 6,
+    "header": "Sarah Johnson",
+    "type": "Lapsed",
+    "status": "Inactive",
+    "target": "$500",
+    "limit": "$2,500",
+    "reviewer": "Mike Johnson",
+    "address": "987 Birch Road, Mountain View, CA 94040",
+    "latestNote": "Send re-engagement email Q1"
+  },
+  {
+    "id": 7,
+    "header": "Michael Brown",
+    "type": "Corporate",
+    "status": "Active",
+    "target": "$25,000",
+    "limit": "$75,000",
+    "reviewer": "Sarah Chen",
+    "address": "159 Walnut Boulevard, Sunnyvale, CA 94086",
+    "latestNote": "Annual matching gift program participant"
+  },
+  {
+    "id": 8,
+    "header": "Lisa Thompson",
+    "type": "Foundation",
+    "status": "Pending",
+    "target": "$50,000",
+    "limit": "$50,000",
+    "reviewer": "Assign liaison",
+    "address": "753 Willow Way, Menlo Park, CA 94025",
+    "latestNote": "Grant proposal submitted Dec 15"
+  },
+  {
+    "id": 9,
+    "header": "James Wilson",
+    "type": "Recurring",
+    "status": "Active",
+    "target": "$50",
+    "limit": "$600",
+    "reviewer": "Mike Johnson",
+    "address": "246 Spruce Street, Fremont, CA 94536",
+    "latestNote": "Prefers email communication"
+  },
+  {
+    "id": 10,
+    "header": "Patricia Martinez",
+    "type": "Major Donor",
+    "status": "Active",
+    "target": "$7,500",
+    "limit": "$30,000",
+    "reviewer": "Sarah Chen",
+    "address": "802 Redwood Circle, San Mateo, CA 94401",
+    "latestNote": "Board member candidate - follow up"
+  },
+  {
+    "id": 11,
+    "header": "Christopher Lee",
+    "type": "First-time",
+    "status": "Pending",
+    "target": "$250",
+    "limit": "$250",
+    "reviewer": "Assign liaison",
+    "address": "135 Cypress Avenue, Hayward, CA 94541",
+    "latestNote": "Welcome packet sent"
+  },
+  {
+    "id": 12,
+    "header": "Jennifer Garcia",
+    "type": "Recurring",
+    "status": "Active",
+    "target": "$75",
+    "limit": "$900",
+    "reviewer": "Mike Johnson",
+    "address": "468 Sequoia Drive, Pleasanton, CA 94566",
+    "latestNote": "Attended volunteer event in Nov"
+  },
+  {
+    "id": 13,
+    "header": "The Anderson Foundation",
+    "type": "Foundation",
+    "status": "Active",
+    "target": "$100,000",
+    "limit": "$500,000",
+    "reviewer": "Sarah Chen",
+    "address": "1200 Financial District, San Francisco, CA 94111",
+    "latestNote": "Multi-year commitment through 2026"
+  },
+  {
+    "id": 14,
+    "header": "Daniel Rodriguez",
+    "type": "Lapsed",
+    "status": "Inactive",
+    "target": "$1,000",
+    "limit": "$3,000",
+    "reviewer": "Assign liaison",
+    "address": "579 Aspen Trail, Walnut Creek, CA 94598",
+    "latestNote": "Last gave 18 months ago"
+  },
+  {
+    "id": 15,
+    "header": "Nancy Taylor",
+    "type": "Major Donor",
+    "status": "Active",
+    "target": "$15,000",
+    "limit": "$60,000",
+    "reviewer": "Sarah Chen",
+    "address": "842 Sycamore Place, Los Gatos, CA 95030",
+    "latestNote": "Interested in naming opportunity"
+  },
+  {
+    "id": 16,
+    "header": "TechCorp Inc.",
+    "type": "Corporate",
+    "status": "Pending",
+    "target": "$35,000",
+    "limit": "$35,000",
+    "reviewer": "Mike Johnson",
+    "address": "2500 Sand Hill Road, Menlo Park, CA 94025",
+    "latestNote": "CSR team reviewing proposal"
+  },
+  {
+    "id": 17,
+    "header": "Karen White",
+    "type": "Recurring",
+    "status": "Active",
+    "target": "$150",
+    "limit": "$1,800",
+    "reviewer": "Assign liaison",
+    "address": "391 Magnolia Street, Santa Clara, CA 95050",
+    "latestNote": "Birthday acknowledgment sent"
+  },
+  {
+    "id": 18,
+    "header": "Steven Harris",
+    "type": "First-time",
+    "status": "Active",
+    "target": "$500",
+    "limit": "$500",
+    "reviewer": "Mike Johnson",
+    "address": "624 Chestnut Avenue, Cupertino, CA 95014",
+    "latestNote": "Responded to year-end appeal"
+  },
+  {
+    "id": 19,
+    "header": "Community Bank Foundation",
+    "type": "Foundation",
+    "status": "Active",
+    "target": "$75,000",
+    "limit": "$225,000",
+    "reviewer": "Sarah Chen",
+    "address": "100 Main Street, San Francisco, CA 94105",
+    "latestNote": "Impact report due March 1"
+  },
+  {
+    "id": 20,
+    "header": "Betty Clark",
+    "type": "Major Donor",
+    "status": "Active",
+    "target": "$8,000",
+    "limit": "$32,000",
+    "reviewer": "Sarah Chen",
+    "address": "715 Laurel Lane, Saratoga, CA 95070",
+    "latestNote": "Legacy society member"
+  }
+]

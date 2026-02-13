@@ -10,11 +10,7 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  // 2. Ignore ESLint Errors during build
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-  // 3. Ensure we don't have image optimization errors if you use external images
+  // 2. Ensure we don't have image optimization errors if you use external images
   images: {
     remotePatterns: [
       {

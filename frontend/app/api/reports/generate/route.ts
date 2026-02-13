@@ -20,6 +20,27 @@ const ALLOWED_OPERATORS = new Set(["ilike", "like", "eq", "gt", "gte", "lt", "lt
 const DEFAULT_SELECT = "display_name,email,billing_address,total_lifetime_value,last_donation_date";
 const MAX_ROWS = 5000;
 
+/** Report builder column id -> DB column(s) and CSV header label. first_name/last_name use DB columns when present, else derived from display_name. */
+const REPORT_COLUMN_CONFIG: Record<
+  string,
+  { dbColumns: string[]; label: string }
+> = {
+  first_name: { dbColumns: ["first_name", "display_name"], label: "First Name" },
+  last_name: { dbColumns: ["last_name", "display_name"], label: "Last Name" },
+  display_name: { dbColumns: ["display_name"], label: "Display Name" },
+  email: { dbColumns: ["email"], label: "Email" },
+  phone: { dbColumns: ["phone"], label: "Phone" },
+  street_address: { dbColumns: ["billing_address"], label: "Street Address" },
+  city: { dbColumns: ["city"], label: "City" },
+  state: { dbColumns: ["state"], label: "State" },
+  zip: { dbColumns: ["zip"], label: "Zip" },
+  lifetime_value: { dbColumns: ["total_lifetime_value"], label: "Lifetime Value" },
+  last_gift_date: { dbColumns: ["last_donation_date"], label: "Last Gift Date" },
+  last_gift_amount: { dbColumns: ["last_donation_amount"], label: "Last Gift Amount" },
+};
+
+const VALID_COLUMN_IDS = new Set(Object.keys(REPORT_COLUMN_CONFIG));
+
 /** US state name -> abbreviation for strict location filtering. */
 const STATE_NAME_TO_ABBR: Record<string, string> = {
   alabama: "AL", alaska: "AK", arizona: "AZ", arkansas: "AR", california: "CA", colorado: "CO",
@@ -49,6 +70,45 @@ function jsonToCsv(rows: Array<Record<string, unknown>>, headers: string[]): str
     lines.push(headers.map((h) => escapeCsvCell((row as Record<string, unknown>)[h])).join(","));
   }
   return lines.join("\n");
+}
+
+/** Build Supabase select string from selected column ids (unique DB columns). */
+function buildSelectFromColumns(selectedColumns: string[]): string {
+  const set = new Set<string>();
+  for (const id of selectedColumns) {
+    const config = REPORT_COLUMN_CONFIG[id];
+    if (config) for (const col of config.dbColumns) set.add(col);
+  }
+  const list = Array.from(set);
+  return list.length > 0 ? list.join(",") : DEFAULT_SELECT;
+}
+
+/** Map raw DB row to output row keyed by column id. Use first_name/last_name columns when present, else derive from display_name. */
+function mapRowToOutputColumns(
+  raw: Record<string, unknown>,
+  selectedColumns: string[]
+): Record<string, unknown> {
+  const displayName = typeof raw.display_name === "string" ? raw.display_name.trim() : "";
+  const parts = displayName.split(/\s+/).filter(Boolean);
+  const derivedFirst = parts.length <= 1 ? (parts[0] ?? "") : parts.slice(0, -1).join(" ");
+  const derivedLast = parts.length <= 1 ? "" : (parts[parts.length - 1] ?? "");
+
+  const out: Record<string, unknown> = {};
+  for (const id of selectedColumns) {
+    const config = REPORT_COLUMN_CONFIG[id];
+    if (!config) continue;
+    if (id === "first_name") {
+      const v = raw.first_name;
+      out[id] = typeof v === "string" && v.trim() !== "" ? v.trim() : derivedFirst;
+    } else if (id === "last_name") {
+      const v = raw.last_name;
+      out[id] = typeof v === "string" && v.trim() !== "" ? v.trim() : derivedLast;
+    } else {
+      const dbCol = config.dbColumns[0];
+      out[id] = raw[dbCol] ?? "";
+    }
+  }
+  return out;
 }
 
 /**
@@ -165,9 +225,14 @@ export async function POST(request: Request) {
     const body = (await request.json().catch(() => null)) as {
       prompt?: unknown;
       history?: unknown;
+      selectedColumns?: unknown;
     } | null;
     const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : "";
     const rawHistory = body?.history;
+    const rawSelectedColumns = body?.selectedColumns;
+    const selectedColumns: string[] = Array.isArray(rawSelectedColumns)
+      ? (rawSelectedColumns as string[]).filter((c) => typeof c === "string" && VALID_COLUMN_IDS.has(c))
+      : Array.from(VALID_COLUMN_IDS);
     const history: { role: "user" | "assistant"; content: string }[] = Array.isArray(rawHistory)
       ? (rawHistory as { role?: unknown; content?: unknown }[])
           .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
@@ -218,10 +283,11 @@ export async function POST(request: Request) {
 
     const { orExpr, andFilters } = buildOrAndFilters(filters);
 
+    const selectStr = buildSelectFromColumns(selectedColumns);
     const supabase = createAdminClient();
     let q = supabase
       .from("donors")
-      .select(DEFAULT_SELECT)
+      .select(selectStr)
       .eq("org_id", auth.orgId)
       .limit(MAX_ROWS);
 
@@ -248,10 +314,14 @@ export async function POST(request: Request) {
       );
     }
 
-    const rows = Array.isArray(data) ? (data as Array<Record<string, unknown>>) : [];
-    const headers = ["display_name", "email", "billing_address", "total_lifetime_value", "last_donation_date"];
-    const csv = jsonToCsv(rows, headers);
-    const rowCount = rows.length;
+    const rawRows = Array.isArray(data) ? (data as Array<Record<string, unknown>>) : [];
+    const headerLabels = selectedColumns.map((id) => REPORT_COLUMN_CONFIG[id]?.label ?? id);
+    const outputRows = rawRows.map((raw) => mapRowToOutputColumns(raw, selectedColumns));
+    const csv = [
+      headerLabels.map(escapeCsvCell).join(","),
+      ...outputRows.map((row) => selectedColumns.map((id) => escapeCsvCell(row[id])).join(",")),
+    ].join("\n");
+    const rowCount = rawRows.length;
 
     if (!csv.trim()) {
       return NextResponse.json(
@@ -273,9 +343,6 @@ export async function POST(request: Request) {
       { title, type: "CSV", content: csv, query: queryValue, summary, records_count: rowCount },
       { title, filter_criteria: { type: "CSV", content: csv, summary, row_count: rowCount, bytes: csvBytes } },
     ];
-    // #region agent log
-    fetch("http://127.0.0.1:7242/ingest/01c38610-da7f-4170-bdeb-e8e855963b1d", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ location: "app/api/reports/generate/route.ts:insertPayloads", message: "Payload keys for insert", data: { firstPayloadKeys: Object.keys(insertPayloads[0] ?? {}) }, timestamp: Date.now(), sessionId: "debug-session", hypothesisId: "H2" }) }).catch(() => {});
-    // #endregion
 
     let inserted: { id?: string } | null = null;
     const errors: string[] = [];
@@ -286,9 +353,6 @@ export async function POST(request: Request) {
         .insert(payload as Record<string, unknown>)
         .select("id")
         .single();
-      // #region agent log
-      fetch("http://127.0.0.1:7242/ingest/01c38610-da7f-4170-bdeb-e8e855963b1d", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ location: "app/api/reports/generate/route.ts:insertAttempt", message: "Insert attempt result", data: { index: i, insErrMessage: insErr?.message ?? null, insErrCode: (insErr as any)?.code ?? null, insErrDetails: (insErr as any)?.details ?? null }, timestamp: Date.now(), sessionId: "debug-session", hypothesisId: "H3" }) }).catch(() => {});
-      // #endregion
       if (!insErr) {
         inserted = ins;
         break;
@@ -297,9 +361,6 @@ export async function POST(request: Request) {
     }
 
     if (!inserted) {
-      // #region agent log
-      fetch("http://127.0.0.1:7242/ingest/01c38610-da7f-4170-bdeb-e8e855963b1d", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ location: "app/api/reports/generate/route.ts:insertFailed", message: "All insert attempts failed", data: { errors }, timestamp: Date.now(), sessionId: "debug-session", hypothesisId: "H5" }) }).catch(() => {});
-      // #endregion
       const firstError = errors[0] ?? "Failed to save report.";
       return NextResponse.json(
         { error: firstError, details: errors },

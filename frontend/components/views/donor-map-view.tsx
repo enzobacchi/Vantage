@@ -57,6 +57,23 @@ const STATUS_OPTIONS = [
   { value: "lapsed", label: "Lapsed" },
 ] as const
 
+/** Pin color by lifetime value: Grey $0–500, Blue $500–5k, Orange $5k–20k, Red $20k+ */
+function getPinColorByLtv(ltv: number | string | null): string {
+  const n = ltv == null ? 0 : Number(ltv)
+  if (!Number.isFinite(n)) return "bg-gray-500"
+  if (n < 500) return "bg-gray-500"
+  if (n < 5000) return "bg-blue-500"
+  if (n < 20000) return "bg-orange-500"
+  return "bg-red-500"
+}
+
+const MAP_LEGEND_ITEMS = [
+  { label: "$0 – $500", color: "bg-gray-500" },
+  { label: "$500 – $5k", color: "bg-blue-500" },
+  { label: "$5k – $20k", color: "bg-orange-500" },
+  { label: "$20k+", color: "bg-red-500" },
+] as const
+
 function useDebouncedValue<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState<T>(value)
   const prevValue = useRef<T>(value)
@@ -347,13 +364,26 @@ export function DonorMapView() {
                     <button
                       type="button"
                       onClick={() => setSelected(p)}
-                      className="rounded-full bg-primary p-1 text-primary-foreground shadow"
+                      className={`rounded-full p-1 text-white shadow ${getPinColorByLtv(p.total_lifetime_value)}`}
                       aria-label={`Open donor ${p.display_name ?? "Unknown"}`}
                     >
                       <IconMapPin className="size-4" />
                     </button>
                   </Marker>
                 ))}
+
+                {/* Legend: bottom-left */}
+                <div className="absolute bottom-3 left-3 z-10 rounded-md border bg-background/95 px-3 py-2 shadow-sm backdrop-blur">
+                  <div className="text-xs font-medium text-muted-foreground mb-1.5">Lifetime value</div>
+                  <div className="flex flex-col gap-1">
+                    {MAP_LEGEND_ITEMS.map((item) => (
+                      <div key={item.color} className="flex items-center gap-2 text-xs">
+                        <span className={`size-2.5 rounded-full shrink-0 ${item.color}`} />
+                        <span>{item.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
 
                 {selected ? (
                   <Popup
@@ -363,9 +393,10 @@ export function DonorMapView() {
                     onClose={() => setSelected(null)}
                     closeButton
                     closeOnClick={false}
+                    className="[&_.mapboxgl-popup-content]:!bg-background [&_.mapboxgl-popup-content]:!text-foreground [&_.mapboxgl-popup-content]:border [&_.mapboxgl-popup-content]:border-border"
                   >
-                    <div className="min-w-48 space-y-1">
-                      <div className="text-sm font-medium">
+                    <div className="min-w-48 space-y-1 rounded bg-background px-1 py-0.5 text-foreground">
+                      <div className="text-sm font-medium text-foreground">
                         {selected.display_name ?? "Unknown Donor"}
                       </div>
                       <div className="text-xs text-muted-foreground">

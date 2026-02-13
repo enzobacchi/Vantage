@@ -2,6 +2,7 @@
 
 import * as React from "react"
 
+import { useNav } from "@/components/nav-context"
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   Card,
@@ -30,6 +31,7 @@ function formatCurrency(amount: number | null) {
 }
 
 export function RecentGifts() {
+  const { openDonor } = useNav()
   const [gifts, setGifts] = React.useState<RecentDonation[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -82,16 +84,22 @@ export function RecentGifts() {
               const name = gift.donor_name ?? "Unknown"
               return (
                 <div key={gift.id} className="flex items-center gap-3">
-                  <Avatar className="size-8">
+                  <Avatar className="size-8 shrink-0">
                     <AvatarFallback className="text-xs">{initials(name)}</AvatarFallback>
                   </Avatar>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium leading-none truncate">{name}</p>
+                  <div className="min-w-0 flex-1">
+                    <button
+                      type="button"
+                      onClick={() => openDonor(gift.donor_id)}
+                      className="text-left text-sm font-medium leading-none truncate text-primary hover:underline block w-full"
+                    >
+                      {name}
+                    </button>
                     <p className="text-xs text-muted-foreground truncate">
                       {gift.date ?? "—"}
                     </p>
                   </div>
-                  <div className="font-medium text-slate-900 dark:text-white text-sm whitespace-nowrap">
+                  <div className="shrink-0 font-medium text-slate-900 dark:text-white text-sm whitespace-nowrap">
                     {formatCurrency(gift.amount)}
                   </div>
                 </div>

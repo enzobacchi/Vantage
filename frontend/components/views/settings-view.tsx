@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { IconCheck, IconSettings } from "@tabler/icons-react"
+import { IconAlertTriangle, IconCheck, IconSettings } from "@tabler/icons-react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
@@ -15,6 +15,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 
 type SyncSuccessData = {
@@ -64,13 +65,14 @@ export function SettingsView() {
     }
   }, [urlQb, urlRealmId])
 
-  async function runSync() {
+  async function runSync(opts?: { full?: boolean }) {
     try {
       setSyncState({ status: "loading" })
       const realmId = qbStatus.realmId ?? urlRealmId
-      const url = realmId
-        ? `/api/sync?realmId=${encodeURIComponent(realmId)}`
-        : "/api/sync"
+      const params = new URLSearchParams()
+      if (realmId) params.set("realmId", realmId)
+      if (opts?.full) params.set("full", "true")
+      const url = `/api/sync${params.toString() ? `?${params.toString()}` : ""}`
       const res = await fetch(url)
       const text = await res.text()
       let data: unknown = null
@@ -99,13 +101,17 @@ export function SettingsView() {
       if (usedRealmId && usedRealmId !== currentRealmId) {
         setQbStatus((prev) => ({ ...prev, connected: true, realmId: usedRealmId }))
       }
-      const mode = d?.syncMode === "incremental" ? "Quick update" : "Full sync"
-      const count = typeof d?.recordsProcessed === "number" ? d.recordsProcessed : d?.donorsUpserted
-      const msg =
-        typeof count === "number"
-          ? `${mode}: ${count.toLocaleString()} record${count === 1 ? "" : "s"} processed`
-          : "Sync completed"
-      toast.success(msg)
+      if (d?.syncMode === "full") {
+        toast.success("Historical Sync Complete.")
+      } else {
+        const mode = "Quick update"
+        const count = typeof d?.recordsProcessed === "number" ? d.recordsProcessed : d?.donorsUpserted
+        const msg =
+          typeof count === "number"
+            ? `${mode}: ${count.toLocaleString()} record${count === 1 ? "" : "s"} processed`
+            : "Sync completed"
+        toast.success(msg)
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Sync failed."
       setSyncState({ status: "error", message: msg })
@@ -163,12 +169,46 @@ export function SettingsView() {
               </Button>
               <Button
                 variant="outline"
-                onClick={runSync}
+                onClick={() => runSync()}
                 disabled={syncState.status === "loading"}
               >
-                {syncState.status === "loading" ? "Syncing…" : "Sync donors now"}
+                {syncState.status === "loading" ? (
+                  <>
+                    <Spinner className="mr-2 size-4" />
+                    Syncing…
+                  </>
+                ) : (
+                  "Sync donors now"
+                )}
               </Button>
             </div>
+            <div className="space-y-2 border-t pt-4">
+              <p className="text-sm text-muted-foreground">
+                Re-fetch all donor data from QuickBooks (fixes $0 lifetime value and updates addresses/names). This can take a few minutes.
+              </p>
+              <Button
+                variant="outline"
+                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                onClick={() => runSync({ full: true })}
+                disabled={syncState.status === "loading"}
+                title="Full historical resync: all SalesReceipts and Invoices, no date limit. Use to fix $0 LTV."
+              >
+                {syncState.status === "loading" ? (
+                  <>
+                    <Spinner className="mr-2 size-4" />
+                    Resync in progress…
+                  </>
+                ) : (
+                  <>
+                    <IconAlertTriangle className="mr-2 size-4" />
+                    Resync All Donor Data (Historical)
+                  </>
+                )}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Use <strong>Resync All Donor Data (Historical)</strong> to replace donor records with fresh data from QuickBooks (corrected LTV, city/state/zip, first/last name, household). Supabase becomes the source of truth after resync.
+            </p>
             {syncState.status === "error" && (
               <p className="text-sm text-destructive">{syncState.message}</p>
             )}

@@ -134,11 +134,13 @@ async function getCurrentOrgId(): Promise<string | null> {
  * Fetch donors for route planning using geospatial radius.
  * Geocodes the start location (city or zip) via Mapbox, then returns donors
  * with non-null location_lat/location_lng whose Haversine distance (miles) is <= radiusMiles.
+ * Optional minDonation filters to donors with total_lifetime_value >= minDonation.
  * Uses same org as Donor Map so results match. Fallback: if 0 results, try zip/address match.
  */
 export async function getDonorsForRoute(
   startLocation: string,
-  radiusMiles: number
+  radiusMiles: number,
+  minDonation?: number
 ): Promise<RouteDonorWithCoords[]> {
   const trimmed = String(startLocation).trim()
   if (!trimmed) return []
@@ -153,19 +155,24 @@ export async function getDonorsForRoute(
 
   const supabase = createAdminClient()
   const radiusMilesNum = Math.max(0, Number(radiusMiles))
+  const minDonationNum =
+    minDonation != null && Number.isFinite(minDonation) && minDonation > 0 ? minDonation : undefined
 
   // Fetch all donors with coords in pages (Supabase caps at 1000 per request)
   const PAGE_SIZE = 1000
   const rows: RouteDonorWithCoords[] = []
   let offset = 0
   while (true) {
-    const { data, error } = await supabase
+    let query = supabase
       .from("donors")
       .select("id, display_name, billing_address, last_donation_date, location_lat, location_lng")
       .eq("org_id", orgId)
       .not("location_lat", "is", null)
       .not("location_lng", "is", null)
-      .range(offset, offset + PAGE_SIZE - 1)
+    if (minDonationNum != null) {
+      query = query.gte("total_lifetime_value", minDonationNum)
+    }
+    const { data, error } = await query.range(offset, offset + PAGE_SIZE - 1)
     if (error) throw new Error(error.message)
     const page = (data ?? []) as RouteDonorWithCoords[]
     rows.push(...page)
@@ -193,7 +200,10 @@ export async function getDonorsForRoute(
         .eq("org_id", orgId)
         .not("location_lat", "is", null)
         .not("location_lng", "is", null)
-        .range(fallbackOffset, fallbackOffset + PAGE_SIZE - 1)
+      if (minDonationNum != null) {
+        fallbackQuery = fallbackQuery.gte("total_lifetime_value", minDonationNum)
+      }
+      fallbackQuery = fallbackQuery.range(fallbackOffset, fallbackOffset + PAGE_SIZE - 1)
       if (zipOnly) {
         const zip = trimmed.replace(/\D/g, "").slice(0, 5)
         fallbackQuery = fallbackQuery.ilike("zip", zip)

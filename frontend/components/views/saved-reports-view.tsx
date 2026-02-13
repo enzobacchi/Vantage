@@ -50,7 +50,41 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Checkbox } from "@/components/ui/checkbox"
 import { useNav } from "@/components/nav-context"
+
+/** Column options for the report builder (id matches backend selectedColumns). Grouped for UI. */
+const COLUMN_GROUPS = [
+  {
+    title: "Identity",
+    columns: [
+      { id: "first_name", label: "First Name" },
+      { id: "last_name", label: "Last Name" },
+      { id: "display_name", label: "Display Name" },
+      { id: "email", label: "Email" },
+      { id: "phone", label: "Phone" },
+    ],
+  },
+  {
+    title: "Location",
+    columns: [
+      { id: "street_address", label: "Street" },
+      { id: "city", label: "City" },
+      { id: "state", label: "State" },
+      { id: "zip", label: "Zip" },
+    ],
+  },
+  {
+    title: "Giving History",
+    columns: [
+      { id: "lifetime_value", label: "Lifetime Value" },
+      { id: "last_gift_date", label: "Last Gift Date" },
+      { id: "last_gift_amount", label: "Last Gift Amount" },
+    ],
+  },
+] as const
+
+const ALL_COLUMNS = COLUMN_GROUPS.flatMap((g) => g.columns.map((c) => c.id))
 
 type SavedReport = {
   id: string
@@ -79,6 +113,12 @@ export function SavedReportsView() {
 
   const [generateDialogOpen, setGenerateDialogOpen] = React.useState(false)
   const [generatePrompt, setGeneratePrompt] = React.useState("")
+  const [selectedColumns, setSelectedColumns] = React.useState<string[]>([
+    "first_name",
+    "last_name",
+    "email",
+    "lifetime_value",
+  ])
   const [isGenerating, setIsGenerating] = React.useState(false)
 
   const [renameOpen, setRenameOpen] = React.useState(false)
@@ -95,6 +135,9 @@ export function SavedReportsView() {
     created_at: string
   } | null>(null)
   const [previewLoading, setPreviewLoading] = React.useState(false)
+
+  const [uploading, setUploading] = React.useState(false)
+  const fileInputRef = React.useRef<HTMLInputElement>(null)
 
   React.useEffect(() => {
     let cancelled = false
@@ -148,6 +191,44 @@ export function SavedReportsView() {
     const q = (report.query ?? "").trim()
     if (!q) return
     openAiWithQuery(q)
+  }
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click()
+  }
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ""
+    if (!file) return
+    setUploading(true)
+    try {
+      const formData = new FormData()
+      formData.set("file", file)
+      const res = await fetch("/api/reports/upload", {
+        method: "POST",
+        body: formData,
+      })
+      const data = (await res.json()) as { error?: string; details?: string[]; reportId?: string; title?: string; rowCount?: number }
+      if (!res.ok) {
+        const details = Array.isArray(data?.details) && data.details.length > 0 ? data.details[0] : undefined
+        toast.error("Upload failed", {
+          description: details ?? data?.error ?? "Could not save report.",
+        })
+        return
+      }
+      toast.success("Report uploaded", {
+        description: data?.title ? `${data.title} (${Number(data?.rowCount ?? 0).toLocaleString()} rows)` : undefined,
+      })
+      await refresh()
+      if (data?.reportId) setPreviewReportId(data.reportId)
+    } catch (err) {
+      toast.error("Upload failed", {
+        description: err instanceof Error ? err.message : "Could not upload file.",
+      })
+    } finally {
+      setUploading(false)
+    }
   }
 
   React.useEffect(() => {
@@ -295,36 +376,45 @@ export function SavedReportsView() {
     }
   }
 
-  const handleGenerateWithAi = async () => {
+  const handleCreateReport = async () => {
     const prompt = generatePrompt.trim()
     if (!prompt) return
+    if (selectedColumns.length === 0) {
+      toast.error("Select at least one column")
+      return
+    }
 
     try {
       setIsGenerating(true)
-      // Ask the AI to generate + save the report (save_report_tool path).
-      const res = await fetch("/api/chat", {
+      const res = await fetch("/api/reports/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: `Generate a report: ${prompt}. Save this report.` }),
+        body: JSON.stringify({ prompt, selectedColumns }),
       })
-      const data = (await res.json().catch(() => null)) as any
+      const data = (await res.json().catch(() => null)) as { error?: string; title?: string; reportId?: string }
       if (!res.ok) {
         const msg = data?.error ? String(data.error) : `Failed (HTTP ${res.status}).`
         throw new Error(msg)
       }
-      toast.success("Report generated", {
-        description: typeof data?.reply === "string" ? data.reply : "Saved.",
+      toast.success("Report created", {
+        description: data?.title ? `"${data.title}" saved.` : "Saved.",
       })
       setGenerateDialogOpen(false)
       setGeneratePrompt("")
       await refresh()
     } catch (e) {
-      toast.error("Failed to generate report", {
+      toast.error("Failed to create report", {
         description: e instanceof Error ? e.message : "Unknown error",
       })
     } finally {
       setIsGenerating(false)
     }
+  }
+
+  const toggleColumn = (id: string) => {
+    setSelectedColumns((prev) =>
+      prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]
+    )
   }
 
   return (
@@ -335,9 +425,22 @@ export function SavedReportsView() {
           <h1 className="text-xl font-semibold">Saved Reports</h1>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" className="bg-transparent" onClick={() => {}}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv"
+            className="hidden"
+            aria-hidden
+            onChange={handleFileChange}
+          />
+          <Button
+            variant="outline"
+            className="bg-transparent"
+            onClick={handleUploadClick}
+            disabled={uploading}
+          >
             <IconUpload className="size-4" />
-            Upload External File
+            {uploading ? "Uploading…" : "Upload External File"}
           </Button>
           <Button
             className="bg-slate-900 hover:bg-slate-800 text-white"
@@ -347,7 +450,7 @@ export function SavedReportsView() {
             }}
           >
             <IconSparkles className="size-4" />
-            Generate with AI
+            Create Report
           </Button>
         </div>
       </div>
@@ -488,22 +591,68 @@ export function SavedReportsView() {
       </Card>
 
       <Dialog open={generateDialogOpen} onOpenChange={setGenerateDialogOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-[480px]">
           <DialogHeader>
-            <DialogTitle>Generate with AI</DialogTitle>
+            <DialogTitle>Create Report</DialogTitle>
             <DialogDescription>
-              What kind of report?
+              Choose filter criteria (rows) and which columns to include.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-2">
-            <Label htmlFor="report-prompt">Report request</Label>
-            <Input
-              id="report-prompt"
-              value={generatePrompt}
-              onChange={(e) => setGeneratePrompt(e.target.value)}
-              placeholder="Example: Top donors in Texas by lifetime value"
-            />
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="report-prompt">Filter (rows)</Label>
+              <Input
+                id="report-prompt"
+                value={generatePrompt}
+                onChange={(e) => setGeneratePrompt(e.target.value)}
+                placeholder="e.g. Donors who gave &gt;$500, Donors in California"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Select Columns</Label>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
+                <button
+                  type="button"
+                  className="underline hover:text-foreground"
+                  onClick={() => setSelectedColumns([...ALL_COLUMNS])}
+                >
+                  Select All
+                </button>
+                <span aria-hidden>|</span>
+                <button
+                  type="button"
+                  className="underline hover:text-foreground"
+                  onClick={() => setSelectedColumns([])}
+                >
+                  Clear All
+                </button>
+              </div>
+              <div className="space-y-4 rounded-md border p-3">
+                {COLUMN_GROUPS.map((group) => (
+                  <div key={group.title}>
+                    <p className="text-xs font-semibold text-muted-foreground mb-2">
+                      {group.title}
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {group.columns.map((col) => (
+                        <label
+                          key={col.id}
+                          className="flex items-center gap-2 cursor-pointer text-sm"
+                        >
+                          <Checkbox
+                            checked={selectedColumns.includes(col.id)}
+                            onCheckedChange={() => toggleColumn(col.id)}
+                          />
+                          <span>{col.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
 
           <DialogFooter>
@@ -516,10 +665,10 @@ export function SavedReportsView() {
               Cancel
             </Button>
             <Button
-              onClick={handleGenerateWithAi}
-              disabled={!generatePrompt.trim() || isGenerating}
+              onClick={() => void handleCreateReport()}
+              disabled={!generatePrompt.trim() || selectedColumns.length === 0 || isGenerating}
             >
-              {isGenerating ? "Generating…" : "Generate"}
+              {isGenerating ? "Creating…" : "Create Report"}
             </Button>
           </DialogFooter>
         </DialogContent>

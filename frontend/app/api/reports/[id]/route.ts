@@ -20,9 +20,8 @@ export async function GET(
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from("saved_reports")
-    .select("id,title,type,content,summary,created_at")
+    .select("id,title,type,content,summary,created_at,organization_id")
     .eq("id", id)
-    .eq("organization_id", auth.orgId)
     .single();
 
   if (error) {
@@ -32,7 +31,26 @@ export async function GET(
     );
   }
 
-  return NextResponse.json(data);
+  if (!data) {
+    return NextResponse.json({ error: "Report not found." }, { status: 404 });
+  }
+
+  const row = data as Record<string, unknown>;
+  const orgId = row?.organization_id;
+  if (orgId != null && orgId !== auth.orgId) {
+    return NextResponse.json({ error: "Report not found." }, { status: 404 });
+  }
+
+  const content = typeof row?.content === "string" ? row.content : "";
+
+  return NextResponse.json({
+    id: row.id,
+    title: row.title,
+    type: row.type ?? null,
+    summary: row.summary ?? null,
+    created_at: row.created_at,
+    content,
+  });
 }
 
 export async function PATCH(

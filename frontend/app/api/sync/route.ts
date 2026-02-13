@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import OpenAI from "openai";
 
 import { requireUserOrg } from "@/lib/auth";
+import {
+  getCityStateZipFromBillAddr,
+  parseDisplayNameAndHousehold,
+  parseFirstAndLastName,
+  stringifyBillAddr as stringifyBillAddrHelper,
+} from "@/lib/quickbooks-helpers";
 import { createQBOAuthClient, getQBApiBaseUrl } from "@/lib/quickbooks/client";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -20,6 +26,8 @@ class QBApiError extends Error {
 type QBCustomer = {
   Id?: string;
   DisplayName?: string;
+  GivenName?: string;
+  FamilyName?: string;
   PrimaryEmailAddr?: { Address?: string };
   BillAddr?: {
     Line1?: string;
@@ -43,6 +51,14 @@ type QBSalesReceipt = {
   DocNumber?: string;
 };
 
+type QBInvoice = {
+  Id?: string;
+  TxnDate?: string;
+  TotalAmt?: number;
+  Balance?: number;
+  CustomerRef?: { value?: string; name?: string };
+};
+
 function toNumber(value: unknown): number | null {
   if (value == null) return null;
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
@@ -53,42 +69,6 @@ function toNumber(value: unknown): number | null {
   return null;
 }
 
-/**
- * Parse "Street, City, State, Zip" (4 comma-separated parts) into city, state, zip.
- * Returns nulls if address is null or does not have at least 4 parts.
- */
-function parseAddressParts(
-  billingAddress: string | null
-): { city: string | null; state: string | null; zip: string | null } {
-  if (billingAddress == null || billingAddress.trim() === "") {
-    return { city: null, state: null, zip: null };
-  }
-  const parts = billingAddress.split(",").map((p) => p.trim());
-  if (parts.length < 4) {
-    return { city: null, state: null, zip: null };
-  }
-  return {
-    city: parts[1] || null,
-    state: parts[2] || null,
-    zip: parts[3] || null,
-  };
-}
-
-function stringifyBillAddr(billAddr: QBCustomer["BillAddr"]) {
-  if (!billAddr) return "";
-  const lines = [
-    billAddr.Line1,
-    billAddr.Line2,
-    billAddr.Line3,
-    billAddr.Line4,
-    billAddr.Line5,
-  ].filter(Boolean);
-  const cityLine = [billAddr.City, billAddr.CountrySubDivisionCode, billAddr.PostalCode]
-    .filter(Boolean)
-    .join(", ");
-  const parts = [...lines, cityLine, billAddr.Country].filter((x) => !!x && x.trim().length);
-  return parts.join(", ");
-}
 
 async function geocodeAddress(address: string) {
   const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
@@ -237,6 +217,106 @@ async function fetchQBSalesReceipts({
   return receipts.slice(0, maxToFetch);
 }
 
+/** Fetches ALL SalesReceipts for LTV (no date filter, no cap). Paginates until no more. */
+async function fetchQBSalesReceiptsAllForLTV(
+  realmId: string,
+  accessToken: string
+): Promise<QBSalesReceipt[]> {
+  const base = getQBApiBaseUrl();
+  const pageSize = 1000;
+  let startPosition = 1;
+  const receipts: QBSalesReceipt[] = [];
+  const maxPages = 1000; // safety cap (1M rows)
+
+  for (let page = 0; page < maxPages; page++) {
+    const query = `select Id, TxnDate, TotalAmt, CustomerRef, PrivateNote, DocNumber from SalesReceipt startposition ${startPosition} maxresults ${pageSize}`;
+    const endpoint = new URL(`${base}/v3/company/${encodeURIComponent(realmId)}/query`);
+    endpoint.searchParams.set("query", query);
+    endpoint.searchParams.set("minorversion", "65");
+
+    const res = await fetch(endpoint.toString(), {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json",
+      },
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new QBApiError(
+        `QuickBooks SalesReceipt (LTV) query failed (${res.status})`,
+        res.status,
+        body
+      );
+    }
+
+    const data = (await res.json()) as {
+      QueryResponse?: { SalesReceipt?: QBSalesReceipt[] };
+    };
+
+    const pageRows = data.QueryResponse?.SalesReceipt ?? [];
+    receipts.push(...pageRows);
+
+    if (pageRows.length === pageSize) {
+      startPosition += pageSize;
+      continue;
+    }
+    break;
+  }
+
+  return receipts;
+}
+
+/** Fetches ALL Invoices for LTV. Paid amount = TotalAmt - Balance. No date filter, paginate until done. */
+async function fetchQBInvoicesAllForLTV(
+  realmId: string,
+  accessToken: string
+): Promise<QBInvoice[]> {
+  const base = getQBApiBaseUrl();
+  const pageSize = 1000;
+  let startPosition = 1;
+  const invoices: QBInvoice[] = [];
+  const maxPages = 1000;
+
+  for (let page = 0; page < maxPages; page++) {
+    const query = `select Id, TxnDate, TotalAmt, Balance, CustomerRef from Invoice startposition ${startPosition} maxresults ${pageSize}`;
+    const endpoint = new URL(`${base}/v3/company/${encodeURIComponent(realmId)}/query`);
+    endpoint.searchParams.set("query", query);
+    endpoint.searchParams.set("minorversion", "65");
+
+    const res = await fetch(endpoint.toString(), {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json",
+      },
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new QBApiError(
+        `QuickBooks Invoice (LTV) query failed (${res.status})`,
+        res.status,
+        body
+      );
+    }
+
+    const data = (await res.json()) as {
+      QueryResponse?: { Invoice?: QBInvoice[] };
+    };
+
+    const pageRows = data.QueryResponse?.Invoice ?? [];
+    invoices.push(...pageRows);
+
+    if (pageRows.length === pageSize) {
+      startPosition += pageSize;
+      continue;
+    }
+    break;
+  }
+
+  return invoices;
+}
+
 export async function GET(request: Request) {
   let orgIdForTokenClear: string | null = null;
   try {
@@ -362,22 +442,69 @@ export async function GET(request: Request) {
       }
     }
 
-    const customers = await fetchCustomersWithRefreshRetry();
-    const receipts = await fetchSalesReceiptsWithRefreshRetry();
+    async function fetchSalesReceiptsAllForLTVWithRefreshRetry() {
+      try {
+        if (!accessToken) await refreshTokens();
+        return await fetchQBSalesReceiptsAllForLTV(orgRealmId, accessToken);
+      } catch (e) {
+        const qbErr = e instanceof QBApiError ? e : null;
+        const shouldRetry =
+          qbErr?.status === 401 ||
+          (typeof qbErr?.body === "string" && qbErr.body.toLowerCase().includes("token"));
+        if (!shouldRetry) throw e;
+        await refreshTokens();
+        return await fetchQBSalesReceiptsAllForLTV(orgRealmId, accessToken);
+      }
+    }
 
-    // Aggregate financials per customer from receipts.
+    async function fetchInvoicesAllForLTVWithRefreshRetry() {
+      try {
+        if (!accessToken) await refreshTokens();
+        return await fetchQBInvoicesAllForLTV(orgRealmId, accessToken);
+      } catch (e) {
+        const qbErr = e instanceof QBApiError ? e : null;
+        const shouldRetry =
+          qbErr?.status === 401 ||
+          (typeof qbErr?.body === "string" && qbErr.body.toLowerCase().includes("token"));
+        if (!shouldRetry) throw e;
+        await refreshTokens();
+        return await fetchQBInvoicesAllForLTV(orgRealmId, accessToken);
+      }
+    }
+
+    const customers = await fetchCustomersWithRefreshRetry();
+    const receipts = isFullSync
+      ? await fetchSalesReceiptsAllForLTVWithRefreshRetry()
+      : await fetchSalesReceiptsWithRefreshRetry();
+    const invoicesForLTV = isFullSync ? await fetchInvoicesAllForLTVWithRefreshRetry() : [];
+
+    // LTV: sum SalesReceipt TotalAmt (incl. negative refunds) + Invoice paid amount (TotalAmt - Balance). No date filter; all pages fetched for full sync.
     const totalsByCustomer = new Map<string, number>();
     const lastGiftByCustomer = new Map<string, { date: string; amount: number }>();
+
     for (const r of receipts) {
       const qbCustomerId = r.CustomerRef?.value;
       const amount = typeof r.TotalAmt === "number" ? r.TotalAmt : null;
       const date = r.TxnDate;
       if (!qbCustomerId || amount == null || !date) continue;
-
       totalsByCustomer.set(qbCustomerId, (totalsByCustomer.get(qbCustomerId) ?? 0) + amount);
       const existing = lastGiftByCustomer.get(qbCustomerId);
       if (!existing || date > existing.date) {
         lastGiftByCustomer.set(qbCustomerId, { date, amount });
+      }
+    }
+
+    for (const inv of invoicesForLTV) {
+      const qbCustomerId = inv.CustomerRef?.value;
+      const totalAmt = typeof inv.TotalAmt === "number" ? inv.TotalAmt : 0;
+      const balance = typeof inv.Balance === "number" ? inv.Balance : 0;
+      const paidAmt = totalAmt - balance;
+      const date = inv.TxnDate;
+      if (!qbCustomerId || !date) continue;
+      totalsByCustomer.set(qbCustomerId, (totalsByCustomer.get(qbCustomerId) ?? 0) + paidAmt);
+      const existing = lastGiftByCustomer.get(qbCustomerId);
+      if (!existing || date > existing.date) {
+        lastGiftByCustomer.set(qbCustomerId, { date, amount: paidAmt });
       }
     }
 
@@ -447,18 +574,24 @@ export async function GET(request: Request) {
       const qbCustomerId = c.Id;
       if (!qbCustomerId) continue;
 
-      const billingAddress = stringifyBillAddr(c.BillAddr);
-      // Full sync: use totals from fetched receipts. Incremental: set 0/null and recompute from donations after upsert.
+      const billingAddress = stringifyBillAddrHelper(c.BillAddr);
+      const { city: parsedCity, state: parsedState, zip: parsedZip } =
+        getCityStateZipFromBillAddr(c.BillAddr);
+      const { display_name: displayName, household_greeting: householdGreeting } =
+        parseDisplayNameAndHousehold(c);
+      const { first_name: firstName, last_name: lastName } = parseFirstAndLastName(c, displayName ?? null);
+
       const total = isFullSync ? (totalsByCustomer.get(qbCustomerId) ?? 0) : 0;
       const lastGift = isFullSync ? lastGiftByCustomer.get(qbCustomerId) ?? null : null;
       const billingAddressValue = billingAddress || null;
-      const { city: parsedCity, state: parsedState, zip: parsedZip } = parseAddressParts(
-        billingAddressValue
-      );
+
       const payload: Record<string, unknown> = {
         org_id: orgId,
         qb_customer_id: qbCustomerId,
-        display_name: c.DisplayName ?? null,
+        display_name: displayName,
+        household_greeting: householdGreeting,
+        first_name: firstName,
+        last_name: lastName,
         email: c.PrimaryEmailAddr?.Address ?? null,
         billing_address: billingAddressValue,
         city: parsedCity,
@@ -515,9 +648,9 @@ export async function GET(request: Request) {
         continue;
       }
 
-      const city = c.BillAddr?.City ?? "Unknown";
-      const state = c.BillAddr?.CountrySubDivisionCode ?? "Unknown";
-      const name = c.DisplayName ?? "Unknown";
+      const city = parsedCity ?? "Unknown";
+      const state = parsedState ?? "Unknown";
+      const name = displayName ?? "Unknown";
       const email = c.PrimaryEmailAddr?.Address ?? "Unknown";
 
       const contextString = `${name} is a donor located in ${city}, ${state}. They have a total lifetime value of $${Number(nextLtv).toFixed(

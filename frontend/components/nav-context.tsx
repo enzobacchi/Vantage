@@ -15,6 +15,7 @@ interface NavContextType {
   setActiveView: (view: NavView) => void
   selectedDonorId: string | null
   openDonor: (donorId: string) => void
+  clearSelectedDonor: () => void
   pendingAiQuery: string | null
   openAiWithQuery: (query: string) => void
   clearPendingAiQuery: () => void
@@ -62,6 +63,10 @@ export function NavProvider({ children }: { children: React.ReactNode }) {
     [pathname, router]
   )
 
+  const clearSelectedDonor = React.useCallback(() => {
+    setSelectedDonorId(null)
+  }, [])
+
   const openAiWithQuery = React.useCallback(
     (query: string) => {
       setPendingAiQuery(query)
@@ -84,6 +89,7 @@ export function NavProvider({ children }: { children: React.ReactNode }) {
         setActiveView,
         selectedDonorId,
         openDonor,
+        clearSelectedDonor,
         pendingAiQuery,
         openAiWithQuery,
         clearPendingAiQuery,

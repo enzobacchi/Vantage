@@ -15,6 +15,7 @@ import { FileText, Mail, MapPin, Phone } from "lucide-react"
 
 import { getDonorProfile, getDonorActivityNotes, type DonorProfileDonor, type DonorProfileDonation, type DonorNoteRow } from "@/app/donors/[id]/actions"
 import { DonorNotesCard } from "@/components/donors/donor-notes-card"
+import { useNav } from "@/components/nav-context"
 import { LetterDialog } from "@/components/donors/letter-dialog"
 import { MagicActionsCard } from "@/components/donors/magic-actions-card"
 import { Badge } from "@/components/ui/badge"
@@ -133,6 +134,7 @@ function isActiveProfile(lastDonationDate: string | null): boolean {
 }
 
 export function DonorCRMView() {
+  const { selectedDonorId, clearSelectedDonor } = useNav()
   const [donors, setDonors] = React.useState<Donor[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -143,6 +145,14 @@ export function DonorCRMView() {
 
   const [sheetOpen, setSheetOpen] = React.useState(false)
   const [sheetDonorId, setSheetDonorId] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    if (selectedDonorId) {
+      setSheetDonorId(selectedDonorId)
+      setSheetOpen(true)
+      clearSelectedDonor()
+    }
+  }, [selectedDonorId, clearSelectedDonor])
   const [sheetProfile, setSheetProfile] = React.useState<{ donor: DonorProfileDonor; donations: DonorProfileDonation[] } | null>(null)
   const [sheetActivity, setSheetActivity] = React.useState<DonorNoteRow[]>([])
   const [sheetLoading, setSheetLoading] = React.useState(false)

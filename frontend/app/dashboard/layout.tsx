@@ -1,6 +1,6 @@
 "use client"
 
-import React from "react"
+import React, { Suspense } from "react"
 
 import { AppSidebar } from "@/components/app-sidebar"
 import {
@@ -21,16 +21,23 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   return (
-    <NavProvider>
-      <SidebarProvider
-        defaultOpen={true}
-        style={
-          {
-            "--sidebar-width": "16rem",
-            "--sidebar-width-icon": "3rem",
-          } as React.CSSProperties
-        }
-      >
+    <Suspense
+      fallback={
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center text-muted-foreground">
+          Loading…
+        </div>
+      }
+    >
+      <NavProvider>
+        <SidebarProvider
+          defaultOpen={true}
+          style={
+            {
+              "--sidebar-width": "16rem",
+              "--sidebar-width-icon": "3rem",
+            } as React.CSSProperties
+          }
+        >
         <CommandMenuProvider>
           <AppSidebar variant="inset" />
           <SidebarInset className="bg-muted/20">
@@ -46,5 +53,6 @@ export default function DashboardLayout({
         </CommandMenuProvider>
       </SidebarProvider>
     </NavProvider>
+    </Suspense>
   )
 }

@@ -64,9 +64,6 @@ export function CommandMenuProvider({ children }: { children: React.ReactNode })
 }
 
 export function useCommandMenu() {
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/01c38610-da7f-4170-bdeb-e8e855963b1d',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'command-menu.tsx:useCommandMenu',message:'useCommandMenu invoked',data:{hypothesisId:'H2'},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   const ctx = React.useContext(CommandMenuContext)
   if (ctx === undefined) {
     throw new Error("useCommandMenu must be used within CommandMenuProvider")

@@ -2,7 +2,7 @@
 
 import { ChartBarDonations } from '@/components/chart-bar-donations'
 import { RecentGifts } from '@/components/recent-gifts'
-import { RecentActivity } from '@/components/recent-activity'
+import { TopDonorsWidget } from '@/components/top-donors-widget'
 import { SectionCards } from '@/components/section-cards'
 
 export function DashboardView() {
@@ -17,10 +17,10 @@ export function DashboardView() {
           <ChartBarDonations />
         </div>
         
-        {/* Row 3: Two-column split - Recent Gifts + Recent Activity */}
+        {/* Row 3: Two-column split - Recent Gifts + Top Donors */}
         <div className="grid gap-4 px-4 lg:grid-cols-2 lg:px-6">
           <RecentGifts />
-          <RecentActivity />
+          <TopDonorsWidget />
         </div>
       </div>
     </div>

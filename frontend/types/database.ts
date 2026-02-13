@@ -38,6 +38,9 @@ export interface Database {
           org_id: string
           qb_customer_id: string | null
           display_name: string | null
+          household_greeting: string | null
+          first_name: string | null
+          last_name: string | null
           email: string | null
           phone: string | null
           billing_address: string | null
@@ -56,6 +59,9 @@ export interface Database {
           org_id: string
           qb_customer_id?: string | null
           display_name?: string | null
+          household_greeting?: string | null
+          first_name?: string | null
+          last_name?: string | null
           email?: string | null
           city?: string | null
           state?: string | null
@@ -64,6 +70,9 @@ export interface Database {
         Update: {
           id?: string
           display_name?: string | null
+          household_greeting?: string | null
+          first_name?: string | null
+          last_name?: string | null
           email?: string | null
           city?: string | null
           state?: string | null

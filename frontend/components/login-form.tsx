@@ -30,6 +30,9 @@ export function LoginForm({
   const searchParams = useSearchParams()
   const next = searchParams.get("next") ?? "/dashboard"
   const fromQb = searchParams.get("qb") === "1"
+  const qbError = searchParams.get("error")
+  const qbNotConfigured = qbError === "qb_not_configured"
+  const qbOtherError = qbError === "qb_error"
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
@@ -62,11 +65,29 @@ export function LoginForm({
 
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
-      {fromQb && (
+      {fromQb && !qbError && (
         <Alert className="border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/50">
           <AlertDescription>
             QuickBooks connected. Sign in or create an account to access your
             dashboard.
+          </AlertDescription>
+        </Alert>
+      )}
+      {qbNotConfigured && (
+        <Alert variant="destructive">
+          <AlertDescription>
+            Sign in with QuickBooks is not configured for this app. Add{" "}
+            <strong>QB_CLIENT_ID</strong>, <strong>QB_CLIENT_SECRET</strong>,
+            and <strong>QB_ENVIRONMENT</strong> (sandbox or production) in your
+            deployment environment variables (e.g. Vercel → Project → Settings →
+            Environment Variables).
+          </AlertDescription>
+        </Alert>
+      )}
+      {qbOtherError && (
+        <Alert variant="destructive">
+          <AlertDescription>
+            QuickBooks sign-in failed. Try again or sign in with email.
           </AlertDescription>
         </Alert>
       )}

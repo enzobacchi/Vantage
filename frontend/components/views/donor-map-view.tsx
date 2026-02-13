@@ -329,13 +329,16 @@ export function DonorMapView() {
       {/* Map: full width below filter bar */}
       <div className="relative min-h-0 flex-1 overflow-hidden rounded-lg border bg-muted/30">
             {!mapboxToken ? (
-              <div className="flex flex-1 items-center justify-center p-6">
+              <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
                 <p className="text-sm text-muted-foreground">
-                  Missing{" "}
+                  Map requires{" "}
                   <code className="rounded bg-muted px-1">
                     NEXT_PUBLIC_MAPBOX_TOKEN
                   </code>
                   .
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  In Vercel: Settings → Environment Variables → add for Production and Preview.
                 </p>
               </div>
             ) : error ? (

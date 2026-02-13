@@ -10,13 +10,23 @@ export function getQBRedirectUri(): string {
 
 /** Build redirect URI from request origin so cookie and callback share the same host. */
 export function getQBRedirectUriFromRequest(request: Request): string {
-  const url = new URL(request.url);
   const forwardedHost = request.headers.get("x-forwarded-host");
-  const host = forwardedHost ?? request.headers.get("host") ?? url.host;
+  const host = request.headers.get("host");
   const forwardedProto = request.headers.get("x-forwarded-proto");
-  const proto = url.protocol.replace(":", "");
-  const scheme = forwardedProto ?? (proto || "https");
-  const origin = `${scheme}://${host}`;
+  if (!host && !forwardedHost) {
+    try {
+      const url = new URL(request.url);
+      const origin = url.origin;
+      if (origin && origin !== "null") return `${origin}/api/quickbooks/callback`;
+    } catch {
+      // ignore
+    }
+    throw new Error(
+      "Could not determine redirect URI. Request is missing host and x-forwarded-host."
+    );
+  }
+  const scheme = forwardedProto ?? "https";
+  const origin = `${scheme}://${forwardedHost ?? host}`;
   return `${origin}/api/quickbooks/callback`;
 }
 

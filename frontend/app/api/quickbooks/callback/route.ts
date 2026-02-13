@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
-import { createQBOAuthClient } from "@/lib/quickbooks/client";
+import {
+  createQBOAuthClient,
+  getQBRedirectUriFromRequest,
+} from "@/lib/quickbooks/client";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
@@ -37,14 +40,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Invalid QuickBooks OAuth state." }, { status: 400 });
   }
 
-  let oauthClient;
   try {
-    oauthClient = createQBOAuthClient();
-  } catch (e) {
-    throw e;
-  }
-
-  try {
+    const redirectUri = getQBRedirectUriFromRequest(request);
+    const oauthClient = createQBOAuthClient(redirectUri);
     const authResponse = await oauthClient.createToken(request.url);
     const tokenJson = authResponse.getJson();
 

@@ -1,61 +1,12 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
 
-const PROTECTED_PREFIXES = ["/dashboard", "/donors", "/settings"];
-const AUTH_PATHS = ["/login", "/signup"];
-
-function isProtected(pathname: string): boolean {
-  return PROTECTED_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
-}
-
-function isAuthPath(pathname: string): boolean {
-  return AUTH_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
-}
-
+/**
+ * Middleware runs on the Edge. Supabase SSR was causing MIDDLEWARE_INVOCATION_FAILED
+ * on Vercel, so auth is handled in the app (dashboard layout / API requireUserOrg).
+ * This file just passes all requests through.
+ */
 export async function middleware(request: NextRequest) {
-  let response = NextResponse.next({ request });
-
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anonKey) {
-    return response;
-  }
-
-  try {
-    const supabase = createServerClient(url, anonKey, {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options)
-          );
-        },
-      },
-    });
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    const pathname = request.nextUrl.pathname;
-
-    if (isProtected(pathname) && !user) {
-      const loginUrl = new URL("/login", request.url);
-      loginUrl.searchParams.set("next", pathname);
-      return NextResponse.redirect(loginUrl);
-    }
-
-    if (isAuthPath(pathname) && user) {
-      const next = request.nextUrl.searchParams.get("next") || "/dashboard";
-      return NextResponse.redirect(new URL(next, request.url));
-    }
-  } catch {
-    return NextResponse.next({ request });
-  }
-
-  return response;
+  return NextResponse.next({ request });
 }
 
 export const config = {

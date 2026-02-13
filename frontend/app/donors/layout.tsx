@@ -1,15 +1,14 @@
 import { redirect } from "next/navigation"
 import { getCurrentUserOrg } from "@/lib/auth"
-import DashboardShell from "./dashboard-shell"
 
-export default async function DashboardLayout({
+export default async function DonorsLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
   const userOrg = await getCurrentUserOrg()
   if (!userOrg) {
-    redirect("/login?next=/dashboard")
+    redirect("/login?next=/donors")
   }
-  return <DashboardShell>{children}</DashboardShell>
+  return <>{children}</>
 }

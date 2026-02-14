@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   IconFilter,
   IconMap,
@@ -10,6 +10,27 @@ import {
 } from "@tabler/icons-react"
 import Map, { Marker, Popup } from "react-map-gl/mapbox"
 import type { MapRef } from "react-map-gl/mapbox"
+
+/** Catches WebGL/map init errors and shows a friendly message instead of a blank map. */
+class MapErrorBoundary extends React.Component<
+  { children: React.ReactNode; fallback: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: React.ReactNode; fallback: React.ReactNode }) {
+    super(props)
+    this.state = { hasError: false }
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+  componentDidCatch(error: Error) {
+    console.error("[Donor map]", error.message)
+  }
+  render() {
+    if (this.state.hasError) return this.props.fallback
+    return this.props.children
+  }
+}
 
 import { Button } from "@/components/ui/button"
 import {
@@ -74,6 +95,18 @@ const MAP_LEGEND_ITEMS = [
   { label: "$20k+", color: "bg-red-500" },
 ] as const
 
+function isWebGLSupported(): boolean {
+  if (typeof window === "undefined") return true
+  try {
+    const canvas = document.createElement("canvas")
+    const gl =
+      canvas.getContext("webgl2") ?? canvas.getContext("webgl")
+    return !!gl
+  } catch {
+    return false
+  }
+}
+
 function useDebouncedValue<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState<T>(value)
   const prevValue = useRef<T>(value)
@@ -101,6 +134,18 @@ function buildMapUrl(params: DonorFilterParams): string {
   return q ? `/api/donors/map?${q}` : "/api/donors/map"
 }
 
+const WEBGL_FALLBACK = (
+  <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
+    <p className="text-sm font-medium text-muted-foreground">
+      Map couldn’t load (WebGL failed)
+    </p>
+    <p className="text-xs text-muted-foreground max-w-sm">
+      Try Chrome or Edge, enable hardware acceleration in your browser
+      settings, or use a different device.
+    </p>
+  </div>
+)
+
 export function DonorMapView() {
   const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
   const mapRef = useRef<MapRef>(null)
@@ -109,6 +154,10 @@ export function DonorMapView() {
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<DonorMapPoint | null>(null)
   const [flyToSearchOpen, setFlyToSearchOpen] = useState(false)
+  const [webglOk, setWebglOk] = useState<boolean | null>(null)
+  useEffect(() => {
+    setWebglOk(isWebGLSupported())
+  }, [])
 
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [minGivingInput, setMinGivingInput] = useState<string>("")
@@ -345,11 +394,14 @@ export function DonorMapView() {
               <div className="flex flex-1 items-center justify-center p-6">
                 <p className="text-sm text-destructive">{error}</p>
               </div>
+            ) : webglOk === false ? (
+              WEBGL_FALLBACK
             ) : loading ? (
               <div className="flex flex-1 items-center justify-center p-6">
                 <p className="text-sm text-muted-foreground">Loading map…</p>
               </div>
             ) : (
+              <MapErrorBoundary fallback={WEBGL_FALLBACK}>
               <Map
                 ref={mapRef}
                 mapboxAccessToken={mapboxToken}
@@ -412,6 +464,7 @@ export function DonorMapView() {
                   </Popup>
                 ) : null}
               </Map>
+              </MapErrorBoundary>
             )}
       </div>
     </div>

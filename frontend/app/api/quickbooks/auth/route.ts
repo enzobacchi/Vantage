@@ -41,6 +41,7 @@ export async function GET(request: NextRequest) {
       return res;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
+      console.error("[QuickBooks auth]", message);
       const isConfig =
         /missing quickbooks env|redirect uri|QB_|could not determine/i.test(message) ||
         message.includes("sandbox") ||

@@ -79,18 +79,25 @@ export async function GET(request: Request) {
       );
     }
 
-    // Link current user to this org, or store org for later if they're not logged in (Sign in with QuickBooks flow)
+    // Link current user to this org (do not overwrite existing role — team/ownership only via Settings)
     const serverSupabase = await createServerSupabaseClient();
     const {
       data: { user },
     } = await serverSupabase.auth.getUser();
     if (user?.id && orgRow?.id) {
-      await admin
+      const { data: existing } = await admin
         .from("organization_members")
-        .upsert(
-          { user_id: user.id, organization_id: orgRow.id, role: "member" },
-          { onConflict: "user_id,organization_id" }
-        );
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("organization_id", orgRow.id)
+        .maybeSingle();
+      if (!existing) {
+        await admin.from("organization_members").insert({
+          user_id: user.id,
+          organization_id: orgRow.id,
+          role: "member",
+        });
+      }
     }
 
     // Build a safe redirect origin:

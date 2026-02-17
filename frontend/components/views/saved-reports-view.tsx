@@ -1,8 +1,9 @@
 "use client"
 
 import * as React from "react"
-import { IconFileText, IconSparkles, IconUpload } from "@tabler/icons-react"
-import { MoreHorizontal } from "lucide-react"
+import { useSearchParams } from "next/navigation"
+import { IconFileText, IconFolder, IconFolderPlus, IconSparkles, IconUpload } from "@tabler/icons-react"
+import { MoreHorizontal, PanelLeft, PanelLeftClose } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from '@/components/ui/button'
@@ -20,6 +21,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { createFolder, getFolders, moveReportToFolder, type ReportFolder } from "@/app/actions/folders"
 import {
   Dialog,
   DialogContent,
@@ -94,6 +96,7 @@ type SavedReport = {
   summary?: string | null
   records_count?: number | null
   created_at: string
+  folder_id?: string | null
 }
 
 function safeFilename(name: string) {
@@ -105,11 +108,19 @@ function safeFilename(name: string) {
 }
 
 export function SavedReportsView() {
+  const searchParams = useSearchParams()
   const { openAiWithQuery } = useNav()
 
   const [reports, setReports] = React.useState<SavedReport[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [folders, setFolders] = React.useState<ReportFolder[]>([])
+  const [selectedFolderId, setSelectedFolderId] = React.useState<string | null>(null)
+  const [createFolderOpen, setCreateFolderOpen] = React.useState(false)
+  const [newFolderName, setNewFolderName] = React.useState("")
+  const [isCreatingFolder, setIsCreatingFolder] = React.useState(false)
+  const [moveReportId, setMoveReportId] = React.useState<string | null>(null)
+  const [sidebarOpen, setSidebarOpen] = React.useState(false)
 
   const [generateDialogOpen, setGenerateDialogOpen] = React.useState(false)
   const [generatePrompt, setGeneratePrompt] = React.useState("")
@@ -139,13 +150,36 @@ export function SavedReportsView() {
   const [uploading, setUploading] = React.useState(false)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
 
+  const reportIdFromUrl = searchParams.get("reportId")
+
+  React.useEffect(() => {
+    if (reportIdFromUrl) setPreviewReportId(reportIdFromUrl)
+  }, [reportIdFromUrl])
+
+  const loadFolders = React.useCallback(async () => {
+    try {
+      const list = await getFolders()
+      setFolders(list)
+    } catch {
+      setFolders([])
+    }
+  }, [])
+
+  React.useEffect(() => {
+    loadFolders()
+  }, [loadFolders])
+
   React.useEffect(() => {
     let cancelled = false
     async function load() {
       try {
         setLoading(true)
         setError(null)
-        const res = await fetch("/api/reports")
+        const url =
+          selectedFolderId === null
+            ? "/api/reports"
+            : `/api/reports?folderId=${encodeURIComponent(selectedFolderId)}`
+        const res = await fetch(url)
         const data = (await res.json()) as unknown
         if (!res.ok) {
           const msg =
@@ -166,13 +200,18 @@ export function SavedReportsView() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [selectedFolderId])
 
   const refresh = React.useCallback(async () => {
+    await loadFolders()
     try {
       setLoading(true)
       setError(null)
-      const res = await fetch("/api/reports")
+      const url =
+        selectedFolderId === null
+          ? "/api/reports"
+          : `/api/reports?folderId=${encodeURIComponent(selectedFolderId)}`
+      const res = await fetch(url)
       const data = (await res.json()) as unknown
       if (!res.ok) {
         const msg =
@@ -185,7 +224,7 @@ export function SavedReportsView() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [loadFolders, selectedFolderId])
 
   const runReport = (report: SavedReport) => {
     const q = (report.query ?? "").trim()
@@ -376,6 +415,37 @@ export function SavedReportsView() {
     }
   }
 
+  const handleCreateFolder = async () => {
+    const name = newFolderName.trim()
+    if (!name) return
+    try {
+      setIsCreatingFolder(true)
+      await createFolder(name)
+      toast.success("Folder created")
+      setCreateFolderOpen(false)
+      setNewFolderName("")
+      await loadFolders()
+    } catch (e) {
+      toast.error("Failed to create folder", {
+        description: e instanceof Error ? e.message : "Unknown error",
+      })
+    } finally {
+      setIsCreatingFolder(false)
+    }
+  }
+
+  const handleMoveToFolder = async (reportId: string, folderId: string | null) => {
+    try {
+      await moveReportToFolder(reportId, folderId)
+      toast.success("Report moved")
+      await refresh()
+    } catch (e) {
+      toast.error("Failed to move report", {
+        description: e instanceof Error ? e.message : "Unknown error",
+      })
+    }
+  }
+
   const handleCreateReport = async () => {
     const prompt = generatePrompt.trim()
     if (!prompt) return
@@ -418,53 +488,117 @@ export function SavedReportsView() {
   }
 
   return (
-    <div className="flex flex-1 flex-col gap-4 py-4 md:py-6">
-      <div className="flex items-center justify-between px-4 lg:px-6">
-        <div className="flex items-center gap-2">
-          <IconFileText className="size-5 text-slate-900 dark:text-white" />
-          <h1 className="text-xl font-semibold">Saved Reports</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".csv"
-            className="hidden"
-            aria-hidden
-            onChange={handleFileChange}
-          />
-          <Button
-            variant="outline"
-            className="bg-transparent"
-            onClick={handleUploadClick}
-            disabled={uploading}
-          >
-            <IconUpload className="size-4" />
-            {uploading ? "Uploading…" : "Upload External File"}
-          </Button>
-          <Button
-            className="bg-slate-900 hover:bg-slate-800 text-white"
-            onClick={() => {
-              setGenerateDialogOpen(true)
-              setGeneratePrompt("")
-            }}
-          >
-            <IconSparkles className="size-4" />
-            Create Report
-          </Button>
-        </div>
-      </div>
+    <div className="flex flex-1 flex-col h-full py-4 md:py-6">
+      <div className="flex flex-1 min-h-0 w-full">
+        {/* Collapsible Folders sidebar */}
+        <aside
+          className={`flex shrink-0 flex-col border-r bg-muted/30 transition-[width] duration-200 ease-out ${
+            sidebarOpen ? "w-52" : "w-0 overflow-hidden border-0"
+          }`}
+        >
+          <nav className="flex flex-col gap-0.5 p-2 lg:p-3">
+            <button
+              type="button"
+              onClick={() => setSelectedFolderId(null)}
+              className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                selectedFolderId === null
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+            >
+              <IconFileText className="size-4 shrink-0" />
+              All Reports
+            </button>
+            {folders.map((folder) => (
+              <button
+                key={folder.id}
+                type="button"
+                onClick={() => setSelectedFolderId(folder.id)}
+                className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                  selectedFolderId === folder.id
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                <IconFolder className="size-4 shrink-0" />
+                <span className="truncate">{folder.name}</span>
+              </button>
+            ))}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mt-2 justify-start gap-2 text-muted-foreground hover:text-foreground"
+              onClick={() => setCreateFolderOpen(true)}
+            >
+              <IconFolderPlus className="size-4" />
+              Create Folder
+            </Button>
+          </nav>
+        </aside>
 
-      <Card className="mx-4 lg:mx-6 bg-gradient-to-t from-primary/5 to-card shadow-xs">
-        <CardHeader>
-          <CardTitle>Generated Reports</CardTitle>
-          <CardDescription>
-            Access and download your saved reports
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="overflow-hidden rounded-lg border">
-            <Table>
+        {/* Main content */}
+        <div className="flex flex-1 flex-col min-w-0 items-start">
+          <div className="flex w-full items-center justify-between px-4 lg:px-6 mb-4">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="shrink-0"
+                onClick={() => setSidebarOpen((o) => !o)}
+                aria-label={sidebarOpen ? "Hide folders" : "Show folders"}
+              >
+                {sidebarOpen ? (
+                  <PanelLeftClose className="size-5 text-slate-900 dark:text-white" />
+                ) : (
+                  <PanelLeft className="size-5 text-slate-900 dark:text-white" />
+                )}
+              </Button>
+              <IconFileText className="size-5 text-slate-900 dark:text-white" />
+              <h1 className="text-xl font-semibold">Saved Reports</h1>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv"
+                className="hidden"
+                aria-hidden
+                onChange={handleFileChange}
+              />
+              <Button
+                variant="outline"
+                className="bg-transparent"
+                onClick={handleUploadClick}
+                disabled={uploading}
+              >
+                <IconUpload className="size-4" />
+                {uploading ? "Uploading…" : "Upload External File"}
+              </Button>
+              <Button
+                className="bg-slate-900 hover:bg-slate-800 text-white"
+                onClick={() => {
+                  setGenerateDialogOpen(true)
+                  setGeneratePrompt("")
+                }}
+              >
+                <IconSparkles className="size-4" />
+                Create Report
+              </Button>
+            </div>
+          </div>
+
+          <Card className="mx-4 lg:mx-6 w-full flex flex-col bg-gradient-to-t from-primary/5 to-card shadow-xs">
+            <CardHeader>
+              <CardTitle>Generated Reports</CardTitle>
+              <CardDescription>
+                {selectedFolderId === null
+                  ? "Access and download your saved reports"
+                  : `Reports in "${folders.find((f) => f.id === selectedFolderId)?.name ?? "folder"}"`}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 flex flex-col">
+              <div className="overflow-auto rounded-lg border max-h-[70vh] min-h-0">
+                <Table>
               <TableHeader>
                 <TableRow className="bg-muted/50">
                   <TableHead className="font-semibold">Report Name</TableHead>
@@ -544,6 +678,14 @@ export function SavedReportsView() {
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
+                              onSelect={(e) => {
+                                e.preventDefault()
+                                setMoveReportId(report.id)
+                              }}
+                            >
+                              Move to Folder
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
                               onClick={() => {
                                 setRenameId(report.id)
                                 setRenameTitle(report.title)
@@ -586,9 +728,77 @@ export function SavedReportsView() {
                 )}
               </TableBody>
             </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      <Dialog open={createFolderOpen} onOpenChange={setCreateFolderOpen}>
+        <DialogContent className="sm:max-w-[360px]">
+          <DialogHeader>
+            <DialogTitle>Create Folder</DialogTitle>
+            <DialogDescription>Name the folder to organize your reports.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="folder-name">Folder name</Label>
+            <Input
+              id="folder-name"
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              placeholder="e.g. Michigan Campaigns"
+            />
           </div>
-        </CardContent>
-      </Card>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateFolderOpen(false)} disabled={isCreatingFolder}>
+              Cancel
+            </Button>
+            <Button onClick={() => void handleCreateFolder()} disabled={!newFolderName.trim() || isCreatingFolder}>
+              {isCreatingFolder ? "Creating…" : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!moveReportId} onOpenChange={(open) => !open && setMoveReportId(null)}>
+        <DialogContent className="sm:max-w-[360px]">
+          <DialogHeader>
+            <DialogTitle>Move to Folder</DialogTitle>
+            <DialogDescription>Choose a folder for this report.</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-1 py-2">
+            <Button
+              variant="outline"
+              className="justify-start font-normal"
+              onClick={() => {
+                if (moveReportId) void handleMoveToFolder(moveReportId, null)
+                setMoveReportId(null)
+              }}
+            >
+              No folder
+            </Button>
+            {folders.map((folder) => (
+              <Button
+                key={folder.id}
+                variant="outline"
+                className="justify-start font-normal"
+                onClick={() => {
+                  if (moveReportId) void handleMoveToFolder(moveReportId, folder.id)
+                  setMoveReportId(null)
+                }}
+              >
+                <IconFolder className="size-4 mr-2 shrink-0" />
+                {folder.name}
+              </Button>
+            ))}
+            {folders.length === 0 && (
+              <p className="text-sm text-muted-foreground pt-2">
+                Create a folder from the sidebar to organize reports.
+              </p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={generateDialogOpen} onOpenChange={setGenerateDialogOpen}>
         <DialogContent className="sm:max-w-[480px]">
@@ -731,7 +941,8 @@ export function SavedReportsView() {
               <p className="text-sm text-muted-foreground py-4">Loading…</p>
             ) : previewData?.content ? (
               (() => {
-                const isCsv = (previewData.type ?? "").toUpperCase() === "CSV"
+                const typeUpper = (previewData.type ?? "").toUpperCase()
+                const isCsv = typeUpper === "CSV" || typeUpper === "CRM"
                 const rows = isCsv ? parseCsvToRows(previewData.content) : null
                 return rows && rows.length > 0 ? (
                   <>
@@ -780,7 +991,7 @@ export function SavedReportsView() {
             >
               Close
             </Button>
-            {previewReportId && previewData && (previewData.type ?? "").toUpperCase() === "CSV" && (
+            {previewReportId && previewData && ((previewData.type ?? "").toUpperCase() === "CSV" || (previewData.type ?? "").toUpperCase() === "CRM") && (
               <Button
                 onClick={() => {
                   const report = reports.find((r) => r.id === previewReportId) ?? {

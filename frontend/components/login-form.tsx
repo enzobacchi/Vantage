@@ -146,7 +146,10 @@ export function LoginForm({
                 </Button>
                 <FieldDescription className="text-center">
                   Don&apos;t have an account?{" "}
-                  <Link href="/signup" className="underline hover:text-foreground">
+                  <Link
+                    href={next ? `/signup?next=${encodeURIComponent(next)}` : "/signup"}
+                    className="underline hover:text-foreground"
+                  >
                     Sign up
                   </Link>
                 </FieldDescription>

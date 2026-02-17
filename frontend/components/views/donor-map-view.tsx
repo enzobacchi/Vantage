@@ -146,8 +146,11 @@ const WEBGL_FALLBACK = (
   </div>
 )
 
+const MAPBOX_STYLE = "mapbox://styles/mapbox/streets-v12"
+
 export function DonorMapView() {
-  const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+  const mapboxToken =
+    process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN || process.env.NEXT_PUBLIC_MAPBOX_TOKEN
   const mapRef = useRef<MapRef>(null)
   const [points, setPoints] = useState<DonorMapPoint[]>([])
   const [loading, setLoading] = useState(true)
@@ -273,6 +276,15 @@ export function DonorMapView() {
     return { latitude: 39.5, longitude: -98.35, zoom: 3 }
   }, [points])
 
+  const handleMapLoad = useCallback(() => {
+    const map = mapRef.current?.getMap()
+    if (map) {
+      requestAnimationFrame(() => {
+        map.resize()
+      })
+    }
+  }, [])
+
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 lg:p-6">
       <div className="flex items-center justify-between">
@@ -375,12 +387,16 @@ export function DonorMapView() {
         </span>
       </div>
 
-      {/* Map: full width below filter bar */}
-      <div className="relative min-h-0 flex-1 overflow-hidden rounded-lg border bg-muted/30">
+      {/* Map: explicit height so Mapbox GL can render tiles; resize() onLoad fixes blank tiles */}
+      <div className="relative w-full h-[60vh] min-h-[400px] flex-1 overflow-hidden rounded-lg border bg-muted/30">
             {!mapboxToken ? (
               <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
                 <p className="text-sm text-muted-foreground">
                   Map requires{" "}
+                  <code className="rounded bg-muted px-1">
+                    NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN
+                  </code>
+                  {" "}or{" "}
                   <code className="rounded bg-muted px-1">
                     NEXT_PUBLIC_MAPBOX_TOKEN
                   </code>
@@ -402,12 +418,15 @@ export function DonorMapView() {
               </div>
             ) : (
               <MapErrorBoundary fallback={WEBGL_FALLBACK}>
+              <div className="absolute inset-0 h-full w-full">
               <Map
                 ref={mapRef}
                 mapboxAccessToken={mapboxToken}
                 initialViewState={initialViewState}
-                mapStyle="mapbox://styles/mapbox/streets-v12"
+                mapStyle={MAPBOX_STYLE}
                 reuseMaps
+                onLoad={handleMapLoad}
+                style={{ width: "100%", height: "100%" }}
               >
                 {points.map((p) => (
                   <Marker
@@ -464,6 +483,7 @@ export function DonorMapView() {
                   </Popup>
                 ) : null}
               </Map>
+              </div>
               </MapErrorBoundary>
             )}
       </div>

@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { createBrowserSupabaseClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import {
@@ -22,6 +22,8 @@ import { Input } from "@/components/ui/input"
 
 export function SignupForm({ ...props }: React.ComponentProps<typeof Card>) {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const next = searchParams.get("next") ?? "/dashboard"
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -63,7 +65,7 @@ export function SignupForm({ ...props }: React.ComponentProps<typeof Card>) {
           method: "POST",
           credentials: "include",
         })
-        router.push("/dashboard")
+        router.push(next)
         router.refresh()
         return
       }
@@ -85,7 +87,9 @@ export function SignupForm({ ...props }: React.ComponentProps<typeof Card>) {
         </CardHeader>
         <CardContent>
           <Button asChild className="w-full">
-            <Link href="/login">Go to sign in</Link>
+            <Link href={next ? `/login?next=${encodeURIComponent(next)}` : "/login"}>
+              Go to sign in
+            </Link>
           </Button>
         </CardContent>
       </Card>
@@ -97,7 +101,7 @@ export function SignupForm({ ...props }: React.ComponentProps<typeof Card>) {
       <CardHeader>
         <CardTitle>Create an account</CardTitle>
         <CardDescription>
-          Enter your information below to create your account
+          {next && next.includes("/join") ? "Create your account to join the team." : "Enter your information below to create your account"}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -169,7 +173,10 @@ export function SignupForm({ ...props }: React.ComponentProps<typeof Card>) {
                 </Button>
                 <FieldDescription className="text-center">
                   Already have an account?{" "}
-                  <Link href="/login" className="underline hover:text-foreground">
+                  <Link
+                    href={next ? `/login?next=${encodeURIComponent(next)}` : "/login"}
+                    className="underline hover:text-foreground"
+                  >
                     Sign in
                   </Link>
                 </FieldDescription>

@@ -6,6 +6,10 @@ export type CurrentUserOrg = {
   orgId: string;
 };
 
+export type CurrentUserOrgWithRole = CurrentUserOrg & {
+  role: string;
+};
+
 /**
  * Returns the current user's ID and their organization ID (first membership).
  * Use in API routes and server code to scope data. Returns null if not logged in.
@@ -51,7 +55,7 @@ export async function getCurrentUserOrg(): Promise<CurrentUserOrg | null> {
     const { error: linkError } = await admin
       .from("organization_members")
       .upsert(
-        { user_id: user.id, organization_id: (newOrg as { id: string }).id, role: "member" },
+        { user_id: user.id, organization_id: (newOrg as { id: string }).id, role: "owner" },
         { onConflict: "user_id,organization_id" }
       );
 
@@ -63,6 +67,41 @@ export async function getCurrentUserOrg(): Promise<CurrentUserOrg | null> {
   }
 
   return { userId: user.id, orgId: member.organization_id };
+}
+
+/**
+ * Like getCurrentUserOrg but also returns the current user's role in that org.
+ * Use for team/invite actions that require owner or admin.
+ */
+export async function getCurrentUserOrgWithRole(): Promise<CurrentUserOrgWithRole | null> {
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+    error: sessionError,
+  } = await supabase.auth.getUser();
+
+  if (sessionError || !user?.id) {
+    return null;
+  }
+
+  const admin = createAdminClient();
+  const { data: member, error: memberError } = await admin
+    .from("organization_members")
+    .select("organization_id, role")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (memberError || !member?.organization_id) {
+    return null;
+  }
+
+  return {
+    userId: user.id,
+    orgId: member.organization_id,
+    role: member.role ?? "member",
+  };
 }
 
 /**

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation"
 import { ArrowLeft } from "lucide-react"
 
 import { DonorNotesCard } from "@/components/donors/donor-notes-card"
+import { DonorTagsCard } from "@/components/donors/donor-tags-card"
 import { LetterDialog } from "@/components/donors/letter-dialog"
 import { MagicActionsCard } from "@/components/donors/magic-actions-card"
 import { Badge } from "@/components/ui/badge"
@@ -113,6 +114,8 @@ export default async function DonorProfilePage({ params }: PageProps) {
           defaultYear={new Date().getFullYear() - 1}
         />
       </div>
+
+      <DonorTagsCard donorId={donor.id} />
 
       <div className="grid gap-4 sm:grid-cols-3">
         <Card>

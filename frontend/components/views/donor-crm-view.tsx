@@ -11,13 +11,22 @@ import {
   IconUsers,
 } from "@tabler/icons-react"
 import Link from "next/link"
-import { FileText, Mail, MapPin, Phone } from "lucide-react"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { toast } from "sonner"
+import { Calendar, CheckSquare, FileText, Mail, MapPin, Phone, Star } from "lucide-react"
 
 import { getDonorProfile, getDonorActivityNotes, type DonorProfileDonor, type DonorProfileDonation, type DonorNoteRow } from "@/app/donors/[id]/actions"
+import { getDonorInteractions, logInteraction, toggleTaskStatus } from "@/app/actions/crm"
+import { getDonorLifecycleStatus, DEFAULT_LIFECYCLE_CONFIG, type LifecycleStatus, type LifecycleConfig } from "@/lib/donor-lifecycle"
+import type { Interaction } from "@/types/database"
+import { getOrganizationTags } from "@/app/actions/tags"
+import { DonorBadges, DonorTagFilter, DEFAULT_BADGE_CONFIG, type TagForFilter } from "@/components/donors/donor-filters"
+import { SaveReportButton } from "@/components/donors/save-report-button"
 import { DonorNotesCard } from "@/components/donors/donor-notes-card"
 import { useNav } from "@/components/nav-context"
 import { LetterDialog } from "@/components/donors/letter-dialog"
 import { MagicActionsCard } from "@/components/donors/magic-actions-card"
+import { DonorTagsCard } from "@/components/donors/donor-tags-card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from '@/components/ui/button'
 import {
@@ -33,6 +42,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { Input } from "@/components/ui/input"
 import { Label } from '@/components/ui/label'
 import {
   Sheet,
@@ -47,6 +57,14 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import {
   Table,
   TableBody,
   TableCell,
@@ -54,6 +72,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Textarea } from "@/components/ui/textarea"
+
+type DonorTag = { id: string; name: string; color: string }
 
 type Donor = {
   id: string
@@ -61,9 +83,50 @@ type Donor = {
   total_lifetime_value: number | string | null
   last_donation_amount: number | string | null
   last_donation_date: string | null
+  first_donation_date?: string | null
   billing_address: string | null
   state: string | null
   notes: string | null
+  tags?: DonorTag[]
+}
+
+const LIFECYCLE_BADGE_CLASS: Record<LifecycleStatus, string> = {
+  New: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 border-0",
+  Active: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 border-0",
+  Lapsed: "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300 border-0",
+  Lost: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300 border-0",
+}
+
+function LifecycleBadges({
+  status,
+  isMajor,
+  visibleBadges,
+  className,
+}: {
+  status: LifecycleStatus
+  isMajor: boolean
+  /** When set, only show badges that are in this set. When empty, show nothing. */
+  visibleBadges?: Set<string> | null
+  className?: string
+}) {
+  const showStatus = visibleBadges == null ? true : visibleBadges.size === 0 ? false : visibleBadges.has(status)
+  const showMajor = isMajor && (visibleBadges == null ? true : visibleBadges.size === 0 ? false : visibleBadges.has("Major"))
+  if (!showStatus && !showMajor) return <span className={className ?? ""}>—</span>
+  return (
+    <span className={`inline-flex items-center gap-1.5 ${className ?? ""}`}>
+      {showStatus && (
+        <Badge variant="secondary" className={LIFECYCLE_BADGE_CLASS[status]}>
+          {status}
+        </Badge>
+      )}
+      {showMajor && (
+        <Badge variant="secondary" className="bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300 border-0 gap-1">
+          <Star className="size-3" />
+          Major
+        </Badge>
+      )}
+    </span>
+  )
 }
 
 function formatCurrency(value: number | string | null | undefined) {
@@ -88,6 +151,12 @@ function formatDateTime(value: string | null | undefined) {
 }
 
 type SortOption = "recent" | "highest" | "lowest"
+
+const SORT_OPTIONS: { value: SortOption; label: string }[] = [
+  { value: "recent", label: "Most recent" },
+  { value: "highest", label: "Highest given" },
+  { value: "lowest", label: "Lowest given" },
+]
 
 function sortDonors(donors: Donor[], sort: SortOption): Donor[] {
   const arr = [...donors]
@@ -126,14 +195,325 @@ function toNumber(value: number | string | null | undefined): number | null {
   return Number.isFinite(n) ? n : null
 }
 
-const EIGHTEEN_MONTHS_MS = 18 * 30 * 24 * 60 * 60 * 1000
-function isActiveProfile(lastDonationDate: string | null): boolean {
-  if (!lastDonationDate) return false
-  const t = new Date(lastDonationDate).getTime()
-  return Date.now() - t <= EIGHTEEN_MONTHS_MS
+function interactionIcon(type: Interaction["type"]) {
+  switch (type) {
+    case "call":
+      return <Phone className="size-4 shrink-0 text-muted-foreground" />
+    case "email":
+      return <Mail className="size-4 shrink-0 text-muted-foreground" />
+    case "meeting":
+      return <Calendar className="size-4 shrink-0 text-muted-foreground" />
+    case "task":
+      return <CheckSquare className="size-4 shrink-0 text-muted-foreground" />
+    default:
+      return <FileText className="size-4 shrink-0 text-muted-foreground" />
+  }
+}
+
+function InteractionTimeline({
+  donorId,
+  interactions,
+  onToggleTask,
+  onRefresh,
+}: {
+  donorId: string
+  interactions: Interaction[]
+  onToggleTask: (id: string) => Promise<void>
+  onRefresh: () => void
+}) {
+  const [togglingId, setTogglingId] = React.useState<string | null>(null)
+  const handleToggle = (id: string) => {
+    setTogglingId(id)
+    onToggleTask(id).finally(() => setTogglingId(null))
+  }
+  if (interactions.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground py-2">
+        No interactions yet. Click &quot;Log Activity&quot; to log a call, email, or task.
+      </p>
+    )
+  }
+  return (
+    <ul className="space-y-2">
+      {interactions.map((i) => (
+        <li
+          key={i.id}
+          className="flex gap-3 rounded-md border bg-muted/30 px-3 py-2 text-sm"
+        >
+          <span className="mt-0.5">{interactionIcon(i.type)}</span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-muted-foreground">
+                {formatDateTime(i.date)}
+              </span>
+              {i.type === "task" && (
+                <button
+                  type="button"
+                  onClick={() => handleToggle(i.id)}
+                  disabled={togglingId === i.id}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  {i.status === "completed" ? "Done" : "Mark done"}
+                </button>
+              )}
+            </div>
+            {i.subject && (
+              <p className="font-medium text-foreground mt-0.5">{i.subject}</p>
+            )}
+            <p className="whitespace-pre-wrap text-muted-foreground mt-0.5">
+              {i.content || "—"}
+            </p>
+          </div>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function LogActivityDialog({
+  donorId,
+  donorEmail,
+  defaultTab = "call",
+  onLogged,
+  onClose,
+}: {
+  donorId: string
+  donorEmail: string | null
+  defaultTab?: "call" | "email" | "task"
+  onLogged: () => void
+  onClose: () => void
+}) {
+  const [activeTab, setActiveTab] = React.useState<"call" | "email" | "task">(defaultTab)
+  const [subject, setSubject] = React.useState("")
+  const [content, setContent] = React.useState("")
+  const [loading, setLoading] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    setActiveTab(defaultTab)
+  }, [defaultTab])
+
+  const reset = () => {
+    setSubject("")
+    setContent("")
+    setError(null)
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (activeTab === "email") {
+      if (!subject.trim()) {
+        setError("Please enter a subject.")
+        return
+      }
+      if (!content.trim()) {
+        setError("Please enter the email message.")
+        return
+      }
+      if (!donorEmail?.trim()) {
+        toast.error("This donor has no email address on file.")
+        return
+      }
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch("/api/email/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            donorEmail: donorEmail.trim(),
+            subject: subject.trim(),
+            message: content.trim(),
+            donorId,
+          }),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          toast.error(data?.error ?? "Failed to send email")
+          setError(data?.error ?? "Failed to send email")
+          return
+        }
+        reset()
+        onLogged()
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Failed to send email"
+        toast.error(msg)
+        setError(msg)
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
+
+    if (activeTab === "task") {
+      if (!subject.trim()) {
+        setError("Please enter a task.")
+        return
+      }
+    } else if (!content.trim()) {
+      setError("Please enter notes or content.")
+      return
+    }
+    setLoading(true)
+    setError(null)
+    try {
+      await logInteraction({
+        donor_id: donorId,
+        type: activeTab,
+        direction: activeTab === "task" ? undefined : "outbound",
+        subject: subject.trim() || undefined,
+        content: activeTab === "task" ? (content.trim() || subject.trim()) : content.trim(),
+        status: activeTab === "task" ? "pending" : undefined,
+      })
+      reset()
+      onLogged()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <DialogContent className="sm:max-w-md">
+      <DialogHeader>
+        <DialogTitle>Log Activity</DialogTitle>
+      </DialogHeader>
+      <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v as "call" | "email" | "task"); reset() }}>
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="call">Log Call</TabsTrigger>
+          <TabsTrigger value="email">Send Email</TabsTrigger>
+          <TabsTrigger value="task">Add Task</TabsTrigger>
+        </TabsList>
+        <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+          <TabsContent value="call" className="mt-0 space-y-4">
+            <div>
+              <Label htmlFor="call-subject">Subject (optional)</Label>
+              <Input
+                id="call-subject"
+                className="mt-1"
+                placeholder="e.g. Building fund follow-up"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="call-content">Notes</Label>
+              <Textarea
+                id="call-content"
+                className="mt-1 min-h-[100px]"
+                placeholder="e.g. Spoke to John about the building fund."
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                required
+              />
+            </div>
+          </TabsContent>
+          <TabsContent value="email" className="mt-0 space-y-4">
+            <div>
+              <Label htmlFor="email-subject">Subject</Label>
+              <Input
+                id="email-subject"
+                className="mt-1"
+                placeholder="e.g. Thank you for your gift"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="email-content">Content</Label>
+              <Textarea
+                id="email-content"
+                className="mt-1 min-h-[100px]"
+                placeholder="Email body or summary…"
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                required
+              />
+            </div>
+          </TabsContent>
+          <TabsContent value="task" className="mt-0 space-y-4">
+            <div>
+              <Label htmlFor="task-subject">Task</Label>
+              <Input
+                id="task-subject"
+                className="mt-1"
+                placeholder="e.g. Send thank-you note"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="task-content">Notes (optional)</Label>
+              <Textarea
+                id="task-content"
+                className="mt-1 min-h-[80px]"
+                placeholder="Additional details…"
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+              />
+            </div>
+          </TabsContent>
+          {error && (
+            <p className="text-sm text-destructive">{error}</p>
+          )}
+          <DialogFooter>
+            <Button type="submit" disabled={loading}>
+              {activeTab === "email"
+                ? loading
+                  ? "Sending…"
+                  : "Send Email"
+                : loading
+                  ? "Saving…"
+                  : "Save"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </Tabs>
+    </DialogContent>
+  )
+}
+
+function parseFilterFromUrl(searchParams: URLSearchParams): {
+  visibleBadges: Set<string>
+  badgeConfig: LifecycleConfig
+} {
+  const status = searchParams.get("status")
+  const visibleBadges = new Set<string>(
+    status ? status.split(",").map((s) => s.trim()).filter(Boolean) : []
+  )
+  const newMonths = searchParams.get("newMonths")
+  const lapsedMonths = searchParams.get("lapsedMonths")
+  const minMajor = searchParams.get("minMajor")
+  const badgeConfig: LifecycleConfig = {
+    newDonorMonths: newMonths != null && newMonths !== "" ? parseInt(newMonths, 10) : undefined,
+    lapsedMonths: lapsedMonths != null && lapsedMonths !== "" ? parseInt(lapsedMonths, 10) : undefined,
+    majorDonorThreshold: minMajor != null && minMajor !== "" ? parseInt(minMajor, 10) : undefined,
+  }
+  return { visibleBadges, badgeConfig }
+}
+
+function buildFilterUrl(visibleBadges: Set<string>, badgeConfig: LifecycleConfig): string {
+  const p = new URLSearchParams()
+  if (visibleBadges.size > 0) {
+    p.set("status", [...visibleBadges].sort().join(","))
+  }
+  if (badgeConfig.newDonorMonths != null && badgeConfig.newDonorMonths !== DEFAULT_BADGE_CONFIG.newDonorMonths) {
+    p.set("newMonths", String(badgeConfig.newDonorMonths))
+  }
+  if (badgeConfig.lapsedMonths != null && badgeConfig.lapsedMonths !== DEFAULT_BADGE_CONFIG.lapsedMonths) {
+    p.set("lapsedMonths", String(badgeConfig.lapsedMonths))
+  }
+  if (badgeConfig.majorDonorThreshold != null && badgeConfig.majorDonorThreshold !== DEFAULT_BADGE_CONFIG.majorDonorThreshold) {
+    p.set("minMajor", String(badgeConfig.majorDonorThreshold))
+  }
+  const q = p.toString()
+  return q ? `?${q}` : ""
 }
 
 export function DonorCRMView() {
+  const searchParams = useSearchParams()
   const { selectedDonorId, clearSelectedDonor } = useNav()
   const [donors, setDonors] = React.useState<Donor[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -142,6 +522,39 @@ export function DonorCRMView() {
   const [pageSize, setPageSize] = React.useState(10)
   const [sortBy, setSortBy] = React.useState<SortOption>("recent")
   const [searchQuery, setSearchQuery] = React.useState("")
+
+  const [visibleBadges, setVisibleBadges] = React.useState<Set<string>>(() =>
+    parseFilterFromUrl(searchParams).visibleBadges
+  )
+  const [badgeConfig, setBadgeConfig] = React.useState<LifecycleConfig>(() => {
+    const parsed = parseFilterFromUrl(searchParams).badgeConfig
+    return {
+      newDonorMonths: parsed.newDonorMonths ?? DEFAULT_LIFECYCLE_CONFIG.newDonorMonths,
+      lapsedMonths: parsed.lapsedMonths ?? DEFAULT_LIFECYCLE_CONFIG.lapsedMonths,
+      lostMonths: parsed.lostMonths ?? DEFAULT_LIFECYCLE_CONFIG.lostMonths,
+      majorDonorThreshold: parsed.majorDonorThreshold ?? DEFAULT_LIFECYCLE_CONFIG.majorDonorThreshold,
+    }
+  })
+  const [badgesPopoverOpen, setBadgesPopoverOpen] = React.useState(false)
+  const [orgTags, setOrgTags] = React.useState<TagForFilter[]>([])
+  const [selectedTagIds, setSelectedTagIds] = React.useState<Set<string>>(new Set())
+  const [tagFilterPopoverOpen, setTagFilterPopoverOpen] = React.useState(false)
+  const pathname = usePathname()
+  const router = useRouter()
+
+  React.useEffect(() => {
+    getOrganizationTags().then(setOrgTags).catch(() => {})
+  }, [])
+
+  React.useEffect(() => {
+    const q = buildFilterUrl(visibleBadges, badgeConfig)
+    const current = typeof window !== "undefined" ? window.location.search : ""
+    const desired = q === "" ? "" : q.slice(1)
+    const currentNorm = current.startsWith("?") ? current.slice(1) : current
+    if (currentNorm !== desired) {
+      router.replace(pathname + (q || ""), { scroll: false })
+    }
+  }, [visibleBadges, badgeConfig, pathname, router])
 
   const [sheetOpen, setSheetOpen] = React.useState(false)
   const [sheetDonorId, setSheetDonorId] = React.useState<string | null>(null)
@@ -155,13 +568,20 @@ export function DonorCRMView() {
   }, [selectedDonorId, clearSelectedDonor])
   const [sheetProfile, setSheetProfile] = React.useState<{ donor: DonorProfileDonor; donations: DonorProfileDonation[] } | null>(null)
   const [sheetActivity, setSheetActivity] = React.useState<DonorNoteRow[]>([])
+  const [sheetInteractions, setSheetInteractions] = React.useState<Interaction[]>([])
   const [sheetLoading, setSheetLoading] = React.useState(false)
+  const [logActivityOpen, setLogActivityOpen] = React.useState(false)
+  const [logActivityDefaultTab, setLogActivityDefaultTab] = React.useState<"call" | "email" | "task">("call")
 
-  const loadDonors = React.useCallback(async () => {
+  const loadDonors = React.useCallback(async (tagIds?: Set<string>) => {
     try {
       setLoading(true)
       setError(null)
-      const res = await fetch("/api/donors")
+      const url =
+        tagIds && tagIds.size > 0
+          ? `/api/donors?tagIds=${[...tagIds].join(",")}`
+          : "/api/donors"
+      const res = await fetch(url)
       const data = (await res.json()) as unknown
       if (!res.ok) {
         const msg =
@@ -178,20 +598,30 @@ export function DonorCRMView() {
   }, [])
 
   React.useEffect(() => {
-    loadDonors()
-  }, [loadDonors])
+    loadDonors(selectedTagIds)
+  }, [selectedTagIds])
+
+  const handleTagFilterChange = React.useCallback(
+    (next: Set<string>) => {
+      setSelectedTagIds(next)
+    },
+    []
+  )
 
   const sortedDonors = React.useMemo(() => {
-    const sorted = sortDonors(donors, sortBy)
+    let list = sortDonors(donors, sortBy)
     const q = searchQuery.trim().toLowerCase()
-    if (!q) return sorted
-    return sorted.filter((d) => (d.display_name ?? "").toLowerCase().includes(q))
+    if (q) {
+      list = list.filter((d) => (d.display_name ?? "").toLowerCase().includes(q))
+    }
+    return list
   }, [donors, sortBy, searchQuery])
 
   React.useEffect(() => {
     if (!sheetOpen || !sheetDonorId) {
       setSheetProfile(null)
       setSheetActivity([])
+      setSheetInteractions([])
       return
     }
     let cancelled = false
@@ -199,15 +629,18 @@ export function DonorCRMView() {
     Promise.all([
       getDonorProfile(sheetDonorId),
       getDonorActivityNotes(sheetDonorId),
+      getDonorInteractions(sheetDonorId),
     ])
-      .then(([profile, activity]) => {
+      .then(([profile, activity, interactions]) => {
         if (cancelled) return
         if (profile.donor) {
           setSheetProfile({ donor: profile.donor, donations: profile.donations })
           setSheetActivity(activity)
+          setSheetInteractions(interactions)
         } else {
           setSheetProfile(null)
           setSheetActivity([])
+          setSheetInteractions([])
         }
       })
       .catch(() => {
@@ -240,7 +673,7 @@ export function DonorCRMView() {
   const canNextPage = pageIndex < totalPages - 1
 
   return (
-    <div className="flex flex-1 flex-col gap-4 py-4 md:py-6">
+    <div className="flex flex-col gap-4 py-4 md:py-6">
       <div className="flex items-center gap-2 px-4 lg:px-6">
         <IconUsers className="size-5 text-slate-900 dark:text-white" />
         <h1 className="text-xl font-semibold">Donor CRM</h1>
@@ -268,6 +701,30 @@ export function DonorCRMView() {
                 className="flex h-9 w-full rounded-md border border-input bg-transparent pl-9 pr-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               />
             </div>
+            <DonorBadges
+              visibleBadges={visibleBadges}
+              onVisibleBadgesChange={setVisibleBadges}
+              badgeConfig={badgeConfig}
+              onBadgeConfigChange={setBadgeConfig}
+              open={badgesPopoverOpen}
+              onOpenChange={setBadgesPopoverOpen}
+            />
+            <DonorTagFilter
+              tags={orgTags}
+              selectedTagIds={selectedTagIds}
+              onSelectedTagIdsChange={handleTagFilterChange}
+              open={tagFilterPopoverOpen}
+              onOpenChange={(open) => {
+                if (open) getOrganizationTags().then(setOrgTags).catch(() => {})
+                setTagFilterPopoverOpen(open)
+              }}
+            />
+            <SaveReportButton
+              searchQuery={searchQuery}
+              selectedTagIds={selectedTagIds}
+              visibleBadges={visibleBadges}
+              badgeConfig={badgeConfig}
+            />
             <div className="flex flex-wrap items-center gap-2">
               <Label htmlFor="donor-sort" className="text-sm font-medium whitespace-nowrap">
                 Sort by
@@ -283,9 +740,11 @@ export function DonorCRMView() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="recent">Most recent first</SelectItem>
-                  <SelectItem value="highest">Highest gift amount</SelectItem>
-                  <SelectItem value="lowest">Lowest gift amount</SelectItem>
+                  {SORT_OPTIONS.map(({ value, label }) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -295,6 +754,7 @@ export function DonorCRMView() {
               <TableHeader>
                 <TableRow className="bg-muted/50">
                   <TableHead className="font-semibold">Name</TableHead>
+                  <TableHead className="font-semibold">Status</TableHead>
                   <TableHead className="font-semibold text-right">Last Gift Amount</TableHead>
                   <TableHead className="font-semibold text-right">Last Gift Date</TableHead>
                   <TableHead className="font-semibold text-right">Lifetime Amount</TableHead>
@@ -306,22 +766,24 @@ export function DonorCRMView() {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-sm text-muted-foreground">
+                    <TableCell colSpan={8} className="text-sm text-muted-foreground">
                       Loading donors…
                     </TableCell>
                   </TableRow>
                 ) : error ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-sm text-destructive">
+                    <TableCell colSpan={8} className="text-sm text-destructive">
                       {error}
                     </TableCell>
                   </TableRow>
                 ) : paginatedDonors.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-sm text-muted-foreground">
+                    <TableCell colSpan={8} className="text-sm text-muted-foreground">
                       {searchQuery.trim()
                         ? "No donors match your search."
-                        : "No donors found."}
+                        : selectedTagIds.size > 0
+                          ? "No donors have the selected tags."
+                          : "No donors found."}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -345,6 +807,52 @@ export function DonorCRMView() {
                     >
                       <TableCell className="font-medium">
                         {donor.display_name ?? "Unknown"}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <LifecycleBadges
+                            {...getDonorLifecycleStatus(
+                              {
+                                last_donation_date: donor.last_donation_date,
+                                first_donation_date: donor.first_donation_date,
+                                total_lifetime_value: donor.total_lifetime_value,
+                              },
+                              badgeConfig
+                            )}
+                            visibleBadges={visibleBadges}
+                          />
+                          {(donor.tags ?? []).map((t) => (
+                            <Badge
+                              key={t.id}
+                              variant="secondary"
+                              className="text-xs font-normal border-0"
+                              style={{
+                                backgroundColor:
+                                  t.color === "red"
+                                    ? "rgb(254 226 226)"
+                                    : t.color === "blue"
+                                      ? "rgb(219 234 254)"
+                                      : t.color === "green"
+                                        ? "rgb(220 252 231)"
+                                        : t.color === "orange"
+                                          ? "rgb(255 237 213)"
+                                          : "rgb(243 244 246)",
+                                color:
+                                  t.color === "red"
+                                    ? "rgb(153 27 27)"
+                                    : t.color === "blue"
+                                      ? "rgb(29 78 216)"
+                                      : t.color === "green"
+                                        ? "rgb(20 83 45)"
+                                        : t.color === "orange"
+                                          ? "rgb(154 52 18)"
+                                          : "rgb(55 65 81)",
+                              }}
+                            >
+                              {t.name}
+                            </Badge>
+                          ))}
+                        </div>
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {formatCurrency(donor.last_donation_amount)}
@@ -473,7 +981,7 @@ export function DonorCRMView() {
           side="right"
           className="flex w-full flex-col overflow-hidden p-0 sm:max-w-lg"
         >
-          {/* Header: subtle bg, name + badge, letter button top-right */}
+          {/* Header: subtle bg, name + lifecycle badges, letter button top-right */}
           <div className="shrink-0 border-b bg-muted/30 px-4 py-3 pr-12">
             <div className="flex items-start justify-between gap-2">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -481,12 +989,24 @@ export function DonorCRMView() {
                   {sheetProfile?.donor?.display_name ?? "Donor"}
                 </SheetTitle>
                 {!sheetLoading && sheetProfile?.donor && sheetDonorId && (
-                  <Badge
-                    variant={isActiveProfile(sheetProfile.donor.last_donation_date) ? "default" : "secondary"}
-                    className="shrink-0 text-xs font-medium"
-                  >
-                    {isActiveProfile(sheetProfile.donor.last_donation_date) ? "Active" : "Lapsed"}
-                  </Badge>
+                  <LifecycleBadges
+                    {...getDonorLifecycleStatus(
+                      {
+                        last_donation_date: sheetProfile.donor.last_donation_date,
+                        first_donation_date:
+                          sheetProfile.donations.length > 0
+                            ? sheetProfile.donations.reduce(
+                                (min, d) => (d.date && (!min || d.date < min) ? d.date : min),
+                                ""
+                              )
+                            : null,
+                        total_lifetime_value: sheetProfile.donor.total_lifetime_value,
+                      },
+                      badgeConfig
+                    )}
+                    visibleBadges={visibleBadges}
+                    className="shrink-0"
+                  />
                 )}
               </div>
               {!sheetLoading && sheetDonorId && (
@@ -554,6 +1074,7 @@ export function DonorCRMView() {
                     </li>
                   </ul>
                 </div>
+                <DonorTagsCard donorId={sheetDonorId} />
                 <DonorNotesCard
                   donorId={sheetDonorId}
                   initialNotes={sheetProfile.donor.notes}
@@ -571,63 +1092,83 @@ export function DonorCRMView() {
                   donorId={sheetDonorId}
                   donorName={sheetProfile.donor.display_name ?? "Unknown Donor"}
                   compact
+                  onSendEmail={() => {
+                    setLogActivityDefaultTab("email")
+                    setLogActivityOpen(true)
+                  }}
+                  onLogCall={() => {
+                    setLogActivityDefaultTab("call")
+                    setLogActivityOpen(true)
+                  }}
                 />
                 <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Donation History</CardTitle>
-                    <CardDescription>
-                      {sheetProfile.donations.length} donation{sheetProfile.donations.length === 1 ? "" : "s"} on file
-                    </CardDescription>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <div>
+                      <CardTitle className="text-base">History</CardTitle>
+                      <CardDescription>Giving and communications</CardDescription>
+                    </div>
+                    <Dialog open={logActivityOpen} onOpenChange={setLogActivityOpen}>
+                      <DialogTrigger asChild>
+                        <Button size="sm">Log Activity</Button>
+                      </DialogTrigger>
+                      <LogActivityDialog
+                        donorId={sheetDonorId}
+                        donorEmail={sheetProfile?.donor?.email ?? null}
+                        defaultTab={logActivityDefaultTab}
+                        onLogged={() => {
+                          getDonorInteractions(sheetDonorId).then(setSheetInteractions)
+                          setLogActivityOpen(false)
+                        }}
+                        onClose={() => setLogActivityOpen(false)}
+                      />
+                    </Dialog>
                   </CardHeader>
                   <CardContent>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Date</TableHead>
-                          <TableHead className="text-right">Amount</TableHead>
-                          <TableHead>Memo</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {sheetProfile.donations.length === 0 ? (
-                          <TableRow>
-                            <TableCell colSpan={3} className="text-muted-foreground text-center py-4 text-sm">
-                              No donations recorded.
-                            </TableCell>
-                          </TableRow>
-                        ) : (
-                          sheetProfile.donations.map((d) => (
-                            <TableRow key={d.id}>
-                              <TableCell className="font-medium text-sm">{formatDate(d.date)}</TableCell>
-                              <TableCell className="text-right tabular-nums text-sm">{formatCurrency(d.amount)}</TableCell>
-                              <TableCell className="text-muted-foreground max-w-[180px] truncate text-sm">{d.memo ?? "—"}</TableCell>
+                    <Tabs defaultValue="giving" className="w-full">
+                      <TabsList className="grid w-full grid-cols-2">
+                        <TabsTrigger value="giving">Giving History</TabsTrigger>
+                        <TabsTrigger value="timeline">Timeline</TabsTrigger>
+                      </TabsList>
+                      <TabsContent value="giving" className="mt-3">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Date</TableHead>
+                              <TableHead className="text-right">Amount</TableHead>
+                              <TableHead>Memo</TableHead>
                             </TableRow>
-                          ))
-                        )}
-                      </TableBody>
-                    </Table>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Activity Log</CardTitle>
-                    <CardDescription>Call notes and touchpoints</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {sheetActivity.length === 0 ? (
-                      <p className="text-sm text-muted-foreground py-2">
-                        No activity logged yet. Use &quot;Log Call&quot; in Magic Actions to record a note.
-                      </p>
-                    ) : (
-                      <ul className="space-y-2">
-                        {sheetActivity.map((entry) => (
-                          <li key={entry.id} className="flex flex-col gap-0.5 rounded-md border bg-muted/30 px-3 py-2 text-sm">
-                            <span className="text-xs text-muted-foreground">{formatDateTime(entry.created_at)}</span>
-                            <p className="whitespace-pre-wrap">{entry.note}</p>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
+                          </TableHeader>
+                          <TableBody>
+                            {sheetProfile.donations.length === 0 ? (
+                              <TableRow>
+                                <TableCell colSpan={3} className="text-muted-foreground text-center py-4 text-sm">
+                                  No donations recorded.
+                                </TableCell>
+                              </TableRow>
+                            ) : (
+                              sheetProfile.donations.map((d) => (
+                                <TableRow key={d.id}>
+                                  <TableCell className="font-medium text-sm">{formatDate(d.date)}</TableCell>
+                                  <TableCell className="text-right tabular-nums text-sm">{formatCurrency(d.amount)}</TableCell>
+                                  <TableCell className="text-muted-foreground max-w-[180px] truncate text-sm">{d.memo ?? "—"}</TableCell>
+                                </TableRow>
+                              ))
+                            )}
+                          </TableBody>
+                        </Table>
+                      </TabsContent>
+                      <TabsContent value="timeline" className="mt-3">
+                        <InteractionTimeline
+                          donorId={sheetDonorId}
+                          interactions={sheetInteractions}
+                          onToggleTask={async (id) => {
+                            await toggleTaskStatus(id)
+                            getDonorInteractions(sheetDonorId).then(setSheetInteractions)
+                          }}
+                          onRefresh={() => getDonorInteractions(sheetDonorId).then(setSheetInteractions)}
+                        />
+                      </TabsContent>
+                    </Tabs>
                   </CardContent>
                 </Card>
                 <Button variant="outline" className="w-full" asChild>

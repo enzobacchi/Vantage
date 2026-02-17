@@ -32,6 +32,7 @@ Set these in **Vercel → your project → Settings → Environment Variables**.
 | Variable | Where to use | Notes |
 |----------|--------------|--------|
 | `OPENAI_API_KEY` | Production, Preview | For AI/chat features |
+| `RESEND_API_KEY` | Production, Preview | For sending emails from **Log Email** (Resend.com API key) |
 | `NEXT_PUBLIC_APP_URL` | Optional | Only if you need a fixed app URL; usually not needed on Vercel |
 
 ## Checklist

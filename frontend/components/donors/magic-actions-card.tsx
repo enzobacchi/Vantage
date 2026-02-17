@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Copy, Mail, MessageSquare, Phone } from "lucide-react"
+import { Copy, Mail, MessageSquare, Phone, Send } from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -33,9 +33,13 @@ type MagicActionsCardProps = {
   donorId: string
   donorName: string
   compact?: boolean
+  /** When provided, "Send Email" button opens the shared Log Activity dialog (email tab) instead of AI draft. */
+  onSendEmail?: () => void
+  /** When provided, "Log Call" button opens the shared Log Activity dialog (call tab) instead of inline dialog. */
+  onLogCall?: () => void
 }
 
-export function MagicActionsCard({ donorId, donorName, compact }: MagicActionsCardProps) {
+export function MagicActionsCard({ donorId, donorName, compact, onSendEmail, onLogCall }: MagicActionsCardProps) {
   const [textDraftOpen, setTextDraftOpen] = React.useState(false)
   const [emailDraftOpen, setEmailDraftOpen] = React.useState(false)
   const [logCallOpen, setLogCallOpen] = React.useState(false)
@@ -160,6 +164,7 @@ export function MagicActionsCard({ donorId, donorName, compact }: MagicActionsCa
         </CardHeader>
         <CardContent>
           <div className={`grid grid-cols-2 gap-3 ${compact ? "[&_button]:h-9" : ""}`}>
+            {/* Draft Text (SMS) – hidden until SMS is built
             <Button
               variant="outline"
               className={`justify-start gap-3 border-muted-foreground/30 bg-muted/20 font-medium ${compact ? "h-9" : "h-11"}`}
@@ -168,18 +173,23 @@ export function MagicActionsCard({ donorId, donorName, compact }: MagicActionsCa
               <MessageSquare className="size-4 shrink-0 text-muted-foreground" />
               Draft Text
             </Button>
+            */}
             <Button
               variant="outline"
               className={`justify-start gap-3 border-muted-foreground/30 bg-muted/20 font-medium ${compact ? "h-9" : "h-11"}`}
-              onClick={() => setEmailDraftOpen(true)}
+              onClick={onSendEmail ?? (() => setEmailDraftOpen(true))}
             >
-              <Mail className="size-4 shrink-0 text-muted-foreground" />
-              Draft Email
+              {onSendEmail ? (
+                <Send className="size-4 shrink-0 text-muted-foreground" />
+              ) : (
+                <Mail className="size-4 shrink-0 text-muted-foreground" />
+              )}
+              {onSendEmail ? "Send Email" : "Draft Email"}
             </Button>
             <Button
               variant="outline"
               className={`justify-start gap-3 border-muted-foreground/30 bg-muted/20 font-medium ${compact ? "h-9" : "h-11"}`}
-              onClick={() => setLogCallOpen(true)}
+              onClick={onLogCall ?? (() => setLogCallOpen(true))}
             >
               <Phone className="size-4 shrink-0 text-muted-foreground" />
               Log Call

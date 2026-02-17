@@ -166,6 +166,44 @@ export interface Database {
           created_at?: string
         }
       }
+      interactions: {
+        Row: {
+          id: string
+          donor_id: string
+          type: "email" | "call" | "meeting" | "note" | "task"
+          direction: "inbound" | "outbound" | null
+          subject: string | null
+          content: string
+          date: string
+          status: "pending" | "completed" | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          donor_id: string
+          type: "email" | "call" | "meeting" | "note" | "task"
+          direction?: "inbound" | "outbound" | null
+          subject?: string | null
+          content?: string
+          date?: string
+          status?: "pending" | "completed" | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          donor_id?: string
+          type?: "email" | "call" | "meeting" | "note" | "task"
+          direction?: "inbound" | "outbound" | null
+          subject?: string | null
+          content?: string
+          date?: string
+          status?: "pending" | "completed" | null
+          created_at?: string
+        }
+      }
     }
   }
 }
+
+/** CRM interaction row (single donor touchpoint or task). */
+export type Interaction = Database["public"]["Tables"]["interactions"]["Row"]

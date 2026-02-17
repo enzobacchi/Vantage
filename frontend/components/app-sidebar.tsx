@@ -2,8 +2,6 @@
 
 import * as React from "react"
 import {
-  IconChevronLeft,
-  IconChevronRight,
   IconDashboard,
   IconFileText,
   IconLayoutDashboard,
@@ -28,7 +26,6 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  useSidebar,
 } from '@/components/ui/sidebar'
 import { Button } from "@/components/ui/button"
 
@@ -70,32 +67,10 @@ const navMainData = [
   },
   {
     title: "Settings",
-    url: "#",
+    url: "/settings",
     icon: IconSettings,
-    view: "settings" as const,
   },
 ]
-
-function SidebarFooterToggle() {
-  const { state, toggleSidebar, isMobile } = useSidebar()
-  if (isMobile) return null
-  const isCollapsed = state === "collapsed"
-  return (
-    <Button
-      variant="ghost"
-      size="icon"
-      className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground mt-2 size-8 shrink-0"
-      onClick={toggleSidebar}
-      aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-    >
-      {isCollapsed ? (
-        <IconChevronRight className="size-4" />
-      ) : (
-        <IconChevronLeft className="size-4" />
-      )}
-    </Button>
-  )
-}
 
 const fallbackUser = {
   name: "User",
@@ -111,7 +86,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     : authUser ?? fallbackUser
 
   return (
-    <Sidebar collapsible="icon" {...props}>
+    <Sidebar collapsible="none" {...props}>
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
@@ -145,9 +120,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <NavMain items={navMainData} />
       </SidebarContent>
       <SidebarFooter>
-        <div className="flex items-center gap-1 px-2 group-data-[collapsible=icon]:justify-center">
+        <div className="flex items-center gap-1 px-2">
           <ThemeToggle />
-          <SidebarFooterToggle />
         </div>
         <NavUser user={sidebarUser} />
       </SidebarFooter>

@@ -1,14 +1,41 @@
-# Vantage Platform Rules
+# Vantage Platform Rules (Cursor Context)
 
-## Project Structure
-- **/frontend**: Next.js 14 (App Router), Shadcn UI, Tailwind. (Port 3000)
-- **/backend**: Python FastAPI, Supabase/SQL connections. (Port 8000)
+## 1. Project Identity & Aesthetic (The "Vantage Vibe")
+- **Core Aesthetic:** "Linear Light" / Clean Professional SaaS.
+- **Theme:** **Light Mode Default.**
+    - **Backgrounds:** Clean white (`bg-white`) or very subtle gray (`bg-zinc-50/50`) for sidebars.
+    - **Text:** High contrast dark gray (`text-zinc-950`) for headings, `text-zinc-500` for metadata.
+    - **Borders:** Crisp, subtle borders (`border-zinc-200`).
+- **Design Principles:**
+    - **Airy & clean:** Use whitespace to separate content rather than heavy boxes.
+    - **Subtlety:** Shadows should be extremely soft (`shadow-sm`). Hover states should be subtle (`hover:bg-zinc-100`).
+    - **Interactivity:** Buttons and inputs should feel tactile but minimal.
+- **UI Library:** **Strictly use Shadcn UI** for all components.
+- **Icons:** Use `lucide-react` (Stroke width 1.5px for a refined look).
 
-## Workflow
-1. When asked to "run the app," always specify if I should run the frontend, backend, or both.
-2. **Frontend commands** must run inside `/frontend` (cd frontend).
-3. **Backend commands** must run inside `/backend` (cd backend).
+## 2. Tech Stack & Architecture
+- **Frontend:** Next.js 14 (App Router), TypeScript, Tailwind CSS.
+- **Backend:** Python FastAPI, Supabase (PostgreSQL).
+- **Database Pattern:** **Multi-Tenant Organization Architecture.**
+    - Almost ALL data queries must be scoped by `organization_id`.
+    - Users belong to an Organization. Data belongs to the Organization.
+- **State/Data:** Use Server Actions for mutations and typed API routes for data fetching.
 
-## Coding Standards
-- **Frontend:** Use strictly typed interfaces for all API responses.
-- **Backend:** Ensure all API endpoints return JSON compatible with the Frontend interfaces.
+## 3. Project Structure & Workflow
+- **Root Directories:**
+    - `/frontend` (Next.js) - Run commands here: `cd frontend && [command]`
+    - `/backend` (FastAPI) - Run commands here: `cd backend && [command]`
+- **Running the App:**
+    - Frontend: `npm run dev` (Port 3000)
+    - Backend: `uvicorn main:app --reload` (Port 8000)
+
+## 4. Coding Standards
+- **Type Safety:** Strictly typed interfaces (`types/database.ts`). Never use `any`.
+- **Backend Responses:** Ensure FastAPI endpoints return JSON that strictly matches Frontend interfaces.
+- **Error Handling:** Use Shadcn `toast` for user feedback. Never use `alert()`.
+
+## 5. Key Feature Context (The "Brain")
+- **Donor CRM:** Uses "Lifecycle Status" logic (New, Active, Lapsed, Lost).
+- **Reporting:** Reports are **dynamic**. We save filter criteria (JSON), not static IDs.
+- **Interactions:** We track "Touchpoints" (Calls, Emails, Tasks) in the `interactions` table.
+- **Settings:** Full-page layout (`/settings`). Sidebar navigation. **Light mode vibe:** The sidebar should use `bg-zinc-50` to distinguish it from the white content area.

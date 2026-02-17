@@ -27,13 +27,23 @@ Set these in **Vercel → your project → Settings → Environment Variables**.
 |----------|--------------|--------|
 | `NEXT_PUBLIC_MAPBOX_TOKEN` | Production **and** Preview | Mapbox public access token (starts with `pk.`) |
 
+## Auth (email confirmation redirect)
+
+So confirmation emails send users back to your app (not localhost):
+
+1. **Supabase Dashboard** → Authentication → URL Configuration:
+   - **Site URL**: set to your production URL (e.g. `https://your-app.vercel.app`)
+   - **Redirect URLs**: add `https://your-app.vercel.app/**` (and your custom domain if you use one)
+
+2. **Vercel**: The app uses the current request origin for the confirmation link when users sign up. If you use a custom domain, set `NEXT_PUBLIC_APP_URL` to that URL (e.g. `https://app.yourdomain.com`) so the link in the email uses it.
+
 ## Optional
 
 | Variable | Where to use | Notes |
 |----------|--------------|--------|
 | `OPENAI_API_KEY` | Production, Preview | For AI/chat features |
 | `RESEND_API_KEY` | Production, Preview | For sending emails from **Log Email** (Resend.com API key) |
-| `NEXT_PUBLIC_APP_URL` | Optional | Only if you need a fixed app URL; usually not needed on Vercel |
+| `NEXT_PUBLIC_APP_URL` | Optional | Set to your production URL (e.g. custom domain) if you want email confirmation links to always use that host |
 
 ## Checklist
 

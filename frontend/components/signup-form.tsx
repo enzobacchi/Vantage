@@ -49,11 +49,19 @@ export function SignupForm({ ...props }: React.ComponentProps<typeof Card>) {
     setLoading(true)
     try {
       const supabase = createBrowserSupabaseClient()
+      const baseUrl =
+        (typeof window !== "undefined" ? window.location.origin : null) ||
+        process.env.NEXT_PUBLIC_APP_URL ||
+        ""
+      const callbackUrl = baseUrl
+        ? `${baseUrl}/auth/callback${next && next !== "/dashboard" ? `?next=${encodeURIComponent(next)}` : ""}`
+        : undefined
       const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: { full_name: name.trim() || undefined },
+          emailRedirectTo: callbackUrl,
         },
       })
       if (signUpError) {

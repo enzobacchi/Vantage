@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { Suspense } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { toast } from "sonner"
 
@@ -9,7 +10,7 @@ import { useAuthUser } from "@/hooks/use-auth-user"
 import { Button } from "@/components/ui/button"
 import { createBrowserSupabaseClient } from "@/lib/supabase/client"
 
-export default function JoinPage() {
+function JoinPageContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const token = searchParams.get("token") ?? ""
@@ -157,5 +158,19 @@ export default function JoinPage() {
         </Button>
       </div>
     </div>
+  )
+}
+
+export default function JoinPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-svh w-full items-center justify-center p-6">
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        </div>
+      }
+    >
+      <JoinPageContent />
+    </Suspense>
   )
 }

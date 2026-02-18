@@ -65,7 +65,17 @@ export function SignupForm({ ...props }: React.ComponentProps<typeof Card>) {
         },
       })
       if (signUpError) {
-        setError(signUpError.message)
+        const msg = signUpError.message
+        const isEmailError =
+          msg.toLowerCase().includes("email") ||
+          msg.toLowerCase().includes("confirmation") ||
+          msg.toLowerCase().includes("rate limit") ||
+          msg.toLowerCase().includes("500")
+        setError(
+          isEmailError
+            ? "We couldn't send the confirmation email. The app admin needs to set up email (SMTP) in Supabase. Try again later or ask them to fix it."
+            : msg
+        )
         return
       }
       if (data.session) {

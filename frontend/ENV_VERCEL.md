@@ -27,6 +27,23 @@ Set these in **Vercel → your project → Settings → Environment Variables**.
 |----------|--------------|--------|
 | `NEXT_PUBLIC_MAPBOX_TOKEN` | Production **and** Preview | Mapbox public access token (starts with `pk.`) |
 
+## Auth emails (avoid rate limit)
+
+Supabase’s **built-in** auth email is limited to about **2 emails per hour** and is not for production. Signups will fail with “rate limit exceeded” if you rely on it.
+
+**Fix: use custom SMTP (Resend)** so signup confirmation and password-reset emails use Resend’s quota instead:
+
+1. **Supabase Dashboard** → **Project** → **Authentication** → **SMTP Settings** (or **Email Templates** → enable custom SMTP).
+2. Enable **Custom SMTP** and set:
+   - **Sender email**: a verified address (e.g. `noreply@yourdomain.com` in Resend) or Resend’s default `onboarding@resend.dev` for testing.
+   - **Sender name**: e.g. `Vantage`
+   - **Host**: `smtp.resend.com`
+   - **Port**: `465`
+   - **Username**: `resend`
+   - **Password**: your **Resend API key** (same as `RESEND_API_KEY` in Vercel).
+
+3. Save. All auth emails (confirm signup, reset password, etc.) will go through Resend, so you avoid Supabase’s 2/hour limit and use Resend’s (e.g. 100/day free, higher on paid).
+
 ## Auth (email confirmation redirect)
 
 So confirmation emails send users back to your app (not localhost):
@@ -42,8 +59,8 @@ So confirmation emails send users back to your app (not localhost):
 | Variable | Where to use | Notes |
 |----------|--------------|--------|
 | `OPENAI_API_KEY` | Production, Preview | For AI/chat features |
-| `RESEND_API_KEY` | Production, Preview | For sending emails from **Log Email** (Resend.com API key) |
-| `NEXT_PUBLIC_APP_URL` | Optional | Set to your production URL (e.g. custom domain) if you want email confirmation links to always use that host |
+| `RESEND_API_KEY` | Production, Preview | Resend.com API key. Used for **Log Email** and (when configured in Supabase SMTP) for **auth emails** (signup confirm, password reset) so you avoid Supabase’s 2/hour limit. |
+| `NEXT_PUBLIC_APP_URL` | **Recommended** | Your production app URL (e.g. `https://your-app.vercel.app`). Used for **team invite links** in emails and for auth redirects so they point to the live app, not localhost or a preview URL. |
 
 ## Checklist
 

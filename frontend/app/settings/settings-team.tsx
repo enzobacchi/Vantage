@@ -10,6 +10,7 @@ import {
   getOrganizationMembers,
   getPendingInvitations,
   revokeInvitation,
+  sendInviteEmail,
   type Invitation,
   type OrgMember,
 } from "@/app/actions/team"
@@ -81,11 +82,19 @@ export function SettingsTeam() {
       return
     }
     setGenerating(true)
-    const fullUrl =
-      typeof window !== "undefined" ? `${window.location.origin}${result.link}` : result.link
+    const baseUrl =
+      process.env.NEXT_PUBLIC_APP_URL ||
+      (typeof window !== "undefined" ? window.location.origin : "")
+    const fullUrl = baseUrl ? `${baseUrl.replace(/\/$/, "")}${result.link}` : result.link
     setGeneratedLink(fullUrl)
+    const emailResult = await sendInviteEmail(inviteEmail.trim(), fullUrl, inviteRole)
     setGenerating(false)
     await load()
+    if (emailResult.error) {
+      toast.warning(`Invite created, but email could not be sent: ${emailResult.error}. Copy the link below to share.`)
+    } else {
+      toast.success(`Invite sent to ${inviteEmail.trim()}. They can also use the link below.`)
+    }
   }
 
   const handleCopyLink = () => {
@@ -123,7 +132,7 @@ export function SettingsTeam() {
             <DialogHeader>
               <DialogTitle>Invite to team</DialogTitle>
               <DialogDescription>
-                Send an invite link. They must sign in or sign up, then they can join.
+                We'll send an invite link to their email. They sign in or sign up, then join.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
@@ -168,7 +177,7 @@ export function SettingsTeam() {
                     </Button>
                   </div>
                   <p className="text-[0.8rem] text-muted-foreground">
-                    Link expires in 48 hours. Share it with the invitee.
+                    Link expires in 48 hours. An email was sent to them; you can also copy the link to share.
                   </p>
                 </div>
               ) : (
@@ -178,7 +187,7 @@ export function SettingsTeam() {
                   disabled={!inviteEmail.trim() || generating}
                   className="w-full"
                 >
-                  {generating ? "Generating…" : "Generate invite link"}
+                  {generating ? "Sending…" : "Send invite"}
                 </Button>
               )}
             </div>

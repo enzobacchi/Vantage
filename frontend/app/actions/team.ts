@@ -1,7 +1,10 @@
 "use server"
 
+import { Resend } from "resend"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUserOrg, getCurrentUserOrgWithRole } from "@/lib/auth"
+
+const INVITE_FROM_EMAIL = "Vantage <onboarding@resend.dev>"
 
 export type OrgMember = {
   id: string
@@ -84,6 +87,47 @@ export async function createInvitation(
 
   if (error) return { link: "", error: error.message }
   return { link: `/join?token=${encodeURIComponent(token)}` }
+}
+
+/**
+ * Sends the invite link to the invitee's email. Call after createInvitation.
+ * Requires RESEND_API_KEY. Fails gracefully if email is not configured.
+ */
+export async function sendInviteEmail(
+  toEmail: string,
+  inviteLinkFullUrl: string,
+  role: "admin" | "member"
+): Promise<{ error?: string }> {
+  const ctx = await getCurrentUserOrgWithRole()
+  if (!ctx) return { error: "Unauthorized" }
+  if (!canManageTeam(ctx.role)) return { error: "Only owners and admins can invite." }
+
+  const apiKey = process.env.RESEND_API_KEY
+  if (!apiKey) return { error: "Email is not configured. Invite link was still created—copy and share it manually." }
+
+  const supabase = createAdminClient()
+  const { data: org } = await supabase
+    .from("organizations")
+    .select("name")
+    .eq("id", ctx.orgId)
+    .single()
+  const orgName = (org as { name?: string } | null)?.name ?? "the team"
+
+  const resend = new Resend(apiKey)
+  const { error } = await resend.emails.send({
+    from: INVITE_FROM_EMAIL,
+    to: toEmail.trim().toLowerCase(),
+    subject: `You're invited to join ${orgName}`,
+    html: `
+      <p>You've been invited to join <strong>${orgName.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</strong> as a ${role}.</p>
+      <p><a href="${inviteLinkFullUrl.replace(/"/g, "&quot;")}">Accept invite</a></p>
+      <p>Or copy this link: ${inviteLinkFullUrl.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>
+      <p>This link expires in 48 hours.</p>
+    `.trim(),
+  })
+
+  if (error) return { error: error.message }
+  return {}
 }
 
 export async function revokeInvitation(id: string): Promise<{ error?: string }> {

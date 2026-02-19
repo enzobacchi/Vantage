@@ -19,7 +19,7 @@ This app is now set up so **each ministry can sign in and see only their own dat
 
 3. **Data scoping**
    - All relevant API routes and server actions use the **current user’s organization** (from `organization_members`):
-     - Sync, QuickBooks status, donors (list/map/states), dashboard metrics, donations (recent/trend), reports (list/get/create/generate/save), tasks, and the Ask AI chat (RAG + stats).
+     - Sync, QuickBooks status, donors (list/map/states), dashboard metrics, donations (recent/trend), reports (list/get/create/generate/save), tasks.
 
 Result: each ministry only sees and syncs their own donors, reports, and data.
 

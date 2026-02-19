@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import OpenAI from "openai";
 
 import { requireUserOrg } from "@/lib/auth";
 import {
@@ -320,15 +319,6 @@ async function fetchQBInvoicesAllForLTV(
 export async function GET(request: Request) {
   let orgIdForTokenClear: string | null = null;
   try {
-    const openaiApiKey = process.env.OPENAI_API_KEY;
-    if (!openaiApiKey) {
-      return NextResponse.json(
-        { error: "Missing OPENAI_API_KEY for embeddings." },
-        { status: 500 }
-      );
-    }
-    const openai = new OpenAI({ apiKey: openaiApiKey });
-
     const url = new URL(request.url);
 
     const auth = await requireUserOrg();
@@ -563,12 +553,6 @@ export async function GET(request: Request) {
     let geocodedSucceeded = 0;
     let geocodedSkippedExisting = 0;
 
-    const embeddingInputs: string[] = [];
-    const embeddingTargetIndexes: number[] = [];
-    let embeddingsAttempted = 0;
-    let embeddingsGenerated = 0;
-    let embeddingsSkipped = 0;
-
     const donorsToUpsert: Array<Record<string, unknown>> = [];
     for (const c of customers) {
       const qbCustomerId = c.Id;
@@ -626,59 +610,6 @@ export async function GET(request: Request) {
       }
 
       donorsToUpsert.push(payload);
-
-      // Embedding generation (skip when unchanged to save credits).
-      const existing = existingByQbCustomerId.get(qbCustomerId);
-      const existingAddress = existing?.billing_address ?? null;
-      const existingLtv = toNumber(existing?.total_lifetime_value);
-      const existingHasEmbedding = existing?.embedding != null;
-
-      const nextAddress = (payload.billing_address as string | null) ?? null;
-      const nextLtv = typeof payload.total_lifetime_value === "number" ? payload.total_lifetime_value : total;
-
-      const addressChanged = existing ? existingAddress !== nextAddress : true;
-      const ltvChanged = existing ? (existingLtv ?? 0) !== nextLtv : true;
-      // Incremental with 0 total: skip embedding (totals recomputed later); avoid overwriting with $0.00.
-      const shouldEmbed =
-        (!isFullSync && total === 0)
-          ? false
-          : !existing || !existingHasEmbedding || addressChanged || ltvChanged;
-      if (!shouldEmbed) {
-        embeddingsSkipped += 1;
-        continue;
-      }
-
-      const city = parsedCity ?? "Unknown";
-      const state = parsedState ?? "Unknown";
-      const name = displayName ?? "Unknown";
-      const email = c.PrimaryEmailAddr?.Address ?? "Unknown";
-
-      const contextString = `${name} is a donor located in ${city}, ${state}. They have a total lifetime value of $${Number(nextLtv).toFixed(
-        2
-      )}. Contact email: ${email}.`;
-
-      embeddingInputs.push(contextString);
-      embeddingTargetIndexes.push(donorsToUpsert.length - 1);
-    }
-
-    // Batch-generate embeddings and attach to donor payloads.
-    const batchSize = 100;
-    for (let i = 0; i < embeddingInputs.length; i += batchSize) {
-      const batch = embeddingInputs.slice(i, i + batchSize);
-      embeddingsAttempted += batch.length;
-      const res = await openai.embeddings.create({
-        model: "text-embedding-3-small",
-        input: batch,
-      });
-
-      const vecs = res.data?.map((x) => x.embedding) ?? [];
-      for (let j = 0; j < vecs.length; j++) {
-        const payloadIndex = embeddingTargetIndexes[i + j];
-        const vec = vecs[j];
-        if (payloadIndex == null || !vec) continue;
-        donorsToUpsert[payloadIndex].embedding = vec;
-        embeddingsGenerated += 1;
-      }
     }
 
     if (donorsToUpsert.length) {
@@ -836,9 +767,6 @@ export async function GET(request: Request) {
       geocodedAttempted,
       geocodedSucceeded,
       geocodedSkippedExisting,
-      embeddingsAttempted,
-      embeddingsGenerated,
-      embeddingsSkipped,
     });
   } catch (e) {
     if (e instanceof QBApiError) {

@@ -90,7 +90,7 @@ export async function POST(request: Request) {
 
     if (!inserted?.id) {
       const firstError = errors[0] ?? "Unknown error";
-      console.error("[reports/upload] All insert attempts failed:", errors);
+      console.error("[reports/upload] All insert attempts failed");
       return NextResponse.json(
         { error: firstError, details: errors },
         { status: 500 }
@@ -104,7 +104,7 @@ export async function POST(request: Request) {
       rowCount,
     });
   } catch (err) {
-    console.error("[reports/upload] Unexpected error:", err);
+    console.error("[reports/upload] Unexpected error:", err instanceof Error ? err.message : "Upload failed.");
     const message = err instanceof Error ? err.message : "Upload failed.";
     return NextResponse.json(
       { error: message, details: [String(err)] },

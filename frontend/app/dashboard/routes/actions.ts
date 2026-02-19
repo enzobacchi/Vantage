@@ -1,6 +1,5 @@
 "use server"
 
-import OpenAI from "openai"
 import { getCurrentUserOrg } from "@/lib/auth"
 import { createAdminClient } from "@/lib/supabase/admin"
 
@@ -225,8 +224,7 @@ export async function getDonorsForRoute(
 }
 
 /**
- * Optimize route: (A) sort donors by nearest-neighbor from start, (B) LLM adds icebreakers only.
- * Route order is deterministic; AI does not reorder.
+ * Optimize route: sort donors by nearest-neighbor from start. Mapbox only; no AI.
  */
 export async function optimizeRoute(
   donors: RouteDonorWithCoords[],
@@ -239,69 +237,6 @@ export async function optimizeRoute(
     throw new Error("Could not find start location for route order.")
   }
 
-  // Step A: Greedy nearest-neighbor sort (deterministic route order)
   const sortedDonors = await sortRouteByDistance(coords, donors)
-
-  // Step B: LLM adds icebreakers only; do not reorder
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) throw new Error("Missing OPENAI_API_KEY")
-
-  const openai = new OpenAI({ apiKey })
-  const systemPrompt = `You are a Fundraising Assistant. I will provide a list of donors in a driving route order. For each donor, write a 1-sentence "Icebreaker" (under 15 words) based on their last gift date and context. Do not reorder the list.
-
-Rules:
-- If last_donation_date is missing: suggest asking if they would be interested in learning about your new initiative.
-- If last gift was over 12 months ago: suggest mentioning it has been a while and asking for an update.
-- If last gift was within the last 3 months: suggest thanking them for their recent support.
-
-Respond with a single JSON object: { "stops": [ { "id": "<donor id>", "icebreaker": "<exactly one short sentence, under 15 words>" }, ... ] }
-Include every donor id exactly once in the same order as the list. Do not reorder.`
-
-  const userMessage = JSON.stringify(
-    sortedDonors.map((d) => ({
-      id: d.id,
-      display_name: d.display_name,
-      billing_address: d.billing_address,
-      last_donation_date: d.last_donation_date,
-    }))
-  )
-
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userMessage },
-    ],
-  })
-
-  const raw = completion.choices[0]?.message?.content ?? "{}"
-  let parsed: { stops?: Array<{ id?: string; icebreaker?: string }> }
-  try {
-    parsed = JSON.parse(raw) as { stops?: Array<{ id?: string; icebreaker?: string }> }
-  } catch {
-    return sortedDonors.map((d) => ({ ...d, icebreaker: "" }))
-  }
-
-  const stops = Array.isArray(parsed.stops) ? parsed.stops : []
-  const byId = new Map(sortedDonors.map((d) => [d.id, d]))
-  const result: RouteDonorWithIcebreaker[] = []
-
-  for (const stop of stops) {
-    const id = stop?.id
-    const donor = id ? byId.get(id) : null
-    if (donor) {
-      result.push({
-        ...donor,
-        icebreaker: typeof stop.icebreaker === "string" ? stop.icebreaker.trim() : "",
-      })
-    }
-  }
-
-  const resultIds = new Set(result.map((r) => r.id))
-  for (const d of sortedDonors) {
-    if (!resultIds.has(d.id)) result.push({ ...d, icebreaker: "" })
-  }
-
-  return result
+  return sortedDonors.map((d) => ({ ...d, icebreaker: "" }))
 }

@@ -3,7 +3,7 @@
 import * as React from "react"
 import { useRouter, useSearchParams, usePathname } from "next/navigation"
 
-const NAV_VIEWS = ["dashboard", "donor-crm", "donor-map", "ai-agent", "saved-reports", "settings"] as const
+const NAV_VIEWS = ["dashboard", "donor-crm", "donor-map", "saved-reports", "settings"] as const
 type NavView = (typeof NAV_VIEWS)[number]
 
 function isValidNavView(v: string | null): v is NavView {
@@ -16,9 +16,6 @@ interface NavContextType {
   selectedDonorId: string | null
   openDonor: (donorId: string) => void
   clearSelectedDonor: () => void
-  pendingAiQuery: string | null
-  openAiWithQuery: (query: string) => void
-  clearPendingAiQuery: () => void
 }
 
 const NavContext = React.createContext<NavContextType | undefined>(undefined)
@@ -50,7 +47,6 @@ export function NavProvider({ children }: { children: React.ReactNode }) {
   }, [pathname, searchParams])
 
   const [selectedDonorId, setSelectedDonorId] = React.useState<string | null>(null)
-  const [pendingAiQuery, setPendingAiQuery] = React.useState<string | null>(null)
 
   const openDonor = React.useCallback(
     (donorId: string) => {
@@ -67,21 +63,6 @@ export function NavProvider({ children }: { children: React.ReactNode }) {
     setSelectedDonorId(null)
   }, [])
 
-  const openAiWithQuery = React.useCallback(
-    (query: string) => {
-      setPendingAiQuery(query)
-      setActiveViewState("ai-agent")
-      if (pathname === "/dashboard") {
-        router.replace("/dashboard?view=ai-agent", { scroll: false })
-      }
-    },
-    [pathname, router]
-  )
-
-  const clearPendingAiQuery = React.useCallback(() => {
-    setPendingAiQuery(null)
-  }, [])
-
   return (
     <NavContext.Provider
       value={{
@@ -90,9 +71,6 @@ export function NavProvider({ children }: { children: React.ReactNode }) {
         selectedDonorId,
         openDonor,
         clearSelectedDonor,
-        pendingAiQuery,
-        openAiWithQuery,
-        clearPendingAiQuery,
       }}
     >
       {children}

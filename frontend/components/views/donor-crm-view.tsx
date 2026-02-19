@@ -24,7 +24,6 @@ import { DonorBadges, DonorTagFilter, DEFAULT_BADGE_CONFIG, type TagForFilter } 
 import { SaveReportButton } from "@/components/donors/save-report-button"
 import { DonorNotesCard } from "@/components/donors/donor-notes-card"
 import { useNav } from "@/components/nav-context"
-import { LetterDialog } from "@/components/donors/letter-dialog"
 import { MagicActionsCard } from "@/components/donors/magic-actions-card"
 import { DonorTagsCard } from "@/components/donors/donor-tags-card"
 import { Badge } from "@/components/ui/badge"
@@ -1009,18 +1008,6 @@ export function DonorCRMView() {
                   />
                 )}
               </div>
-              {!sheetLoading && sheetDonorId && (
-                <LetterDialog
-                  donorId={sheetDonorId}
-                  defaultYear={new Date().getFullYear() - 1}
-                  trigger={
-                    <Button variant="outline" size="sm" className="shrink-0 h-8 gap-1.5">
-                      <FileText className="size-3.5" />
-                      <span className="hidden sm:inline">Letter</span>
-                    </Button>
-                  }
-                />
-              )}
             </div>
           </div>
           <div className="flex-1 overflow-y-auto px-4 space-y-4 py-4 pb-6">

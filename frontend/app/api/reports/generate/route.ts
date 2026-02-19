@@ -1,4 +1,3 @@
-import OpenAI from "openai";
 import { NextResponse } from "next/server";
 
 import { requireUserOrg } from "@/lib/auth";
@@ -7,20 +6,10 @@ import { stripSqlArtifacts } from "@/lib/utils";
 
 export const runtime = "nodejs";
 
-/** Donors table columns we allow in filters and in select. */
-const DONORS_FILTER_COLUMNS = new Set([
-  "display_name",
-  "email",
-  "billing_address",
-  "total_lifetime_value",
-  "last_donation_date",
-]);
-const ALLOWED_OPERATORS = new Set(["ilike", "like", "eq", "gt", "gte", "lt", "lte"]);
-
 const DEFAULT_SELECT = "display_name,email,billing_address,total_lifetime_value,last_donation_date";
 const MAX_ROWS = 5000;
 
-/** Report builder column id -> DB column(s) and CSV header label. first_name/last_name use DB columns when present, else derived from display_name. */
+/** Report builder column id -> DB column(s) and CSV header label. */
 const REPORT_COLUMN_CONFIG: Record<
   string,
   { dbColumns: string[]; label: string }
@@ -41,20 +30,15 @@ const REPORT_COLUMN_CONFIG: Record<
 
 const VALID_COLUMN_IDS = new Set(Object.keys(REPORT_COLUMN_CONFIG));
 
-/** US state name -> abbreviation for strict location filtering. */
-const STATE_NAME_TO_ABBR: Record<string, string> = {
-  alabama: "AL", alaska: "AK", arizona: "AZ", arkansas: "AR", california: "CA", colorado: "CO",
-  connecticut: "CT", delaware: "DE", florida: "FL", georgia: "GA", hawaii: "HI", idaho: "ID",
-  illinois: "IL", indiana: "IN", iowa: "IA", kansas: "KS", kentucky: "KY", louisiana: "LA",
-  maine: "ME", maryland: "MD", massachusetts: "MA", michigan: "MI", minnesota: "MN", mississippi: "MS",
-  missouri: "MO", montana: "MT", nebraska: "NE", nevada: "NV", "new hampshire": "NH", "new jersey": "NJ",
-  "new mexico": "NM", "new york": "NY", "north carolina": "NC", "north dakota": "ND", ohio: "OH",
-  oklahoma: "OK", oregon: "OR", pennsylvania: "PA", "rhode island": "RI", "south carolina": "SC",
-  "south dakota": "SD", tennessee: "TN", texas: "TX", utah: "UT", vermont: "VT", virginia: "VA",
-  washington: "WA", "west virginia": "WV", wisconsin: "WI", wyoming: "WY", "district of columbia": "DC",
+type FilterRow = {
+  id: string;
+  field: string;
+  operator: string;
+  value: string | number | string[];
+  value2?: string | number;
 };
 
-type FilterSpec = { column: string; operator: string; value: string | number };
+const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
 
 function escapeCsvCell(value: unknown): string {
   if (value == null) return "";
@@ -63,16 +47,6 @@ function escapeCsvCell(value: unknown): string {
   return s;
 }
 
-function jsonToCsv(rows: Array<Record<string, unknown>>, headers: string[]): string {
-  if (rows.length === 0) return headers.map(escapeCsvCell).join(",");
-  const lines = [headers.map(escapeCsvCell).join(",")];
-  for (const row of rows) {
-    lines.push(headers.map((h) => escapeCsvCell((row as Record<string, unknown>)[h])).join(","));
-  }
-  return lines.join("\n");
-}
-
-/** Build Supabase select string from selected column ids (unique DB columns). */
 function buildSelectFromColumns(selectedColumns: string[]): string {
   const set = new Set<string>();
   for (const id of selectedColumns) {
@@ -83,7 +57,6 @@ function buildSelectFromColumns(selectedColumns: string[]): string {
   return list.length > 0 ? list.join(",") : DEFAULT_SELECT;
 }
 
-/** Map raw DB row to output row keyed by column id. Use first_name/last_name columns when present, else derive from display_name. */
 function mapRowToOutputColumns(
   raw: Record<string, unknown>,
   selectedColumns: string[]
@@ -111,202 +84,149 @@ function mapRowToOutputColumns(
   return out;
 }
 
-/**
- * System prompt: LLM sees only schema and returns a JSON with filters (no donor data).
- * For location we require two ilike filters (state name + abbreviation) so we can OR them.
- */
-const SCHEMA_DESCRIPTION = `
-Donors table columns (use these exact names in "column" field):
-- display_name (text): donor name
-- email (text)
-- billing_address (text): unstructured address e.g. "123 Main St, Detroit, MI 48201"
-- total_lifetime_value (numeric): total giving
-- last_donation_date (date, ISO string)
-
-You must return JSON only: { "title": string, "summary": string, "filters": [ { "column": string, "operator": string, "value": string or number } ] }
-Allowed operators: ilike, like, eq, gt, gte, lt, lte.
-
-Location rule (critical): For any US state or location in the prompt (e.g. "in Michigan", "donors in Texas"):
-  Output TWO separate filters for billing_address, both with operator "ilike":
-  1) value containing the full state name, e.g. "%Michigan%" or "%Texas%"
-  2) value containing the state abbreviation with commas/spaces to avoid false matches, e.g. "%, MI %" or "%, TX %"
-  We will combine these with OR so only donors in that state match. Never use a single pattern like "%Michigan MI%".
-
-Amount rule: For "over $500", "under 1000", etc., use column "total_lifetime_value" and operator gt, gte, lt, or lte with a numeric value.
-Summary: Short human-readable criteria only; no SQL wildcards (%, _) in the summary.
-`;
-
-function parseAndValidateFilters(raw: unknown): FilterSpec[] {
-  if (!Array.isArray(raw)) return [];
-  const out: FilterSpec[] = [];
-  for (const item of raw) {
-    if (!item || typeof item !== "object") continue;
-    let col = typeof (item as any).column === "string" ? (item as any).column.trim() : "";
-    if (col === "address" || col === "state") col = "billing_address";
-    const op = typeof (item as any).operator === "string" ? (item as any).operator.toLowerCase().trim() : "";
-    const val = (item as any).value;
-    if (!DONORS_FILTER_COLUMNS.has(col) || !ALLOWED_OPERATORS.has(op)) continue;
-    if (op === "ilike" || op === "like") {
-      const s = typeof val === "string" ? val : String(val ?? "");
-      if (s.length > 500) continue; // avoid huge patterns
-      out.push({ column: col, operator: op, value: s });
-    } else {
-      const n = typeof val === "number" ? val : Number(val);
-      if (!Number.isFinite(n)) continue;
-      out.push({ column: col, operator: op, value: n });
-    }
+/** Build title and summary from filters for display. */
+function buildTitleAndSummary(filters: FilterRow[]): { title: string; summary: string } {
+  if (filters.length === 0) {
+    return { title: "Filter Report", summary: "All donors (no filters)" };
   }
-  return out;
-}
-
-/**
- * Expand a single state-name pattern into 4 strictly quoted ilike variations:
- * 1. Full name (e.g. %Michigan%)
- * 2. %, MI % (comma + space + abbr + space) - standard
- * 3. %, MI,% (comma + space + abbr + comma) - matches "... MI, 48095"
- * 4. %, MI (comma + space + abbr, end of string)
- */
-function expandAddressIlikeForState(value: string): string[] {
-  const v = String(value).trim();
-  const patterns = [v];
-  const lower = v.replace(/%/g, "").trim().toLowerCase();
-  for (const [name, abbr] of Object.entries(STATE_NAME_TO_ABBR)) {
-    if (lower.includes(name)) {
-      patterns.push(`%, ${abbr} %`);
-      patterns.push(`%, ${abbr},%`);
-      patterns.push(`%, ${abbr}`);
-      break;
-    }
-  }
-  for (const [name, abbr] of Object.entries(STATE_NAME_TO_ABBR)) {
-    if (lower === abbr.toLowerCase() || new RegExp(`\\b${abbr}\\b`).test(lower)) {
-      patterns.push(`%${name}%`);
-      break;
-    }
-  }
-  return [...new Set(patterns)];
-}
-
-/**
- * Escape and wrap a value for use inside PostgREST .or() filter string.
- * EVERY value must be double-quoted so the parser does not break on commas.
- */
-function escapeOrValue(value: string): string {
-  const escaped = String(value).replace(/"/g, '""');
-  return `"${escaped}"`;
-}
-
-/**
- * Group billing_address ilike/like filters into one OR clause; apply others as AND.
- * Every value in the .or() string is strictly double-quoted (escapeOrValue).
- */
-function buildOrAndFilters(filters: FilterSpec[]): {
-  orExpr: string | null;
-  andFilters: FilterSpec[];
-} {
-  const addressIlikes: string[] = [];
-  const andFilters: FilterSpec[] = [];
+  const parts: string[] = [];
   for (const f of filters) {
-    if (f.column === "billing_address" && (f.operator === "ilike" || f.operator === "like")) {
-      const expanded = expandAddressIlikeForState(String(f.value));
-      for (const val of expanded) {
-        addressIlikes.push(`${f.column}.${f.operator}.${escapeOrValue(val)}`);
-      }
-    } else {
-      andFilters.push(f);
-    }
+    const val = Array.isArray(f.value) ? f.value.length : f.value;
+    const val2 = f.value2 != null ? ` and ${f.value2}` : "";
+    parts.push(`${f.field} ${f.operator} ${val}${val2}`);
   }
-  const orExpr = addressIlikes.length > 0 ? addressIlikes.join(",") : null;
-  return { orExpr, andFilters };
+  return {
+    title: "Filter Report",
+    summary: parts.join("; "),
+  };
 }
 
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => null)) as {
-      prompt?: unknown;
-      history?: unknown;
+      filters?: unknown;
       selectedColumns?: unknown;
     } | null;
-    const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : "";
-    const rawHistory = body?.history;
+    const rawFilters = body?.filters;
     const rawSelectedColumns = body?.selectedColumns;
     const selectedColumns: string[] = Array.isArray(rawSelectedColumns)
       ? (rawSelectedColumns as string[]).filter((c) => typeof c === "string" && VALID_COLUMN_IDS.has(c))
       : Array.from(VALID_COLUMN_IDS);
-    const history: { role: "user" | "assistant"; content: string }[] = Array.isArray(rawHistory)
-      ? (rawHistory as { role?: unknown; content?: unknown }[])
-          .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
-          .map((m) => ({ role: m.role as "user" | "assistant", content: String(m.content) }))
-      : [];
 
-    if (!prompt) {
-      return NextResponse.json({ error: "Prompt required" }, { status: 400 });
-    }
+    const filters: FilterRow[] = Array.isArray(rawFilters)
+      ? (rawFilters as FilterRow[]).filter(
+          (f) => f && typeof f.field === "string" && typeof f.operator === "string"
+        )
+      : [];
 
     const auth = await requireUserOrg();
     if (!auth.ok) return auth.response;
 
-    const openaiApiKey = process.env.OPENAI_API_KEY;
-    if (!openaiApiKey) {
-      return NextResponse.json({ error: "Missing OPENAI_API_KEY" }, { status: 500 });
-    }
-
-    const openai = new OpenAI({ apiKey: openaiApiKey });
-    const reportHistory = history.slice(-20).map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a report filter generator. You do NOT see any donor data. You only see the database schema. " +
-            "Convert the user request into a JSON object with title, summary, and filters. " +
-            SCHEMA_DESCRIPTION,
-        },
-        ...reportHistory,
-        { role: "user", content: prompt },
-      ],
-    });
-
-    let plan: { title?: string; summary?: string; filters?: unknown } = {};
-    try {
-      plan = JSON.parse(completion.choices[0]?.message?.content ?? "{}");
-    } catch {
-      plan = {};
-    }
-
-    const title = stripSqlArtifacts(typeof plan?.title === "string" ? plan.title.trim() : "AI Report");
-    const summary = stripSqlArtifacts(typeof plan?.summary === "string" ? plan.summary.trim() : "");
-    const filters = parseAndValidateFilters(plan?.filters);
-
-    const { orExpr, andFilters } = buildOrAndFilters(filters);
-
-    const selectStr = buildSelectFromColumns(selectedColumns);
     const supabase = createAdminClient();
+    const selectStr = buildSelectFromColumns(selectedColumns);
+
     let q = supabase
       .from("donors")
       .select(selectStr)
       .eq("org_id", auth.orgId)
       .limit(MAX_ROWS);
 
-    if (orExpr) {
-      console.log("🔍 Generated Filter String:", orExpr);
-      q = q.or(orExpr);
+    // Tags filter: donor_ids that have at least one of the selected tags
+    const tagFilter = filters.find((f) => f.field === "tags");
+    if (tagFilter && Array.isArray(tagFilter.value) && tagFilter.value.length > 0) {
+      const { data: donorTagRows } = await supabase
+        .from("donor_tags")
+        .select("donor_id")
+        .in("tag_id", tagFilter.value);
+      const donorIdsWithTag = [...new Set((donorTagRows ?? []).map((r) => r.donor_id))];
+      if (donorIdsWithTag.length === 0) {
+        return NextResponse.json(
+          { error: "Generated report is empty. No donors match the selected tags." },
+          { status: 400 }
+        );
+      }
+      q = q.in("id", donorIdsWithTag);
     }
-    for (const f of andFilters) {
-      if (f.operator === "eq") q = q.eq(f.column, f.value);
-      else if (f.operator === "gt") q = q.gt(f.column, f.value as number);
-      else if (f.operator === "gte") q = q.gte(f.column, f.value as number);
-      else if (f.operator === "lt") q = q.lt(f.column, f.value as number);
-      else if (f.operator === "lte") q = q.lte(f.column, f.value as number);
-      else if (f.operator === "ilike") q = q.ilike(f.column, f.value as string);
-      else if (f.operator === "like") q = q.like(f.column, f.value as string);
+
+    // Apply donor-table filters (excluding gift_count and first_donation_date - those need post-fetch)
+    // Refactor: apply all simple filters first, then fetch. For gift_count and first_donation_date,
+    // we need a different approach - fetch donors first, then filter in memory, or use raw SQL.
+    // For now, skip gift_count and first_donation_date in the initial query and add them as
+    // post-fetch filters if needed. Actually that won't work well for large datasets.
+    // Better: apply deterministic filters (total_lifetime_value, last_donation_amount, dates, state, city, zip, lifecycle, tags)
+    // and defer gift_count/first_donation_date to a follow-up. Let me simplify: don't support gift_count
+    // and first_donation_date in the first iteration - they require subqueries. I'll remove the gift_count
+    // block above (it's wrong anyway - we're calling q.select before q has executed) and add a TODO.
+    // Actually let me do it properly: run the base query with all simple filters, get donor ids, then for
+    // gift_count and first_donation_date run separate queries and intersect. Let me rewrite.
+
+    for (const f of filters) {
+      if (f.field === "tags" || f.field === "gift_count" || f.field === "first_donation_date")
+        continue;
+
+      const col = f.field === "total_lifetime_value"
+        ? "total_lifetime_value"
+        : f.field === "last_donation_amount"
+          ? "last_donation_amount"
+            : f.field === "last_donation_date"
+            ? "last_donation_date"
+            : f.field === "state"
+                ? "state"
+                : f.field === "city"
+                  ? "city"
+                  : f.field === "zip"
+                    ? "zip"
+                    : null;
+
+      if (!col) continue;
+
+      const op = f.operator;
+      const val = f.value;
+      const val2 = f.value2;
+
+      if (f.field === "lifecycle_status") {
+        const status = String(val || "").trim();
+        if (!["New", "Active", "Lapsed", "Lost"].includes(status)) continue;
+        const now = Date.now();
+        const sixMo = new Date(now - 6 * MONTH_MS).toISOString().slice(0, 10);
+        const twelveMo = new Date(now - 12 * MONTH_MS).toISOString().slice(0, 10);
+        const twentyFourMo = new Date(now - 24 * MONTH_MS).toISOString().slice(0, 10);
+        if (status === "New") {
+          q = q.gte("last_donation_date", sixMo);
+        } else if (status === "Active") {
+          q = q.lt("last_donation_date", sixMo).gte("last_donation_date", twelveMo);
+        } else if (status === "Lapsed") {
+          q = q.lt("last_donation_date", twelveMo).gte("last_donation_date", twentyFourMo);
+        } else {
+          q = q.or(`last_donation_date.lt.${twentyFourMo},last_donation_date.is.null`);
+        }
+        continue;
+      }
+
+      if (op === "eq") {
+        q = q.eq(col, val);
+      } else if (op === "gt") {
+        q = q.gt(col, val as number | string);
+      } else if (op === "gte") {
+        q = q.gte(col, val as number | string);
+      } else if (op === "lt") {
+        q = q.lt(col, val as number | string);
+      } else if (op === "lte") {
+        q = q.lte(col, val as number | string);
+      } else if (op === "between" && val2 != null) {
+        q = q.gte(col, val as number | string).lte(col, val2 as number | string);
+      } else if (op === "contains") {
+        q = q.ilike(col, `%${String(val)}%`);
+      } else if (op === "is_exactly") {
+        q = q.eq(col, val);
+      } else if (op === "before") {
+        q = q.lt(col, String(val));
+      } else if (op === "after") {
+        q = q.gt(col, String(val));
+      }
     }
 
     const { data, error } = await q;
-    console.log("✅ Donors Found:", data?.length ?? 0);
     if (error) {
       return NextResponse.json(
         { error: "Failed to execute report query.", details: error.message },
@@ -314,7 +234,64 @@ export async function POST(request: Request) {
       );
     }
 
-    const rawRows = Array.isArray(data) ? (data as Array<Record<string, unknown>>) : [];
+    let rawRows = Array.isArray(data) ? (data as unknown as Array<Record<string, unknown>>) : [];
+    const donorIds = rawRows.map((r) => r.id as string).filter(Boolean);
+
+    // Post-fetch: gift_count and first_donation_date (require donations subquery)
+    const giftCountFilter = filters.find((f) => f.field === "gift_count");
+    const firstDateFilter = filters.find((f) => f.field === "first_donation_date");
+    if ((giftCountFilter || firstDateFilter) && donorIds.length > 0) {
+      const { data: donations } = await supabase
+        .from("donations")
+        .select("donor_id,date")
+        .in("donor_id", donorIds);
+      const countByDonor = new Map<string, number>();
+      const firstByDonor = new Map<string, string>();
+      for (const r of donations ?? []) {
+        const did = (r as { donor_id: string; date: string }).donor_id;
+        const d = (r as { donor_id: string; date: string }).date;
+        countByDonor.set(did, (countByDonor.get(did) ?? 0) + 1);
+        if (d) {
+          const cur = firstByDonor.get(did);
+          if (!cur || d < cur) firstByDonor.set(did, d);
+        }
+      }
+      let keepIds = new Set(donorIds);
+      if (giftCountFilter && giftCountFilter.value != null && giftCountFilter.value !== "") {
+        const op = giftCountFilter.operator;
+        const val = Number(giftCountFilter.value);
+        const val2 = giftCountFilter.value2 != null ? Number(giftCountFilter.value2) : null;
+        keepIds = new Set(
+          donorIds.filter((id) => {
+            const cnt = countByDonor.get(id) ?? 0;
+            if (op === "eq") return cnt === val;
+            if (op === "gt") return cnt > val;
+            if (op === "gte") return cnt >= val;
+            if (op === "lt") return cnt < val;
+            if (op === "lte") return cnt <= val;
+            if (op === "between" && val2 != null) return cnt >= val && cnt <= val2;
+            return true;
+          })
+        );
+      }
+      if (firstDateFilter && firstDateFilter.value != null && firstDateFilter.value !== "") {
+        const op = firstDateFilter.operator;
+        const v = String(firstDateFilter.value);
+        const v2 = firstDateFilter.value2 != null ? String(firstDateFilter.value2) : null;
+        keepIds = new Set(
+          [...keepIds].filter((id) => {
+            const firstDate = firstByDonor.get(id);
+            if (!firstDate) return false; // no donations = no join date, exclude
+            if (op === "before") return firstDate < v;
+            if (op === "after") return firstDate > v;
+            if (op === "between" && v2 != null) return firstDate >= v && firstDate <= v2;
+            return true;
+          })
+        );
+      }
+      rawRows = rawRows.filter((r) => keepIds.has(r.id as string));
+    }
+    const { title, summary } = buildTitleAndSummary(filters);
     const headerLabels = selectedColumns.map((id) => REPORT_COLUMN_CONFIG[id]?.label ?? id);
     const outputRows = rawRows.map((raw) => mapRowToOutputColumns(raw, selectedColumns));
     const csv = [
@@ -331,11 +308,8 @@ export async function POST(request: Request) {
     }
 
     const organization_id = auth.orgId;
-
     const csvBytes = Buffer.byteLength(csv, "utf8");
-    // query column is NOT NULL in DB; use "" for text-to-query reports (no SQL).
     const queryValue = "";
-    // Try multiple shapes: 09+10 first, then 09 without org_id, then legacy filter_criteria only (04)
     const insertPayloads: Array<Record<string, unknown>> = [
       { organization_id, title, type: "CSV", content: csv, query: queryValue, summary, records_count: rowCount },
       { organization_id, title, type: "CSV", content: csv, query: queryValue, summary, records_count: rowCount },
@@ -346,8 +320,7 @@ export async function POST(request: Request) {
 
     let inserted: { id?: string } | null = null;
     const errors: string[] = [];
-    for (let i = 0; i < insertPayloads.length; i++) {
-      const payload = insertPayloads[i];
+    for (const payload of insertPayloads) {
       const { data: ins, error: insErr } = await supabase
         .from("saved_reports")
         .insert(payload as Record<string, unknown>)
@@ -361,9 +334,8 @@ export async function POST(request: Request) {
     }
 
     if (!inserted) {
-      const firstError = errors[0] ?? "Failed to save report.";
       return NextResponse.json(
-        { error: firstError, details: errors },
+        { error: errors[0] ?? "Failed to save report.", details: errors },
         { status: 500 }
       );
     }
@@ -373,13 +345,13 @@ export async function POST(request: Request) {
       reportId: String(inserted?.id ?? ""),
       rowCount,
       bytes: csvBytes,
-      title,
-      summary,
+      title: stripSqlArtifacts(title),
+      summary: stripSqlArtifacts(summary),
     });
   } catch (e: unknown) {
     const err = e as { message?: string; details?: string; hint?: string };
     const message = err?.message ?? (e instanceof Error ? e.message : "Unknown error");
-    console.error("Report generate error:", e);
+    console.error("Report generate error:", message);
     return NextResponse.json(
       { error: message, details: err?.details ?? err?.hint ?? message },
       { status: 500 }

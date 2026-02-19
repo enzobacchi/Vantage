@@ -174,7 +174,7 @@ export async function GET(
       const criteria = JSON.parse(row.query) as CrmCriteria;
       content = await generateCrmReportContent(supabase, auth.orgId, criteria);
     } catch (e) {
-      console.error("[reports] CRM content generation failed:", e);
+      console.error("[reports] CRM content generation failed:", e instanceof Error ? e.message : String(e));
       content = "Display Name,Email,Phone,Last Gift Date,Lifetime Value,Address\n(Unable to generate report. Criteria may be invalid.)";
     }
   }

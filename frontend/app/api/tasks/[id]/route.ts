@@ -1,52 +1,29 @@
 import { NextResponse } from "next/server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireUserOrg } from "@/lib/auth";
 
 export const runtime = "nodejs";
-
-async function getCurrentOrgId(supabase: ReturnType<typeof createAdminClient>) {
-  let result = await supabase
-    .from("organizations")
-    .select("id")
-    .not("qb_refresh_token", "is", null)
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (result.error && result.error.message?.includes("updated_at")) {
-    result = await supabase
-      .from("organizations")
-      .select("id")
-      .not("qb_refresh_token", "is", null)
-      .limit(1)
-      .maybeSingle();
-  }
-  return result.data?.id ?? null;
-}
 
 export async function PATCH(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireUserOrg();
+    if (!auth.ok) return auth.response;
+
     const { id } = await params;
     if (!id) {
       return NextResponse.json({ error: "Missing task id." }, { status: 400 });
     }
 
     const supabase = createAdminClient();
-    const orgId = await getCurrentOrgId(supabase);
-    if (!orgId) {
-      return NextResponse.json(
-        { error: "No organization found. Connect QuickBooks first." },
-        { status: 400 }
-      );
-    }
-
     const { data: existing } = await supabase
       .from("tasks")
       .select("id,is_completed")
       .eq("id", id)
-      .eq("organization_id", orgId)
+      .eq("organization_id", auth.orgId)
       .single();
 
     if (!existing) {
@@ -57,7 +34,7 @@ export async function PATCH(
       .from("tasks")
       .update({ is_completed: !existing.is_completed })
       .eq("id", id)
-      .eq("organization_id", orgId)
+      .eq("organization_id", auth.orgId)
       .select("id,title,is_completed,created_at")
       .single();
 
@@ -83,25 +60,20 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireUserOrg();
+    if (!auth.ok) return auth.response;
+
     const { id } = await params;
     if (!id) {
       return NextResponse.json({ error: "Missing task id." }, { status: 400 });
     }
 
     const supabase = createAdminClient();
-    const orgId = await getCurrentOrgId(supabase);
-    if (!orgId) {
-      return NextResponse.json(
-        { error: "No organization found. Connect QuickBooks first." },
-        { status: 400 }
-      );
-    }
-
     const { error } = await supabase
       .from("tasks")
       .delete()
       .eq("id", id)
-      .eq("organization_id", orgId);
+      .eq("organization_id", auth.orgId);
 
     if (error) {
       return NextResponse.json(

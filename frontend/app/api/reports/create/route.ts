@@ -602,15 +602,10 @@ export async function POST(request: Request) {
 
   let parsed: ParsedQuery;
   try {
-    console.log("Attempting SQL:", sqlQuery);
     parsed = parseSqlToPostgrest(sqlQuery);
   } catch (e) {
-    console.error(
-      "SQL rejected:",
-      e instanceof Error ? e.message : String(e),
-      "\nSQL:",
-      sqlQuery
-    );
+    // Do not log raw SQL (may contain PII); log only generic rejection.
+    console.error("Report create: SQL rejected:", e instanceof Error ? e.message : String(e));
     return badRequest(
       "Unsupported or unsafe SQL. Only simple SELECT queries against donors/donations are allowed.",
       e instanceof Error ? e.message : String(e)

@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useSearchParams } from "next/navigation"
-import { IconFileText, IconFolder, IconFolderPlus, IconSparkles, IconUpload } from "@tabler/icons-react"
+import { IconFileText, IconFolder, IconFolderPlus, IconFilter, IconUpload } from "@tabler/icons-react"
 import { MoreHorizontal, PanelLeft, PanelLeftClose } from "lucide-react"
 import { toast } from "sonner"
 
@@ -32,6 +32,10 @@ import {
 } from "@/components/ui/dialog"
 import { stripSqlArtifacts } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
+import {
+  ReportFilterBuilder,
+  type FilterRow,
+} from "@/components/report-filter-builder"
 import { Label } from "@/components/ui/label"
 import {
   AlertDialog,
@@ -53,8 +57,6 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Checkbox } from "@/components/ui/checkbox"
-import { useNav } from "@/components/nav-context"
-
 /** Column options for the report builder (id matches backend selectedColumns). Grouped for UI. */
 const COLUMN_GROUPS = [
   {
@@ -109,8 +111,6 @@ function safeFilename(name: string) {
 
 export function SavedReportsView() {
   const searchParams = useSearchParams()
-  const { openAiWithQuery } = useNav()
-
   const [reports, setReports] = React.useState<SavedReport[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -123,7 +123,7 @@ export function SavedReportsView() {
   const [sidebarOpen, setSidebarOpen] = React.useState(false)
 
   const [generateDialogOpen, setGenerateDialogOpen] = React.useState(false)
-  const [generatePrompt, setGeneratePrompt] = React.useState("")
+  const [filters, setFilters] = React.useState<FilterRow[]>([])
   const [selectedColumns, setSelectedColumns] = React.useState<string[]>([
     "first_name",
     "last_name",
@@ -225,12 +225,6 @@ export function SavedReportsView() {
       setLoading(false)
     }
   }, [loadFolders, selectedFolderId])
-
-  const runReport = (report: SavedReport) => {
-    const q = (report.query ?? "").trim()
-    if (!q) return
-    openAiWithQuery(q)
-  }
 
   const handleUploadClick = () => {
     fileInputRef.current?.click()
@@ -447,8 +441,6 @@ export function SavedReportsView() {
   }
 
   const handleCreateReport = async () => {
-    const prompt = generatePrompt.trim()
-    if (!prompt) return
     if (selectedColumns.length === 0) {
       toast.error("Select at least one column")
       return
@@ -459,7 +451,7 @@ export function SavedReportsView() {
       const res = await fetch("/api/reports/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, selectedColumns }),
+        body: JSON.stringify({ filters, selectedColumns }),
       })
       const data = (await res.json().catch(() => null)) as { error?: string; title?: string; reportId?: string }
       if (!res.ok) {
@@ -470,7 +462,7 @@ export function SavedReportsView() {
         description: data?.title ? `"${data.title}" saved.` : "Saved.",
       })
       setGenerateDialogOpen(false)
-      setGeneratePrompt("")
+      setFilters([])
       await refresh()
     } catch (e) {
       toast.error("Failed to create report", {
@@ -578,10 +570,10 @@ export function SavedReportsView() {
                 className="bg-slate-900 hover:bg-slate-800 text-white"
                 onClick={() => {
                   setGenerateDialogOpen(true)
-                  setGeneratePrompt("")
+                  setFilters([])
                 }}
               >
-                <IconSparkles className="size-4" />
+                <IconFilter className="size-4" />
                 Create Report
               </Button>
             </div>
@@ -603,7 +595,6 @@ export function SavedReportsView() {
                 <TableRow className="bg-muted/50">
                   <TableHead className="font-semibold">Report Name</TableHead>
                   <TableHead className="font-semibold">Date Generated</TableHead>
-                  <TableHead className="font-semibold">Criteria</TableHead>
                   <TableHead className="font-semibold">Records</TableHead>
                   <TableHead className="w-[50px] font-semibold text-right">Action</TableHead>
                 </TableRow>
@@ -611,19 +602,19 @@ export function SavedReportsView() {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-muted-foreground text-sm">
+                    <TableCell colSpan={4} className="text-muted-foreground text-sm">
                       Loading…
                     </TableCell>
                   </TableRow>
                 ) : error ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-destructive text-sm">
+                    <TableCell colSpan={4} className="text-destructive text-sm">
                       {error}
                     </TableCell>
                   </TableRow>
                 ) : reports.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-muted-foreground text-sm">
+                    <TableCell colSpan={4} className="text-muted-foreground text-sm">
                       No saved reports yet.
                     </TableCell>
                   </TableRow>
@@ -643,9 +634,6 @@ export function SavedReportsView() {
                           day: "2-digit",
                           year: "numeric",
                         })}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground max-w-80 truncate">
-                        {report.summary ? stripSqlArtifacts(report.summary.trim()) : "—"}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {typeof report.records_count === "number"
@@ -801,24 +789,18 @@ export function SavedReportsView() {
       </Dialog>
 
       <Dialog open={generateDialogOpen} onOpenChange={setGenerateDialogOpen}>
-        <DialogContent className="sm:max-w-[480px]">
-          <DialogHeader>
+        <DialogContent className="flex max-h-[90vh] w-[calc(100vw-2rem)] max-w-[520px] flex-col sm:w-full">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle>Create Report</DialogTitle>
             <DialogDescription>
-              Choose filter criteria (rows) and which columns to include.
+              Set time frame, financials, and location. Example: donors from Michigan who gave over $500 this year.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="report-prompt">Filter (rows)</Label>
-              <Input
-                id="report-prompt"
-                value={generatePrompt}
-                onChange={(e) => setGeneratePrompt(e.target.value)}
-                placeholder="e.g. Donors who gave &gt;$500, Donors in California"
-              />
-            </div>
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+            {generateDialogOpen && (
+              <ReportFilterBuilder key="create-report-form" filters={filters} onChange={setFilters} />
+            )}
 
             <div className="space-y-2">
               <Label>Select Columns</Label>
@@ -865,7 +847,7 @@ export function SavedReportsView() {
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="flex-shrink-0 border-t pt-4">
             <Button
               variant="outline"
               className="bg-transparent"
@@ -876,9 +858,9 @@ export function SavedReportsView() {
             </Button>
             <Button
               onClick={() => void handleCreateReport()}
-              disabled={!generatePrompt.trim() || selectedColumns.length === 0 || isGenerating}
+              disabled={selectedColumns.length === 0 || isGenerating}
             >
-              {isGenerating ? "Creating…" : "Create Report"}
+              {isGenerating ? "Running…" : "Run Query"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -58,8 +58,8 @@ function JoinPageContent() {
         return
       }
       toast.success(`You joined ${result.orgName ?? "the team"}.`)
-      router.push("/dashboard")
-      router.refresh()
+      // Use full navigation so the server picks up the new org membership
+      window.location.href = "/dashboard"
     } finally {
       setJoining(false)
     }

@@ -87,6 +87,11 @@ export function SignupForm({ ...props }: React.ComponentProps<typeof Card>) {
         router.refresh()
         return
       }
+      // Supabase may not preserve ?next= when redirecting after email confirmation.
+      // Store it in a cookie so the auth callback can redirect back to /join?token=xxx
+      if (next && next !== "/dashboard" && typeof document !== "undefined") {
+        document.cookie = `auth_next_redirect=${encodeURIComponent(next)}; path=/; max-age=3600; SameSite=Lax`
+      }
       setEmailConfirmRequired(true)
     } finally {
       setLoading(false)

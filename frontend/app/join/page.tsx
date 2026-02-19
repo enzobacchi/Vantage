@@ -19,6 +19,7 @@ function JoinPageContent() {
   const [inviteEmail, setInviteEmail] = React.useState<string | null>(null)
   const [previewError, setPreviewError] = React.useState<string | null>(null)
   const [joining, setJoining] = React.useState(false)
+  const [joined, setJoined] = React.useState(false)
   const [signingOut, setSigningOut] = React.useState(false)
 
   React.useEffect(() => {
@@ -58,11 +59,18 @@ function JoinPageContent() {
         return
       }
       toast.success(`You joined ${result.orgName ?? "the team"}.`)
-      // Use full navigation so the server picks up the new org membership
-      window.location.href = "/dashboard"
+      setJoined(true)
+      // Redirect to dashboard after a short delay so the success state is visible
+      setTimeout(() => {
+        window.location.href = "/dashboard"
+      }, 800)
     } finally {
       setJoining(false)
     }
+  }
+
+  const goToApp = () => {
+    window.location.href = "/dashboard"
   }
 
   if (!token) {
@@ -149,12 +157,26 @@ function JoinPageContent() {
   return (
     <div className="flex min-h-svh w-full items-center justify-center p-6">
       <div className="w-full max-w-sm space-y-6 text-center">
-        <h1 className="text-xl font-semibold">You’re invited</h1>
+        <h1 className="text-xl font-semibold">
+          {joined ? "You’re in!" : "You’re invited"}
+        </h1>
         <p className="text-sm text-muted-foreground">
-          You have been invited to join <strong>{orgName ?? "this organization"}</strong>.
+          {joined ? (
+            <>
+              You joined <strong>{orgName ?? "the team"}</strong>. Redirecting to the app…
+            </>
+          ) : (
+            <>
+              You have been invited to join <strong>{orgName ?? "this organization"}</strong>.
+            </>
+          )}
         </p>
-        <Button className="w-full" onClick={handleJoin} disabled={joining}>
-          {joining ? "Joining…" : "Join team"}
+        <Button
+          className="w-full"
+          onClick={joined ? goToApp : handleJoin}
+          disabled={joining}
+        >
+          {joining ? "Joining…" : joined ? "Go to app" : "Join team"}
         </Button>
       </div>
     </div>

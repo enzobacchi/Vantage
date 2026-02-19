@@ -23,7 +23,8 @@ const REPORT_COLUMN_CONFIG: Record<
   city: { dbColumns: ["city"], label: "City" },
   state: { dbColumns: ["state"], label: "State" },
   zip: { dbColumns: ["zip"], label: "Zip" },
-  lifetime_value: { dbColumns: ["total_lifetime_value"], label: "Lifetime Value" },
+  lifetime_value: { dbColumns: ["total_lifetime_value"], label: "Donation Amount" },
+  donation_date: { dbColumns: ["last_donation_date"], label: "Donation Date" },
   last_gift_date: { dbColumns: ["last_donation_date"], label: "Last Gift Date" },
   last_gift_amount: { dbColumns: ["last_donation_amount"], label: "Last Gift Amount" },
 };
@@ -106,6 +107,7 @@ export async function POST(request: Request) {
     const body = (await request.json().catch(() => null)) as {
       filters?: unknown;
       selectedColumns?: unknown;
+      title?: string;
     } | null;
     const rawFilters = body?.filters;
     const rawSelectedColumns = body?.selectedColumns;
@@ -118,6 +120,7 @@ export async function POST(request: Request) {
           (f) => f && typeof f.field === "string" && typeof f.operator === "string"
         )
       : [];
+    const customTitle = typeof body?.title === "string" ? body.title.trim() : "";
 
     const auth = await requireUserOrg();
     if (!auth.ok) return auth.response;
@@ -291,12 +294,15 @@ export async function POST(request: Request) {
       }
       rawRows = rawRows.filter((r) => keepIds.has(r.id as string));
     }
-    const { title, summary } = buildTitleAndSummary(filters);
+    const { title: defaultTitle, summary } = buildTitleAndSummary(filters);
+    const title = customTitle || defaultTitle;
     const headerLabels = selectedColumns.map((id) => REPORT_COLUMN_CONFIG[id]?.label ?? id);
     const outputRows = rawRows.map((raw) => mapRowToOutputColumns(raw, selectedColumns));
     const csv = [
       headerLabels.map(escapeCsvCell).join(","),
-      ...outputRows.map((row) => selectedColumns.map((id) => escapeCsvCell(row[id])).join(",")),
+      ...outputRows.map((row) =>
+        selectedColumns.map((id) => escapeCsvCell(row[id])).join(",")
+      ),
     ].join("\n");
     const rowCount = rawRows.length;
 

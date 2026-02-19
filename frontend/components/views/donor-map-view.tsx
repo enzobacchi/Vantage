@@ -1,12 +1,15 @@
 "use client"
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
 import {
   IconFilter,
   IconMap,
   IconMapPin,
   IconRefresh,
   IconSearch,
+  IconSettings2,
 } from "@tabler/icons-react"
 import Map, { Marker, Popup } from "react-map-gl/mapbox"
 import type { MapRef } from "react-map-gl/mapbox"
@@ -66,6 +69,8 @@ export interface DonorFilterParams {
 type DonorMapPoint = {
   id: string
   display_name: string | null
+  email: string | null
+  phone: string | null
   total_lifetime_value: number | string | null
   last_donation_date: string | null
   location_lat: number
@@ -78,22 +83,48 @@ const STATUS_OPTIONS = [
   { value: "lapsed", label: "Lapsed" },
 ] as const
 
-/** Pin color by lifetime value: Grey $0–500, Blue $500–5k, Orange $5k–20k, Red $20k+ */
-function getPinColorByLtv(ltv: number | string | null): string {
-  const n = ltv == null ? 0 : Number(ltv)
-  if (!Number.isFinite(n)) return "bg-gray-500"
-  if (n < 500) return "bg-gray-500"
-  if (n < 5000) return "bg-blue-500"
-  if (n < 20000) return "bg-orange-500"
-  return "bg-red-500"
+/** Stored as strings so inputs can be empty while typing. Parsed when evaluating. */
+export type ColorRangeInput = { color: string; minInput: string; maxInput: string }
+
+const DEFAULT_COLOR_RANGES: ColorRangeInput[] = [
+  { color: "bg-gray-500", minInput: "0", maxInput: "500" },
+  { color: "bg-blue-500", minInput: "500", maxInput: "5000" },
+  { color: "bg-orange-500", minInput: "5000", maxInput: "20000" },
+  { color: "bg-red-500", minInput: "20000", maxInput: "" },
+]
+
+/** Parsed range for evaluation: min inclusive, max exclusive (null = no upper bound). */
+type ColorRangeParsed = { color: string; min: number; max: number | null }
+
+function parseColorRanges(inputs: ColorRangeInput[]): ColorRangeParsed[] {
+  return inputs.map((r) => {
+    const min = (r.minInput.trim() !== "" && Number.isFinite(Number(r.minInput)))
+      ? Number(r.minInput)
+      : 0
+    const max =
+      r.maxInput.trim() === ""
+        ? null
+        : Number.isFinite(Number(r.maxInput))
+          ? Number(r.maxInput)
+          : null
+    return { color: r.color, min, max }
+  })
 }
 
-const MAP_LEGEND_ITEMS = [
-  { label: "$0 – $500", color: "bg-gray-500" },
-  { label: "$500 – $5k", color: "bg-blue-500" },
-  { label: "$5k – $20k", color: "bg-orange-500" },
-  { label: "$20k+", color: "bg-red-500" },
-] as const
+/** Pin color by lifetime value: ranges use >= min and < max (no gaps). */
+function getPinColorByLtv(
+  ltv: number | string | null,
+  parsedRanges: ColorRangeParsed[]
+): string {
+  const n = ltv == null ? 0 : Number(ltv)
+  if (!Number.isFinite(n)) return "bg-gray-500"
+  for (const range of parsedRanges) {
+    if (n >= range.min && (range.max === null || n < range.max)) {
+      return range.color
+    }
+  }
+  return parsedRanges[0]?.color ?? "bg-gray-500"
+}
 
 function isWebGLSupported(): boolean {
   if (typeof window === "undefined") return true
@@ -149,6 +180,7 @@ const WEBGL_FALLBACK = (
 const MAPBOX_STYLE = "mapbox://styles/mapbox/streets-v12"
 
 export function DonorMapView() {
+  const router = useRouter()
   const mapboxToken =
     process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN || process.env.NEXT_PUBLIC_MAPBOX_TOKEN
   const mapRef = useRef<MapRef>(null)
@@ -157,10 +189,40 @@ export function DonorMapView() {
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<DonorMapPoint | null>(null)
   const [flyToSearchOpen, setFlyToSearchOpen] = useState(false)
+  const [legendOpen, setLegendOpen] = useState(false)
   const [webglOk, setWebglOk] = useState<boolean | null>(null)
   useEffect(() => {
     setWebglOk(isWebGLSupported())
   }, [])
+
+  const [colorRanges, setColorRanges] = useState<ColorRangeInput[]>(DEFAULT_COLOR_RANGES)
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem("vantage-map-color-ranges")
+      if (raw) {
+        const parsed = JSON.parse(raw) as ColorRangeInput[] | Array<{ color: string; min: number; max: number | null }> | null
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const asInputs: ColorRangeInput[] = parsed.map((r: ColorRangeInput | { color: string; min: number; max: number | null }) =>
+            "minInput" in r
+              ? r
+              : { color: r.color, minInput: String(r.min), maxInput: r.max == null ? "" : String(r.max) }
+          )
+          setColorRanges(asInputs)
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, [])
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("vantage-map-color-ranges", JSON.stringify(colorRanges))
+    } catch {
+      // ignore
+    }
+  }, [colorRanges])
+
+  const parsedColorRanges = useMemo(() => parseColorRanges(colorRanges), [colorRanges])
 
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [minGivingInput, setMinGivingInput] = useState<string>("")
@@ -437,23 +499,107 @@ export function DonorMapView() {
                   >
                     <button
                       type="button"
-                      onClick={() => setSelected(p)}
-                      className={`rounded-full p-1 text-white shadow ${getPinColorByLtv(p.total_lifetime_value)}`}
-                      aria-label={`Open donor ${p.display_name ?? "Unknown"}`}
+                      onClick={() => {
+                        mapRef.current?.flyTo({
+                          center: [p.location_lng, p.location_lat],
+                          zoom: 12,
+                          duration: 800,
+                          essential: true,
+                        })
+                        setSelected(p)
+                      }}
+                      className={`rounded-full p-1 text-white shadow ${getPinColorByLtv(p.total_lifetime_value, parsedColorRanges)}`}
+                      aria-label={`View ${p.display_name ?? "donor"}`}
                     >
                       <IconMapPin className="size-4" />
                     </button>
                   </Marker>
                 ))}
 
-                {/* Legend: bottom-left */}
-                <div className="absolute bottom-3 left-3 z-10 rounded-md border bg-background/95 px-3 py-2 shadow-sm backdrop-blur">
-                  <div className="text-xs font-medium text-muted-foreground mb-1.5">Lifetime value</div>
-                  <div className="flex flex-col gap-1">
-                    {MAP_LEGEND_ITEMS.map((item) => (
-                      <div key={item.color} className="flex items-center gap-2 text-xs">
-                        <span className={`size-2.5 rounded-full shrink-0 ${item.color}`} />
-                        <span>{item.label}</span>
+                {/* Map Legend & Settings: bottom-left */}
+                <div className="absolute bottom-3 left-3 z-10 flex items-start gap-3">
+                  <Popover open={legendOpen} onOpenChange={setLegendOpen}>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex items-center gap-2 rounded-md border bg-background/95 px-3 py-2 shadow-sm backdrop-blur hover:bg-muted/50"
+                        aria-label="Map legend and settings"
+                      >
+                        <IconSettings2 className="size-4 text-muted-foreground" />
+                        <span className="text-xs font-medium text-muted-foreground">
+                          Legend &amp; settings
+                        </span>
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-80 p-0" align="start" side="top">
+                      <div className="border-b px-3 py-2">
+                        <div className="text-sm font-medium">Lifetime value colors</div>
+                        <div className="text-xs text-muted-foreground">
+                          Adjust min/max to change marker colors
+                        </div>
+                      </div>
+                      <div className="max-h-64 overflow-y-auto p-3 space-y-3">
+                        {colorRanges.map((range, i) => (
+                          <div key={i} className="flex items-center gap-2 rounded border p-2">
+                            <span
+                              className={`size-6 shrink-0 rounded-full ${range.color}`}
+                              title={range.color}
+                            />
+                            <div className="flex flex-1 items-center gap-2">
+                              <Label className="text-xs shrink-0">Min</Label>
+                              <Input
+                                type="number"
+                                min={0}
+                                step={100}
+                                placeholder="0"
+                                value={range.minInput}
+                                onChange={(e) => {
+                                  const next = [...colorRanges]
+                                  next[i] = { ...next[i], minInput: e.target.value }
+                                  setColorRanges(next)
+                                }}
+                                className="h-8 text-xs"
+                              />
+                              <Label className="text-xs shrink-0">Max</Label>
+                              <Input
+                                type="number"
+                                min={0}
+                                step={100}
+                                placeholder="∞"
+                                value={range.maxInput}
+                                onChange={(e) => {
+                                  const next = [...colorRanges]
+                                  next[i] = { ...next[i], maxInput: e.target.value }
+                                  setColorRanges(next)
+                                }}
+                                className="h-8 text-xs"
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="border-t px-3 py-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="w-full"
+                          onClick={() => setColorRanges(DEFAULT_COLOR_RANGES.map((r) => ({ ...r })))}
+                        >
+                          Reset to defaults
+                        </Button>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                  <div className="flex flex-col gap-1 rounded-md border bg-background/95 px-2 py-1.5 shadow-sm backdrop-blur">
+                    <div className="text-xs font-medium text-muted-foreground">Lifetime value</div>
+                    {parsedColorRanges.map((range, i) => (
+                      <div key={i} className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span className={`size-2.5 shrink-0 rounded-full ${range.color}`} />
+                        <span>
+                          ${range.min.toLocaleString()}
+                          {range.max == null ? "+" : ` – $${range.max.toLocaleString()}`}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -467,18 +613,44 @@ export function DonorMapView() {
                     onClose={() => setSelected(null)}
                     closeButton
                     closeOnClick={false}
-                    className="[&_.mapboxgl-popup-content]:!bg-background [&_.mapboxgl-popup-content]:!text-foreground [&_.mapboxgl-popup-content]:border [&_.mapboxgl-popup-content]:border-border"
+                    className="[&_.mapboxgl-popup-content]:!p-0 [&_.mapboxgl-popup-content]:!bg-background [&_.mapboxgl-popup-content]:!text-foreground [&_.mapboxgl-popup-content]:border [&_.mapboxgl-popup-content]:border-border [&_.mapboxgl-popup-content]:rounded-lg [&_.mapboxgl-popup-content]:shadow-md"
                   >
-                    <div className="min-w-48 space-y-1 rounded bg-background px-1 py-0.5 text-foreground">
-                      <div className="text-sm font-medium text-foreground">
-                        {selected.display_name ?? "Unknown Donor"}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        LTV:{" "}
+                    <div className="min-w-56 rounded-lg border bg-card p-3 text-card-foreground shadow-sm">
+                      <h3 className="font-semibold text-foreground leading-tight">
+                        <Link
+                          href={`/donors/${selected.id}`}
+                          className="hover:underline focus:outline-none focus:underline text-inherit"
+                        >
+                          {selected.display_name ?? "Unknown Donor"}
+                        </Link>
+                      </h3>
+                      {(selected.email ?? selected.phone) ? (
+                        <div className="mt-2 space-y-0.5 text-xs text-muted-foreground">
+                          {selected.email ? (
+                            <div className="truncate" title={selected.email}>
+                              {selected.email}
+                            </div>
+                          ) : null}
+                          {selected.phone ? (
+                            <div>{selected.phone}</div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        Total giving:{" "}
                         {selected.total_lifetime_value == null
                           ? "—"
-                          : `$${String(selected.total_lifetime_value)}`}
+                          : `$${Number(selected.total_lifetime_value).toLocaleString()}`}
                       </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="mt-3 w-full h-8 text-xs"
+                        onClick={() => router.push(`/donors/${selected.id}`)}
+                      >
+                        View profile
+                      </Button>
                     </div>
                   </Popup>
                 ) : null}

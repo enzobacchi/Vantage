@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
 
     let query = supabase
       .from("donors")
-      .select("id,display_name,total_lifetime_value,last_donation_date,location_lat,location_lng")
+      .select("id,display_name,email,phone,total_lifetime_value,last_donation_date,location_lat,location_lng")
       .eq("org_id", orgId)
       .not("location_lat", "is", null)
       .not("location_lng", "is", null);
@@ -89,6 +89,8 @@ export async function GET(request: NextRequest) {
       return {
         id: row.id,
         display_name: row.display_name,
+        email: row.email ?? null,
+        phone: row.phone ?? null,
         total_lifetime_value: row.total_lifetime_value,
         last_donation_date: row.last_donation_date,
         location_lat: row.location_lat as number,

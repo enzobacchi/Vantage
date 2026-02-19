@@ -87,6 +87,22 @@ export default async function DonorProfilePage({ params }: PageProps) {
   const count = donations.length
   const averageGift = count > 0 && Number.isFinite(ltvNum) ? ltvNum / count : 0
 
+  const now = new Date()
+  const yearStartStr = new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10)
+  const monthStartStr = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
+  const toAmount = (d: { amount: number | string | null }) => {
+    if (d.amount == null) return 0
+    const n = typeof d.amount === "number" ? d.amount : Number(d.amount)
+    return Number.isFinite(n) ? n : 0
+  }
+  const lifetimeSum = donations.reduce((sum, d) => sum + toAmount(d), 0)
+  const ytdSum = donations
+    .filter((d) => d.date != null && d.date >= yearStartStr)
+    .reduce((sum, d) => sum + toAmount(d), 0)
+  const thisMonthSum = donations
+    .filter((d) => d.date != null && d.date >= monthStartStr)
+    .reduce((sum, d) => sum + toAmount(d), 0)
+
   return (
     <div className="flex flex-1 flex-col gap-6 p-6 max-w-4xl mx-auto">
       <div className="flex items-center gap-4">
@@ -108,6 +124,43 @@ export default async function DonorProfilePage({ params }: PageProps) {
             </Badge>
           </div>
         </div>
+      </div>
+
+      {/* Quick Stats: Lifetime, YTD, This Month (from donations history) */}
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-3">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Lifetime</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-semibold tabular-nums">
+              {formatCurrency(lifetimeSum)}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">Sum of all donations</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>YTD</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-semibold tabular-nums">
+              {formatCurrency(ytdSum)}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">This year to date</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>This Month</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-semibold tabular-nums">
+              {formatCurrency(thisMonthSum)}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">Current month to date</p>
+          </CardContent>
+        </Card>
       </div>
 
       <DonorTagsCard donorId={donor.id} />

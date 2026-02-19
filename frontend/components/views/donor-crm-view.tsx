@@ -1015,6 +1015,24 @@ export function DonorCRMView() {
               <p className="text-sm text-muted-foreground">Loading…</p>
             )}
             {!sheetLoading && sheetProfile?.donor && sheetDonorId && (
+              (() => {
+                const donations = sheetProfile.donations
+                const now = new Date()
+                const yearStartStr = new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10)
+                const monthStartStr = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
+                const toAmount = (d: DonorProfileDonation) => {
+                  if (d.amount == null) return 0
+                  const n = typeof d.amount === "number" ? d.amount : Number(d.amount)
+                  return Number.isFinite(n) ? n : 0
+                }
+                const lifetimeSum = donations.reduce((sum, d) => sum + toAmount(d), 0)
+                const ytdSum = donations
+                  .filter((d) => d.date != null && d.date >= yearStartStr)
+                  .reduce((sum, d) => sum + toAmount(d), 0)
+                const thisMonthSum = donations
+                  .filter((d) => d.date != null && d.date >= monthStartStr)
+                  .reduce((sum, d) => sum + toAmount(d), 0)
+                return (
               <>
                 {/* Stats: single row, 3 columns, centered */}
                 <div className="grid grid-cols-3 divide-x border-b pb-4">
@@ -1040,6 +1058,27 @@ export function DonorCRMView() {
                               : Number(sheetProfile.donor.total_lifetime_value)) / sheetProfile.donations.length
                           : 0
                       )}
+                    </span>
+                  </div>
+                </div>
+                {/* Quick Stats: Lifetime, YTD, This Month (from donations history) */}
+                <div className="grid grid-cols-3 divide-x border rounded-lg">
+                  <div className="flex flex-col items-center justify-center px-2 py-3 first:pl-3 last:pr-3">
+                    <span className="text-xs text-muted-foreground">Lifetime</span>
+                    <span className="text-base font-semibold tabular-nums mt-0.5">
+                      {formatCurrency(lifetimeSum)}
+                    </span>
+                  </div>
+                  <div className="flex flex-col items-center justify-center px-2 py-3 first:pl-3 last:pr-3">
+                    <span className="text-xs text-muted-foreground">YTD</span>
+                    <span className="text-base font-semibold tabular-nums mt-0.5">
+                      {formatCurrency(ytdSum)}
+                    </span>
+                  </div>
+                  <div className="flex flex-col items-center justify-center px-2 py-3 first:pl-3 last:pr-3">
+                    <span className="text-xs text-muted-foreground">This Month</span>
+                    <span className="text-base font-semibold tabular-nums mt-0.5">
+                      {formatCurrency(thisMonthSum)}
                     </span>
                   </div>
                 </div>
@@ -1164,6 +1203,8 @@ export function DonorCRMView() {
                   </Link>
                 </Button>
               </>
+                )
+              })()
             )}
           </div>
         </SheetContent>

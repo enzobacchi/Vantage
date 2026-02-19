@@ -38,6 +38,13 @@ import {
 } from "@/components/report-filter-builder"
 import { Label } from "@/components/ui/label"
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -81,7 +88,8 @@ const COLUMN_GROUPS = [
   {
     title: "Giving History",
     columns: [
-      { id: "lifetime_value", label: "Lifetime Value" },
+      { id: "lifetime_value", label: "Donation Amount" },
+      { id: "donation_date", label: "Donation Date" },
       { id: "last_gift_date", label: "Last Gift Date" },
       { id: "last_gift_amount", label: "Last Gift Amount" },
     ],
@@ -123,6 +131,8 @@ export function SavedReportsView() {
   const [sidebarOpen, setSidebarOpen] = React.useState(false)
 
   const [generateDialogOpen, setGenerateDialogOpen] = React.useState(false)
+  const [reportName, setReportName] = React.useState("")
+  const [reportVisibility, setReportVisibility] = React.useState<"private" | "shared">("private")
   const [filters, setFilters] = React.useState<FilterRow[]>([])
   const [selectedColumns, setSelectedColumns] = React.useState<string[]>([
     "first_name",
@@ -441,6 +451,11 @@ export function SavedReportsView() {
   }
 
   const handleCreateReport = async () => {
+    const name = reportName.trim()
+    if (!name) {
+      toast.error("Enter a report name")
+      return
+    }
     if (selectedColumns.length === 0) {
       toast.error("Select at least one column")
       return
@@ -451,7 +466,7 @@ export function SavedReportsView() {
       const res = await fetch("/api/reports/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filters, selectedColumns }),
+        body: JSON.stringify({ title: name, filters, selectedColumns }),
       })
       const data = (await res.json().catch(() => null)) as { error?: string; title?: string; reportId?: string }
       if (!res.ok) {
@@ -462,6 +477,7 @@ export function SavedReportsView() {
         description: data?.title ? `"${data.title}" saved.` : "Saved.",
       })
       setGenerateDialogOpen(false)
+      setReportName("")
       setFilters([])
       await refresh()
     } catch (e) {
@@ -570,6 +586,7 @@ export function SavedReportsView() {
                 className="bg-slate-900 hover:bg-slate-800 text-white"
                 onClick={() => {
                   setGenerateDialogOpen(true)
+                  setReportName("")
                   setFilters([])
                 }}
               >
@@ -798,6 +815,32 @@ export function SavedReportsView() {
           </DialogHeader>
 
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+            <div className="space-y-2">
+              <Label htmlFor="report-name">Report Name</Label>
+              <Input
+                id="report-name"
+                value={reportName}
+                onChange={(e) => setReportName(e.target.value)}
+                placeholder="e.g. Michigan Donors 2025"
+                required
+                className="w-full"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Visibility</Label>
+              <Select value={reportVisibility} onValueChange={(v) => setReportVisibility(v as "private" | "shared")}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="private">Private (Only Me)</SelectItem>
+                  <SelectItem value="shared">Shared (Entire Organization)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {reportVisibility === "private" ? "Only you can see this report." : "Everyone in your organization can see this report."}
+              </p>
+            </div>
             {generateDialogOpen && (
               <ReportFilterBuilder key="create-report-form" filters={filters} onChange={setFilters} />
             )}
@@ -858,7 +901,7 @@ export function SavedReportsView() {
             </Button>
             <Button
               onClick={() => void handleCreateReport()}
-              disabled={selectedColumns.length === 0 || isGenerating}
+              disabled={!reportName.trim() || selectedColumns.length === 0 || isGenerating}
             >
               {isGenerating ? "Running…" : "Run Query"}
             </Button>

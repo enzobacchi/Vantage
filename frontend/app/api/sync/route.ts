@@ -28,6 +28,8 @@ type QBCustomer = {
   GivenName?: string;
   FamilyName?: string;
   PrimaryEmailAddr?: { Address?: string };
+  PrimaryPhone?: { FreeFormNumber?: string; DisplayForm?: string };
+  AlternatePhone?: { FreeFormNumber?: string; DisplayForm?: string };
   BillAddr?: {
     Line1?: string;
     Line2?: string;
@@ -40,6 +42,26 @@ type QBCustomer = {
     Country?: string;
   };
 };
+
+/** Extract phone from QB Customer; API may return PrimaryPhone/AlternatePhone with FreeFormNumber or DisplayForm, or raw string. */
+function getPhoneFromQBCustomer(c: QBCustomer & Record<string, unknown>): string | null {
+  const raw = c as Record<string, unknown>;
+  const tryPhone = (val: unknown): string | null => {
+    if (val == null) return null;
+    if (typeof val === "string" && val.trim() !== "") return val.trim();
+    if (typeof val === "object" && val !== null) {
+      const o = val as Record<string, unknown>;
+      const v = (o.FreeFormNumber ?? o.freeFormNumber ?? o.DisplayForm ?? o.displayForm) as string | undefined;
+      if (v != null && String(v).trim() !== "") return String(v).trim();
+    }
+    return null;
+  };
+  const primary = c.PrimaryPhone ?? raw.PrimaryPhone ?? raw.primaryPhone ?? raw.primary_phone;
+  const out = tryPhone(primary);
+  if (out) return out;
+  const alt = c.AlternatePhone ?? raw.AlternatePhone ?? raw.alternatePhone ?? raw.alternate_phone;
+  return tryPhone(alt);
+}
 
 type QBSalesReceipt = {
   Id?: string;
@@ -577,6 +599,7 @@ export async function GET(request: Request) {
         first_name: firstName,
         last_name: lastName,
         email: c.PrimaryEmailAddr?.Address ?? null,
+        phone: getPhoneFromQBCustomer(c),
         billing_address: billingAddressValue,
         city: parsedCity,
         state: parsedState,

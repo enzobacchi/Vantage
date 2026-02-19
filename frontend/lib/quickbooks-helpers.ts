@@ -116,8 +116,9 @@ export function parseDisplayNameAndHousehold(customer: QBCustomerName): {
 
   if (isJointName(given)) {
     const joint = given;
+    const withFamily = family ? `${joint} ${family}`.trim() : joint;
     return {
-      display_name: joint || display || null,
+      display_name: withFamily || display || null,
       household_greeting: joint || null,
     };
   }

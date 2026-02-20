@@ -5,11 +5,13 @@ import { useRouter } from "next/navigation"
 import {
   IconDotsVertical,
   IconLogout,
+  IconMessageCircle,
   IconNotification,
   IconUserCircle,
 } from "@tabler/icons-react"
 import { toast } from "sonner"
 
+import { FeedbackDialog } from "@/components/feedback-dialog"
 import { useNav } from '@/components/nav-context'
 import { createBrowserSupabaseClient } from "@/lib/supabase/client"
 import {
@@ -70,6 +72,7 @@ export function NavUser({
   const { isMobile } = useSidebar()
   const { setActiveView } = useNav()
   const [isProfileOpen, setIsProfileOpen] = React.useState(false)
+  const [isFeedbackOpen, setIsFeedbackOpen] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
   const [profileData, setProfileData] = React.useState({
     name: user.name,
@@ -93,6 +96,10 @@ export function NavUser({
 
   const handleProfileClick = () => {
     setIsProfileOpen(true)
+  }
+
+  const handleFeedbackClick = () => {
+    setIsFeedbackOpen(true)
   }
 
   const handleSaveProfile = async () => {
@@ -185,6 +192,10 @@ export function NavUser({
                   <IconNotification />
                   Notifications
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleFeedbackClick}>
+                  <IconMessageCircle />
+                  Help & Feedback
+                </DropdownMenuItem>
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleLogout}>
@@ -245,6 +256,8 @@ export function NavUser({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <FeedbackDialog open={isFeedbackOpen} onOpenChange={setIsFeedbackOpen} />
     </>
   )
 }

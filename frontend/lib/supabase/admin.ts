@@ -14,6 +14,11 @@ function getSupabaseAdminEnv() {
 }
 
 export function createAdminClient() {
+  if (typeof window !== "undefined") {
+    throw new Error(
+      "createAdminClient must only be used on the server. Never import it in client components or bundle it for the browser."
+    );
+  }
   const { url, serviceRoleKey } = getSupabaseAdminEnv();
   return createClient(url, serviceRoleKey, {
     auth: {

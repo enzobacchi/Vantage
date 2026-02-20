@@ -8,7 +8,7 @@ Set these in **Vercel → your project → Settings → Environment Variables**.
 |----------|--------------|--------|
 | `NEXT_PUBLIC_SUPABASE_URL` | Production, Preview, Development | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Production, Preview, Development | Supabase anon key |
-| `SUPABASE_SERVICE_ROLE_KEY` | Production, Preview, Development | Server-only; never exposed to browser |
+| `SUPABASE_SERVICE_ROLE_KEY` | Production, Preview, Development | **Server-only.** Never add to `NEXT_PUBLIC_*`, never log, never commit. Used only in API routes and server code; `createAdminClient()` throws if used in the browser. |
 
 ## QuickBooks (Connect / Sign in with QuickBooks)
 
@@ -59,7 +59,8 @@ So confirmation emails send users back to your app (not localhost):
 | Variable | Where to use | Notes |
 |----------|--------------|--------|
 | `OPENAI_API_KEY` | Production, Preview | For AI/chat features |
-| `RESEND_API_KEY` | Production, Preview | Resend.com API key. Used for **Log Email** and (when configured in Supabase SMTP) for **auth emails** (signup confirm, password reset) so you avoid Supabase’s 2/hour limit. |
+| `RESEND_API_KEY` | Production, Preview | Resend.com API key. Used for **Log Email**, **feedback notifications**, and (when configured in Supabase SMTP) for **auth emails** (signup confirm, password reset) so you avoid Supabase’s 2/hour limit. |
+| `FEEDBACK_EMAIL_TO` | Production, Preview | Email address to receive in-app feedback (bugs, feature requests, general). When set with RESEND_API_KEY, feedback submissions trigger an email notification with User ID, Organization ID, type, and message. |
 | `NEXT_PUBLIC_APP_URL` | **Recommended** | Your production app URL (e.g. `https://your-app.vercel.app`). Used for **team invite links** in emails and for auth redirects so they point to the live app, not localhost or a preview URL. |
 
 ## Checklist

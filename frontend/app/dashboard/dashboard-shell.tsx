@@ -12,6 +12,12 @@ import {
   SidebarInset,
   SidebarProvider,
 } from "@/components/ui/sidebar"
+import { useAutoSync } from "@/hooks/use-auto-sync"
+
+function AutoSyncTrigger() {
+  useAutoSync()
+  return null
+}
 
 export default function DashboardShell({
   children,
@@ -26,6 +32,7 @@ export default function DashboardShell({
         </div>
       }
     >
+      <AutoSyncTrigger />
       <NavProvider>
         <SidebarProvider
           defaultOpen={true}

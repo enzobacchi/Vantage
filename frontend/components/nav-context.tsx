@@ -30,19 +30,26 @@ export function NavProvider({ children }: { children: React.ReactNode }) {
     (view: NavView) => {
       setActiveViewState(view)
       if (pathname === "/dashboard") {
-        const params = new URLSearchParams(searchParams.toString())
-        params.set("view", view)
-        router.replace(`/dashboard?${params.toString()}`, { scroll: false })
+        if (view === "dashboard") {
+          router.replace("/dashboard", { scroll: false })
+        } else {
+          const params = new URLSearchParams(searchParams.toString())
+          params.set("view", view)
+          router.replace(`/dashboard?${params.toString()}`, { scroll: false })
+        }
       }
     },
     [pathname, searchParams, router]
   )
 
+  // Sync activeView from URL: /dashboard with no view param (or invalid) = dashboard; otherwise use view param.
   React.useEffect(() => {
     if (pathname !== "/dashboard") return
     const viewParam = searchParams.get("view")
     if (isValidNavView(viewParam)) {
       setActiveViewState(viewParam)
+    } else {
+      setActiveViewState("dashboard")
     }
   }, [pathname, searchParams])
 

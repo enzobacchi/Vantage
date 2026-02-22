@@ -6,9 +6,8 @@ const nextConfig = {
       { source: "/", destination: "/dashboard", permanent: false },
     ];
   },
-  // 1. Ignore TypeScript Errors during build
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
   },
   // 2. Ensure we don't have image optimization errors if you use external images
   images: {

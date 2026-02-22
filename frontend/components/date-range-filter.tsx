@@ -3,7 +3,8 @@
 import * as React from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { CalendarIcon } from "lucide-react"
-import { format, startOfYear, endOfYear, subYears, type DateRange } from "date-fns"
+import { format, startOfYear, endOfYear, subYears } from "date-fns"
+import type { DateRange } from "react-day-picker"
 
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
@@ -23,7 +24,7 @@ const PRESETS: { value: DateRangePreset; label: string }[] = [
   { value: "custom", label: "Custom" },
 ]
 
-function getPresetRange(preset: DateRangePreset): DateRange<Date> | null {
+function getPresetRange(preset: DateRangePreset): DateRange | null {
   const now = new Date()
   switch (preset) {
     case "lifetime":
@@ -42,7 +43,7 @@ function getPresetRange(preset: DateRangePreset): DateRange<Date> | null {
   }
 }
 
-function presetFromRange(range: DateRange<Date> | undefined): DateRangePreset {
+function presetFromRange(range: DateRange | undefined): DateRangePreset {
   if (!range?.from || !range.to) return "lifetime"
   const fromStr = format(range.from, "yyyy-MM-dd")
   const toStr = format(range.to, "yyyy-MM-dd")
@@ -58,7 +59,7 @@ function presetFromRange(range: DateRange<Date> | undefined): DateRangePreset {
 }
 
 function formatRangeDisplay(
-  range: DateRange<Date> | undefined,
+  range: DateRange | undefined,
   preset: DateRangePreset
 ): string {
   if (!range?.from || preset === "lifetime") return "Lifetime"
@@ -69,7 +70,7 @@ function formatRangeDisplay(
   return fromStr === toStr ? fromStr : `${fromStr} – ${toStr}`
 }
 
-function toUrlParams(range: DateRange<Date> | undefined): { from?: string; to?: string } {
+function toUrlParams(range: DateRange | undefined): { from?: string; to?: string } {
   if (!range?.from || !range.to) return {}
   return {
     from: format(range.from, "yyyy-MM-dd"),
@@ -77,7 +78,7 @@ function toUrlParams(range: DateRange<Date> | undefined): { from?: string; to?: 
   }
 }
 
-function parseUrlParams(searchParams: URLSearchParams): DateRange<Date> | undefined {
+function parseUrlParams(searchParams: URLSearchParams): DateRange | undefined {
   const from = searchParams.get("from")
   const to = searchParams.get("to")
   if (!from || !to) return undefined
@@ -92,7 +93,7 @@ export type DateRangeFilterProps = {
   className?: string
   /** Called when URL is updated (for parent to refetch). Not needed if using searchParams. */
   /** Receives the new range when URL is updated. Use to refetch data. */
-  onRangeChange?: (range: DateRange<Date> | undefined) => void
+  onRangeChange?: (range: DateRange | undefined) => void
 }
 
 /**
@@ -108,7 +109,7 @@ export function DateRangeFilter({ className, onRangeChange }: DateRangeFilterPro
   const [preset, setPreset] = React.useState<DateRangePreset>(() =>
     urlRange ? presetFromRange(urlRange) : "lifetime"
   )
-  const [selected, setSelected] = React.useState<DateRange<Date> | undefined>(urlRange)
+  const [selected, setSelected] = React.useState<DateRange | undefined>(urlRange)
   const [popoverOpen, setPopoverOpen] = React.useState(false)
 
   React.useEffect(() => {
@@ -118,7 +119,7 @@ export function DateRangeFilter({ className, onRangeChange }: DateRangeFilterPro
   }, [searchParams])
 
   const updateUrl = React.useCallback(
-    (range: DateRange<Date> | undefined) => {
+    (range: DateRange | undefined) => {
       const params = new URLSearchParams(searchParams.toString())
       if (range?.from && range?.to) {
         params.set("from", format(range.from, "yyyy-MM-dd"))
@@ -153,7 +154,7 @@ export function DateRangeFilter({ className, onRangeChange }: DateRangeFilterPro
     }
   }
 
-  const handleCalendarSelect = (range: DateRange<Date> | undefined) => {
+  const handleCalendarSelect = (range: DateRange | undefined) => {
     setSelected(range)
     if (range?.from && range?.to) {
       setPreset("custom")

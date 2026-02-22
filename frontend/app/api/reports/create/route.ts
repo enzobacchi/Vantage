@@ -591,6 +591,9 @@ function parseSqlToPostgrest(sqlQuery: string): ParsedQuery {
 }
 
 export async function POST(request: Request) {
+  const auth = await requireUserOrg();
+  if (!auth.ok) return auth.response;
+
   const body = (await request.json().catch(() => null)) as CreateReportBody | null;
   const title = stripSqlArtifacts(typeof body?.title === "string" ? body.title.trim() : "");
   const sqlQuery = typeof body?.sqlQuery === "string" ? body.sqlQuery.trim() : "";

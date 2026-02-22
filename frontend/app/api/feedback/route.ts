@@ -90,14 +90,6 @@ export async function POST(request: Request) {
           <h2 style="margin-bottom: 1rem;">New Feedback: ${typeLabel}</h2>
           <table style="width: 100%; border-collapse: collapse; margin-bottom: 1.5rem;">
             <tr>
-              <td style="padding: 0.5rem 0; font-weight: 600; color: #64748b;">User ID</td>
-              <td style="padding: 0.5rem 0;"><code style="background: #f1f5f9; padding: 0.25rem 0.5rem; border-radius: 4px;">${auth.userId}</code></td>
-            </tr>
-            <tr>
-              <td style="padding: 0.5rem 0; font-weight: 600; color: #64748b;">Organization ID</td>
-              <td style="padding: 0.5rem 0;"><code style="background: #f1f5f9; padding: 0.25rem 0.5rem; border-radius: 4px;">${auth.orgId}</code></td>
-            </tr>
-            <tr>
               <td style="padding: 0.5rem 0; font-weight: 600; color: #64748b;">Feedback Type</td>
               <td style="padding: 0.5rem 0;">${typeLabel}</td>
             </tr>

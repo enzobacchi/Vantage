@@ -96,7 +96,9 @@ export function SettingsView() {
 
       setSyncState({ status: "success", data: data as SyncSuccessData })
       const d = data as SyncSuccessData & { usedRealmId?: string }
-      const usedRealmId = d?.usedRealmId ?? d?.realmId
+      const usedRealmId = typeof (d?.usedRealmId ?? d?.realmId) === "string"
+        ? (d?.usedRealmId ?? d?.realmId as string)
+        : undefined
       const currentRealmId = qbStatus.realmId ?? urlRealmId
       if (usedRealmId && usedRealmId !== currentRealmId) {
         setQbStatus((prev) => ({ ...prev, connected: true, realmId: usedRealmId }))

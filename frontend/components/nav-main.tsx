@@ -35,7 +35,9 @@ export function NavMain({
             const isExternalLink = item.view == null
             const href = isExternalLink
               ? item.url
-              : `/dashboard${item.view ? `?view=${item.view}` : ""}`
+              : item.view === "dashboard"
+                ? "/dashboard"
+                : `/dashboard?view=${item.view}`
             const viewParam = searchParams.get("view")
             const isActive = isExternalLink
               ? pathname === item.url

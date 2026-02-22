@@ -11,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Select,
   SelectContent,
@@ -95,7 +96,15 @@ export function TopDonorsWidget() {
       </CardHeader>
       <CardContent className="px-4 pt-0">
         {loading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <ul className="space-y-3">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <li key={i} className="flex items-center gap-3 py-1.5">
+                <Skeleton className="h-4 w-6 shrink-0" />
+                <Skeleton className="h-4 flex-1" />
+                <Skeleton className="h-4 w-16 shrink-0" />
+              </li>
+            ))}
+          </ul>
         ) : error ? (
           <p className="text-sm text-destructive">{error}</p>
         ) : donors.length === 0 ? (

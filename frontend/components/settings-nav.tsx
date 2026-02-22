@@ -12,7 +12,7 @@ export type SettingsNavItem = {
 }
 
 type SettingsNavProps = {
-  items: SettingsNavItem[]
+  items: readonly SettingsNavItem[]
   value: string
   onValueChange: (id: string) => void
   className?: string

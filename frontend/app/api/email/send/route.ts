@@ -48,6 +48,30 @@ export async function POST(request: Request) {
   }
 
   const supabase = createAdminClient()
+
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+  const { count, error: rateLimitError } = await supabase
+    .from("email_send_log")
+    .select("id", { count: "exact", head: true })
+    .eq("org_id", auth.orgId)
+    .gte("sent_at", oneHourAgo)
+
+  if (rateLimitError) {
+    return NextResponse.json(
+      { error: "Could not check email rate limit", code: "RATE_LIMIT_CHECK_FAILED" },
+      { status: 500 }
+    )
+  }
+  if ((count ?? 0) >= 10) {
+    return NextResponse.json(
+      {
+        error: "Email rate limit exceeded. Your organization can send up to 10 emails per hour. Please try again later.",
+        code: "RATE_LIMIT_EXCEEDED",
+      },
+      { status: 429 }
+    )
+  }
+
   const { data: donor, error: donorError } = await supabase
     .from("donors")
     .select("id")
@@ -83,6 +107,14 @@ export async function POST(request: Request) {
       { error: "Failed to send email", details: sendError.message },
       { status: 502 }
     )
+  }
+
+  const { error: logError } = await supabase.from("email_send_log").insert({
+    org_id: auth.orgId,
+    sent_at: new Date().toISOString(),
+  })
+  if (logError) {
+    console.warn("[email/send] Failed to log send for rate limit", logError.message)
   }
 
   const { error: insertError } = await supabase.from("interactions").insert({

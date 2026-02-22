@@ -22,7 +22,7 @@ function getEighteenMonthsAgoIso(): string {
 
 /** Fetch all rows by paginating; avoids Supabase default 1000 row cap. */
 async function fetchAllDonorsWithCoords(
-  baseQuery: { range: (from: number, to: number) => Promise<{ data: unknown; error: { message: string } | null }> }
+  baseQuery: { range: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }> }
 ): Promise<unknown[]> {
   const all: unknown[] = [];
   let offset = 0;

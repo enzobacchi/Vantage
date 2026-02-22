@@ -34,6 +34,7 @@ export function SettingsProfile() {
   }, [user])
 
   const handleSave = async () => {
+    if (!user) return
     try {
       setSaving(true)
       await updateProfile({

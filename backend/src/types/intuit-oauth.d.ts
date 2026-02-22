@@ -1,2 +1,0 @@
-declare module "intuit-oauth";
-

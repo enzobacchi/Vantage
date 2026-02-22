@@ -37,14 +37,29 @@ export function useAuthUser(): {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    let mounted = true
     const supabase = createBrowserSupabaseClient()
 
     const load = async () => {
-      const {
-        data: { user: authUser },
-      } = await supabase.auth.getUser()
-      setUser(mapAuthUser(authUser ?? null))
-      setLoading(false)
+      try {
+        const {
+          data: { user: authUser },
+          error,
+        } = await supabase.auth.getUser()
+        if (mounted) {
+          if (error) {
+            // Failed to fetch / network: Supabase unreachable, project paused, or CORS
+            setUser(null)
+          } else {
+            setUser(mapAuthUser(authUser ?? null))
+          }
+        }
+      } catch {
+        // e.g. TypeError: Failed to fetch — network or Supabase unreachable
+        if (mounted) setUser(null)
+      } finally {
+        if (mounted) setLoading(false)
+      }
     }
 
     load()
@@ -55,7 +70,10 @@ export function useAuthUser(): {
       load()
     })
 
-    return () => subscription.unsubscribe()
+    return () => {
+      mounted = false
+      subscription.unsubscribe()
+    }
   }, [])
 
   return { user, loading }

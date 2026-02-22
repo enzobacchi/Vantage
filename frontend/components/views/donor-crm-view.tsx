@@ -21,6 +21,8 @@ import { getDonorLifecycleStatus, DEFAULT_LIFECYCLE_CONFIG, type LifecycleStatus
 import type { Interaction } from "@/types/database"
 import { getOrganizationTags } from "@/app/actions/tags"
 import { DonorBadges, DonorTagFilter, DEFAULT_BADGE_CONFIG, type TagForFilter } from "@/components/donors/donor-filters"
+import { DateRangeFilter, getDateRangeFromSearchParams } from "@/components/date-range-filter"
+import { format } from "date-fns"
 import { SaveReportButton } from "@/components/donors/save-report-button"
 import { DonorNotesCard } from "@/components/donors/donor-notes-card"
 import { useNav } from "@/components/nav-context"
@@ -546,14 +548,21 @@ export function DonorCRMView() {
   }, [])
 
   React.useEffect(() => {
-    const q = buildFilterUrl(visibleBadges, badgeConfig)
+    const base = new URLSearchParams(buildFilterUrl(visibleBadges, badgeConfig).replace(/^\?/, "") || "")
+    const view = searchParams.get("view")
+    if (view) base.set("view", view)
+    const from = searchParams.get("from")
+    const to = searchParams.get("to")
+    if (from) base.set("from", from)
+    if (to) base.set("to", to)
+    const q = base.toString()
+    const desired = q
     const current = typeof window !== "undefined" ? window.location.search : ""
-    const desired = q === "" ? "" : q.slice(1)
     const currentNorm = current.startsWith("?") ? current.slice(1) : current
     if (currentNorm !== desired) {
-      router.replace(pathname + (q || ""), { scroll: false })
+      router.replace(pathname + (q ? `?${q}` : ""), { scroll: false })
     }
-  }, [visibleBadges, badgeConfig, pathname, router])
+  }, [visibleBadges, badgeConfig, pathname, router, searchParams])
 
   const [sheetOpen, setSheetOpen] = React.useState(false)
   const [sheetDonorId, setSheetDonorId] = React.useState<string | null>(null)
@@ -572,14 +581,16 @@ export function DonorCRMView() {
   const [logActivityOpen, setLogActivityOpen] = React.useState(false)
   const [logActivityDefaultTab, setLogActivityDefaultTab] = React.useState<"call" | "email" | "task">("call")
 
-  const loadDonors = React.useCallback(async (tagIds?: Set<string>) => {
+  const loadDonors = React.useCallback(async (tagIds?: Set<string>, dateRange?: { from?: string; to?: string }) => {
     try {
       setLoading(true)
       setError(null)
-      const url =
-        tagIds && tagIds.size > 0
-          ? `/api/donors?tagIds=${[...tagIds].join(",")}`
-          : "/api/donors"
+      const params = new URLSearchParams()
+      if (tagIds && tagIds.size > 0) params.set("tagIds", [...tagIds].join(","))
+      if (dateRange?.from) params.set("from", dateRange.from)
+      if (dateRange?.to) params.set("to", dateRange.to)
+      const q = params.toString()
+      const url = q ? `/api/donors?${q}` : "/api/donors"
       const res = await fetch(url)
       const data = (await res.json()) as unknown
       if (!res.ok) {
@@ -596,9 +607,11 @@ export function DonorCRMView() {
     }
   }, [])
 
+  const dateRange = React.useMemo(() => getDateRangeFromSearchParams(searchParams), [searchParams])
+
   React.useEffect(() => {
-    loadDonors(selectedTagIds)
-  }, [selectedTagIds])
+    loadDonors(selectedTagIds, dateRange)
+  }, [selectedTagIds, dateRange.from, dateRange.to, loadDonors])
 
   const handleTagFilterChange = React.useCallback(
     (next: Set<string>) => {
@@ -700,6 +713,15 @@ export function DonorCRMView() {
                 className="flex h-9 w-full rounded-md border border-input bg-transparent pl-9 pr-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               />
             </div>
+            <DateRangeFilter
+              onRangeChange={(range) => {
+                const next =
+                  range?.from && range?.to
+                    ? { from: format(range.from, "yyyy-MM-dd"), to: format(range.to, "yyyy-MM-dd") }
+                    : {}
+                loadDonors(selectedTagIds, next)
+              }}
+            />
             <DonorBadges
               visibleBadges={visibleBadges}
               onVisibleBadgesChange={setVisibleBadges}

@@ -1,20 +1,38 @@
 "use client"
 
 import * as React from "react"
+import { useRouter } from "next/navigation"
 import { IconTrash } from "@tabler/icons-react"
 import { toast } from "sonner"
 
-import { getOrganization, updateOrganization } from "@/app/actions/settings"
+import { deleteOrganization, getOrganization, updateOrganization } from "@/app/actions/settings"
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { createBrowserSupabaseClient } from "@/lib/supabase/client"
 
 export function SettingsOrganization() {
+  const router = useRouter()
   const [loading, setLoading] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
   const [name, setName] = React.useState("")
   const [websiteUrl, setWebsiteUrl] = React.useState("")
   const [logoUrl, setLogoUrl] = React.useState("")
+
+  // Delete dialog state
+  const [deleteOpen, setDeleteOpen] = React.useState(false)
+  const [deleteConfirm, setDeleteConfirm] = React.useState("")
+  const [deleting, setDeleting] = React.useState(false)
 
   const load = React.useCallback(async () => {
     try {
@@ -51,6 +69,24 @@ export function SettingsOrganization() {
       })
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    try {
+      setDeleting(true)
+      await deleteOrganization()
+      toast.success("Organization deleted")
+      const supabase = createBrowserSupabaseClient()
+      await supabase.auth.signOut()
+      router.push("/login")
+      router.refresh()
+    } catch (e) {
+      toast.error("Failed to delete organization", {
+        description: e instanceof Error ? e.message : "Unknown error",
+      })
+      setDeleting(false)
+      setDeleteOpen(false)
     }
   }
 
@@ -111,18 +147,55 @@ export function SettingsOrganization() {
         </div>
       </div>
 
-      {/* Danger Zone - visual only */}
-      <div className="space-y-4 rounded-lg border border-destructive/50 bg-destructive/5 p-6 dark:border-destructive/30 dark:bg-destructive/10">
+      {/* Danger Zone */}
+      <div className="space-y-4 rounded-lg border border-destructive/50 bg-destructive/5 p-6">
         <div>
           <h4 className="text-sm font-medium text-destructive">Danger Zone</h4>
           <p className="text-[0.8rem] text-muted-foreground mt-0.5">
             Permanently delete this organization and all associated data. This action cannot be undone.
           </p>
         </div>
-        <Button variant="destructive" size="default" className="h-9 rounded-md px-4 gap-2" disabled>
-          <IconTrash className="size-4" />
-          Delete Organization
-        </Button>
+
+        <AlertDialog open={deleteOpen} onOpenChange={(o) => { setDeleteOpen(o); if (!o) setDeleteConfirm("") }}>
+          <AlertDialogTrigger asChild>
+            <Button variant="destructive" size="default" className="h-9 rounded-md px-4 gap-2">
+              <IconTrash className="size-4" />
+              Delete Organization
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete organization?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently delete <strong>{name || "this organization"}</strong> and all of its data — donors, donations, reports, tags, and everything else. There is no way to recover this data.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+
+            <div className="space-y-2 py-2">
+              <Label htmlFor="delete-confirm" className="text-sm">
+                Type <strong>DELETE</strong> to confirm
+              </Label>
+              <Input
+                id="delete-confirm"
+                value={deleteConfirm}
+                onChange={(e) => setDeleteConfirm(e.target.value)}
+                placeholder="DELETE"
+                autoComplete="off"
+              />
+            </div>
+
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+              <Button
+                variant="destructive"
+                disabled={deleteConfirm !== "DELETE" || deleting}
+                onClick={handleDelete}
+              >
+                {deleting ? "Deleting…" : "Delete everything"}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
   )

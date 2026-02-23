@@ -1,7 +1,7 @@
 "use server"
 
 import { createAdminClient } from "@/lib/supabase/admin"
-import { getCurrentUserOrg } from "@/lib/auth"
+import { getCurrentUserOrg, getCurrentUserOrgWithRole } from "@/lib/auth"
 
 export type OrganizationProfile = {
   name: string | null
@@ -43,6 +43,52 @@ export async function updateOrganization(form: {
     })
     .eq("id", org.orgId)
 
+  if (error) throw new Error(error.message)
+}
+
+/**
+ * Permanently deletes the current organization and ALL associated data.
+ * Restricted to org owners only. Deletion order respects foreign key dependencies.
+ */
+export async function deleteOrganization(): Promise<void> {
+  const org = await getCurrentUserOrgWithRole()
+  if (!org) throw new Error("Unauthorized")
+  if (org.role !== "owner") throw new Error("Only the organization owner can delete the organization.")
+
+  const supabase = createAdminClient()
+
+  // Get all donor IDs for this org first (needed to delete child records)
+  const { data: donors } = await supabase
+    .from("donors")
+    .select("id")
+    .eq("org_id", org.orgId)
+
+  const donorIds = (donors ?? []).map((d: { id: string }) => d.id)
+
+  // Delete donor-keyed child records
+  if (donorIds.length > 0) {
+    await supabase.from("interactions").delete().in("donor_id", donorIds)
+    await supabase.from("donor_tags").delete().in("donor_id", donorIds)
+    await supabase.from("donor_notes").delete().in("donor_id", donorIds)
+    await supabase.from("donations").delete().in("donor_id", donorIds)
+  }
+
+  // Delete donors
+  await supabase.from("donors").delete().eq("org_id", org.orgId)
+
+  // Delete org-level records
+  await supabase.from("opportunities").delete().eq("organization_id", org.orgId)
+  await supabase.from("saved_reports").delete().eq("organization_id", org.orgId)
+  await supabase.from("saved_lists").delete().eq("organization_id", org.orgId)
+  await supabase.from("report_folders").delete().eq("organization_id", org.orgId)
+  await supabase.from("tags").delete().eq("organization_id", org.orgId)
+  await supabase.from("tasks").delete().eq("organization_id", org.orgId)
+  await supabase.from("email_send_log").delete().eq("org_id", org.orgId)
+  await supabase.from("invitations").delete().eq("organization_id", org.orgId)
+  await supabase.from("organization_members").delete().eq("organization_id", org.orgId)
+
+  // Finally delete the organization itself
+  const { error } = await supabase.from("organizations").delete().eq("id", org.orgId)
   if (error) throw new Error(error.message)
 }
 

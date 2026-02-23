@@ -13,7 +13,9 @@ export function getQBRedirectUriFromRequest(request: Request): string {
   const forwardedHost = request.headers.get("x-forwarded-host");
   const host = request.headers.get("host");
   const forwardedProto = request.headers.get("x-forwarded-proto");
-  if (!host && !forwardedHost) {
+  const effectiveHost = forwardedHost ?? host;
+
+  if (!effectiveHost) {
     try {
       const url = new URL(request.url);
       const origin = url.origin;
@@ -25,8 +27,11 @@ export function getQBRedirectUriFromRequest(request: Request): string {
       "Could not determine redirect URI. Request is missing host and x-forwarded-host."
     );
   }
-  const scheme = forwardedProto ?? "https";
-  const origin = `${scheme}://${forwardedHost ?? host}`;
+
+  // Intuit allows http://localhost for development — always use http for localhost
+  const isLocalhost = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(effectiveHost);
+  const scheme = isLocalhost ? "http" : (forwardedProto ?? "https");
+  const origin = `${scheme}://${effectiveHost}`;
   return `${origin}/api/quickbooks/callback`;
 }
 

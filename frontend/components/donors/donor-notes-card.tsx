@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button"
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
@@ -52,17 +51,14 @@ export function DonorNotesCard({ donorId, initialNotes, textareaClassName, onNot
     <Card>
       <CardHeader>
         <CardTitle>Notes</CardTitle>
-        <CardDescription>
-          Add or edit notes for this donor. They appear in the Donor CRM table.
-        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <Textarea
           placeholder="e.g. Prefers contact by email, interested in legacy giving…"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          rows={4}
-          className={cn("resize-y min-h-[100px]", textareaClassName)}
+          rows={3}
+          className={cn("resize-y min-h-[80px]", textareaClassName)}
         />
         <Button onClick={handleSave} disabled={saving}>
           {saving ? "Saving…" : "Save notes"}

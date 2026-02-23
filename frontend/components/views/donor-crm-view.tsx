@@ -9,18 +9,19 @@ import {
   IconDotsVertical,
   IconSearch,
   IconUsers,
+  IconChevronDown,
 } from "@tabler/icons-react"
 import Link from "next/link"
-import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import { toast } from "sonner"
-import { Calendar, CheckSquare, FileText, Mail, MapPin, Phone, Star } from "lucide-react"
+import { Calendar, CheckSquare, FileText, Mail, MapPin, Phone, Sparkles } from "lucide-react"
 
 import { getDonorProfile, getDonorActivityNotes, type DonorProfileDonor, type DonorProfileDonation, type DonorNoteRow } from "@/app/donors/[id]/actions"
 import { getDonorInteractions, logInteraction, toggleTaskStatus } from "@/app/actions/crm"
-import { getDonorLifecycleStatus, DEFAULT_LIFECYCLE_CONFIG, type LifecycleStatus, type LifecycleConfig } from "@/lib/donor-lifecycle"
+import { DEFAULT_LIFECYCLE_CONFIG } from "@/lib/donor-lifecycle"
 import type { Interaction } from "@/types/database"
 import { getOrganizationTags } from "@/app/actions/tags"
-import { DonorBadges, DonorTagFilter, DEFAULT_BADGE_CONFIG, type TagForFilter } from "@/components/donors/donor-filters"
+import { DonorTagFilter, type TagForFilter } from "@/components/donors/donor-filters"
 import { DateRangeFilter, getDateRangeFromSearchParams } from "@/components/date-range-filter"
 import { format } from "date-fns"
 import { SaveReportButton } from "@/components/donors/save-report-button"
@@ -45,11 +46,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Input } from "@/components/ui/input"
 import { Label } from '@/components/ui/label'
-import {
-  Sheet,
-  SheetContent,
-  SheetTitle,
-} from "@/components/ui/sheet"
 import {
   Select,
   SelectContent,
@@ -89,45 +85,6 @@ type Donor = {
   state: string | null
   notes: string | null
   tags?: DonorTag[]
-}
-
-const LIFECYCLE_BADGE_CLASS: Record<LifecycleStatus, string> = {
-  New: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 border-0",
-  Active: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 border-0",
-  Lapsed: "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300 border-0",
-  Lost: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300 border-0",
-}
-
-function LifecycleBadges({
-  status,
-  isMajor,
-  visibleBadges,
-  className,
-}: {
-  status: LifecycleStatus
-  isMajor: boolean
-  /** When set, only show badges that are in this set. When empty, show nothing. */
-  visibleBadges?: Set<string> | null
-  className?: string
-}) {
-  const showStatus = visibleBadges == null ? true : visibleBadges.size === 0 ? false : visibleBadges.has(status)
-  const showMajor = isMajor && (visibleBadges == null ? true : visibleBadges.size === 0 ? false : visibleBadges.has("Major"))
-  if (!showStatus && !showMajor) return <span className={className ?? ""}>—</span>
-  return (
-    <span className={`inline-flex items-center gap-1.5 ${className ?? ""}`}>
-      {showStatus && (
-        <Badge variant="secondary" className={LIFECYCLE_BADGE_CLASS[status]}>
-          {status}
-        </Badge>
-      )}
-      {showMajor && (
-        <Badge variant="secondary" className="bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300 border-0 gap-1">
-          <Star className="size-3" />
-          Major
-        </Badge>
-      )}
-    </span>
-  )
 }
 
 function formatCurrency(value: number | string | null | undefined) {
@@ -476,43 +433,6 @@ function LogActivityDialog({
   )
 }
 
-function parseFilterFromUrl(searchParams: URLSearchParams): {
-  visibleBadges: Set<string>
-  badgeConfig: LifecycleConfig
-} {
-  const status = searchParams.get("status")
-  const visibleBadges = new Set<string>(
-    status ? status.split(",").map((s) => s.trim()).filter(Boolean) : []
-  )
-  const newMonths = searchParams.get("newMonths")
-  const lapsedMonths = searchParams.get("lapsedMonths")
-  const minMajor = searchParams.get("minMajor")
-  const badgeConfig: LifecycleConfig = {
-    newDonorMonths: newMonths != null && newMonths !== "" ? parseInt(newMonths, 10) : undefined,
-    lapsedMonths: lapsedMonths != null && lapsedMonths !== "" ? parseInt(lapsedMonths, 10) : undefined,
-    majorDonorThreshold: minMajor != null && minMajor !== "" ? parseInt(minMajor, 10) : undefined,
-  }
-  return { visibleBadges, badgeConfig }
-}
-
-function buildFilterUrl(visibleBadges: Set<string>, badgeConfig: LifecycleConfig): string {
-  const p = new URLSearchParams()
-  if (visibleBadges.size > 0) {
-    p.set("status", [...visibleBadges].sort().join(","))
-  }
-  if (badgeConfig.newDonorMonths != null && badgeConfig.newDonorMonths !== DEFAULT_BADGE_CONFIG.newDonorMonths) {
-    p.set("newMonths", String(badgeConfig.newDonorMonths))
-  }
-  if (badgeConfig.lapsedMonths != null && badgeConfig.lapsedMonths !== DEFAULT_BADGE_CONFIG.lapsedMonths) {
-    p.set("lapsedMonths", String(badgeConfig.lapsedMonths))
-  }
-  if (badgeConfig.majorDonorThreshold != null && badgeConfig.majorDonorThreshold !== DEFAULT_BADGE_CONFIG.majorDonorThreshold) {
-    p.set("minMajor", String(badgeConfig.majorDonorThreshold))
-  }
-  const q = p.toString()
-  return q ? `?${q}` : ""
-}
-
 export function DonorCRMView() {
   const searchParams = useSearchParams()
   const { selectedDonorId, clearSelectedDonor } = useNav()
@@ -524,45 +444,13 @@ export function DonorCRMView() {
   const [sortBy, setSortBy] = React.useState<SortOption>("recent")
   const [searchQuery, setSearchQuery] = React.useState("")
 
-  const [visibleBadges, setVisibleBadges] = React.useState<Set<string>>(() =>
-    parseFilterFromUrl(searchParams).visibleBadges
-  )
-  const [badgeConfig, setBadgeConfig] = React.useState<LifecycleConfig>(() => {
-    const parsed = parseFilterFromUrl(searchParams).badgeConfig
-    return {
-      newDonorMonths: parsed.newDonorMonths ?? DEFAULT_LIFECYCLE_CONFIG.newDonorMonths,
-      lapsedMonths: parsed.lapsedMonths ?? DEFAULT_LIFECYCLE_CONFIG.lapsedMonths,
-      lostMonths: parsed.lostMonths ?? DEFAULT_LIFECYCLE_CONFIG.lostMonths,
-      majorDonorThreshold: parsed.majorDonorThreshold ?? DEFAULT_LIFECYCLE_CONFIG.majorDonorThreshold,
-    }
-  })
-  const [badgesPopoverOpen, setBadgesPopoverOpen] = React.useState(false)
   const [orgTags, setOrgTags] = React.useState<TagForFilter[]>([])
   const [selectedTagIds, setSelectedTagIds] = React.useState<Set<string>>(new Set())
   const [tagFilterPopoverOpen, setTagFilterPopoverOpen] = React.useState(false)
-  const pathname = usePathname()
-  const router = useRouter()
 
   React.useEffect(() => {
     getOrganizationTags().then(setOrgTags).catch(() => {})
   }, [])
-
-  React.useEffect(() => {
-    const base = new URLSearchParams(buildFilterUrl(visibleBadges, badgeConfig).replace(/^\?/, "") || "")
-    const view = searchParams.get("view")
-    if (view) base.set("view", view)
-    const from = searchParams.get("from")
-    const to = searchParams.get("to")
-    if (from) base.set("from", from)
-    if (to) base.set("to", to)
-    const q = base.toString()
-    const desired = q
-    const current = typeof window !== "undefined" ? window.location.search : ""
-    const currentNorm = current.startsWith("?") ? current.slice(1) : current
-    if (currentNorm !== desired) {
-      router.replace(pathname + (q ? `?${q}` : ""), { scroll: false })
-    }
-  }, [visibleBadges, badgeConfig, pathname, router, searchParams])
 
   const [sheetOpen, setSheetOpen] = React.useState(false)
   const [sheetDonorId, setSheetDonorId] = React.useState<string | null>(null)
@@ -580,6 +468,7 @@ export function DonorCRMView() {
   const [sheetLoading, setSheetLoading] = React.useState(false)
   const [logActivityOpen, setLogActivityOpen] = React.useState(false)
   const [logActivityDefaultTab, setLogActivityDefaultTab] = React.useState<"call" | "email" | "task">("call")
+  const [historyOpen, setHistoryOpen] = React.useState(false)
 
   const loadDonors = React.useCallback(async (tagIds?: Set<string>, dateRange?: { from?: string; to?: string }) => {
     try {
@@ -674,6 +563,7 @@ export function DonorCRMView() {
   const closeSheet = React.useCallback(() => {
     setSheetOpen(false)
     setSheetDonorId(null)
+    setHistoryOpen(false)
   }, [])
   const totalPages = Math.ceil(sortedDonors.length / pageSize)
   const paginatedDonors = sortedDonors.slice(
@@ -722,14 +612,6 @@ export function DonorCRMView() {
                 loadDonors(selectedTagIds, next)
               }}
             />
-            <DonorBadges
-              visibleBadges={visibleBadges}
-              onVisibleBadgesChange={setVisibleBadges}
-              badgeConfig={badgeConfig}
-              onBadgeConfigChange={setBadgeConfig}
-              open={badgesPopoverOpen}
-              onOpenChange={setBadgesPopoverOpen}
-            />
             <DonorTagFilter
               tags={orgTags}
               selectedTagIds={selectedTagIds}
@@ -743,8 +625,8 @@ export function DonorCRMView() {
             <SaveReportButton
               searchQuery={searchQuery}
               selectedTagIds={selectedTagIds}
-              visibleBadges={visibleBadges}
-              badgeConfig={badgeConfig}
+              visibleBadges={new Set()}
+              badgeConfig={DEFAULT_LIFECYCLE_CONFIG}
             />
             <div className="flex flex-wrap items-center gap-2">
               <Label htmlFor="donor-sort" className="text-sm font-medium whitespace-nowrap">
@@ -775,7 +657,7 @@ export function DonorCRMView() {
               <TableHeader>
                 <TableRow className="bg-muted/50">
                   <TableHead className="font-semibold">Name</TableHead>
-                  <TableHead className="font-semibold">Status</TableHead>
+                  <TableHead className="font-semibold">Tags</TableHead>
                   <TableHead className="font-semibold text-right">Last Gift Amount</TableHead>
                   <TableHead className="font-semibold text-right">Last Gift Date</TableHead>
                   <TableHead className="font-semibold text-right">Lifetime Amount</TableHead>
@@ -831,17 +713,6 @@ export function DonorCRMView() {
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <LifecycleBadges
-                            {...getDonorLifecycleStatus(
-                              {
-                                last_donation_date: donor.last_donation_date,
-                                first_donation_date: donor.first_donation_date,
-                                total_lifetime_value: donor.total_lifetime_value,
-                              },
-                              badgeConfig
-                            )}
-                            visibleBadges={visibleBadges}
-                          />
                           {(donor.tags ?? []).map((t) => (
                             <Badge
                               key={t.id}
@@ -997,240 +868,240 @@ export function DonorCRMView() {
         </CardContent>
       </Card>
 
-      <Sheet open={sheetOpen} onOpenChange={(open) => !open && closeSheet()}>
-        <SheetContent
-          side="right"
-          className="flex w-full flex-col overflow-hidden p-0 sm:max-w-lg"
-        >
-          {/* Header: subtle bg, name + lifecycle badges, letter button top-right */}
-          <div className="shrink-0 border-b bg-muted/30 px-4 py-3 pr-12">
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <SheetTitle className="text-2xl font-bold tracking-tight truncate">
-                  {sheetProfile?.donor?.display_name ?? "Donor"}
-                </SheetTitle>
-                {!sheetLoading && sheetProfile?.donor && sheetDonorId && (
-                  <LifecycleBadges
-                    {...getDonorLifecycleStatus(
-                      {
-                        last_donation_date: sheetProfile.donor.last_donation_date,
-                        first_donation_date:
-                          sheetProfile.donations.length > 0
-                            ? sheetProfile.donations.reduce(
-                                (min, d) => (d.date && (!min || d.date < min) ? d.date : min),
-                                ""
-                              )
-                            : null,
-                        total_lifetime_value: sheetProfile.donor.total_lifetime_value,
-                      },
-                      badgeConfig
-                    )}
-                    visibleBadges={visibleBadges}
-                    className="shrink-0"
-                  />
-                )}
-              </div>
-            </div>
+      <Dialog open={sheetOpen} onOpenChange={(open) => !open && closeSheet()}>
+        <DialogContent className="sm:max-w-5xl w-[95vw] max-h-[85vh] p-0 gap-0 flex flex-col overflow-hidden">
+          {/* Header */}
+          <div className="shrink-0 border-b bg-muted/30 px-6 py-4">
+            <DialogHeader>
+              <DialogTitle className="text-xl font-bold tracking-tight truncate">
+                {sheetProfile?.donor?.display_name ?? "Donor"}
+              </DialogTitle>
+            </DialogHeader>
           </div>
-          <div className="flex-1 overflow-y-auto px-4 space-y-4 py-4 pb-6">
-            {sheetLoading && (
+
+          {/* Scrollable body */}
+          {sheetLoading && (
+            <div className="flex flex-1 items-center justify-center">
               <p className="text-sm text-muted-foreground">Loading…</p>
-            )}
-            {!sheetLoading && sheetProfile?.donor && sheetDonorId && (
-              (() => {
-                const donations = sheetProfile.donations
-                const now = new Date()
-                const yearStartStr = new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10)
-                const monthStartStr = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
-                const toAmount = (d: DonorProfileDonation) => {
-                  if (d.amount == null) return 0
-                  const n = typeof d.amount === "number" ? d.amount : Number(d.amount)
-                  return Number.isFinite(n) ? n : 0
-                }
-                const lifetimeSum = donations.reduce((sum, d) => sum + toAmount(d), 0)
-                const ytdSum = donations
-                  .filter((d) => d.date != null && d.date >= yearStartStr)
-                  .reduce((sum, d) => sum + toAmount(d), 0)
-                const thisMonthSum = donations
-                  .filter((d) => d.date != null && d.date >= monthStartStr)
-                  .reduce((sum, d) => sum + toAmount(d), 0)
-                return (
-              <>
-                {/* Stats: single row, 3 columns, centered */}
-                <div className="grid grid-cols-3 divide-x border-b pb-4">
-                  <div className="flex flex-col items-center justify-center px-2 first:pl-0 last:pr-0">
-                    <span className="text-xs text-muted-foreground">Lifetime Value</span>
-                    <span className="text-lg font-semibold tabular-nums mt-0.5">
-                      {formatCurrency(sheetProfile.donor.total_lifetime_value)}
-                    </span>
-                  </div>
-                  <div className="flex flex-col items-center justify-center px-2 first:pl-0 last:pr-0">
-                    <span className="text-xs text-muted-foreground">Last Gift</span>
-                    <span className="text-lg font-semibold mt-0.5">
-                      {formatDate(sheetProfile.donor.last_donation_date)}
-                    </span>
-                  </div>
-                  <div className="flex flex-col items-center justify-center px-2 first:pl-0 last:pr-0">
-                    <span className="text-xs text-muted-foreground">Avg Gift</span>
-                    <span className="text-lg font-semibold tabular-nums mt-0.5">
-                      {formatCurrency(
-                        sheetProfile.donations.length > 0 && sheetProfile.donor.total_lifetime_value != null
-                          ? (typeof sheetProfile.donor.total_lifetime_value === "number"
-                              ? sheetProfile.donor.total_lifetime_value
-                              : Number(sheetProfile.donor.total_lifetime_value)) / sheetProfile.donations.length
-                          : 0
-                      )}
-                    </span>
-                  </div>
-                </div>
-                {/* Quick Stats: Lifetime, YTD, This Month (from donations history) */}
-                <div className="grid grid-cols-3 divide-x border rounded-lg">
-                  <div className="flex flex-col items-center justify-center px-2 py-3 first:pl-3 last:pr-3">
-                    <span className="text-xs text-muted-foreground">Lifetime</span>
-                    <span className="text-base font-semibold tabular-nums mt-0.5">
-                      {formatCurrency(lifetimeSum)}
-                    </span>
-                  </div>
-                  <div className="flex flex-col items-center justify-center px-2 py-3 first:pl-3 last:pr-3">
-                    <span className="text-xs text-muted-foreground">YTD</span>
-                    <span className="text-base font-semibold tabular-nums mt-0.5">
-                      {formatCurrency(ytdSum)}
-                    </span>
-                  </div>
-                  <div className="flex flex-col items-center justify-center px-2 py-3 first:pl-3 last:pr-3">
-                    <span className="text-xs text-muted-foreground">This Month</span>
-                    <span className="text-base font-semibold tabular-nums mt-0.5">
-                      {formatCurrency(thisMonthSum)}
-                    </span>
-                  </div>
-                </div>
-                {/* Contact: clean list with icons */}
-                <div className="space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Contact</p>
-                  <ul className="space-y-2 text-sm">
-                    <li className="flex items-center gap-2">
-                      <Mail className="size-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate">{sheetProfile.donor.email ?? "—"}</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <Phone className="size-4 shrink-0 text-muted-foreground" />
-                      <span>{sheetProfile.donor.phone ?? "—"}</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <MapPin className="size-4 shrink-0 text-muted-foreground mt-0.5" />
-                      <span className="text-muted-foreground">{sheetProfile.donor.billing_address ?? "—"}</span>
-                    </li>
-                  </ul>
-                </div>
-                <DonorTagsCard donorId={sheetDonorId} />
-                <DonorNotesCard
-                  donorId={sheetDonorId}
-                  initialNotes={sheetProfile.donor.notes}
-                  textareaClassName="bg-muted/50"
-                  onNotesSaved={(id, notes) => {
-                    setDonors((prev) =>
-                      prev.map((d) => (d.id === id ? { ...d, notes } : d))
-                    )
-                    setSheetProfile((p) =>
-                      p ? { ...p, donor: { ...p.donor, notes } } : p
-                    )
-                  }}
-                />
-                <MagicActionsCard
-                  donorId={sheetDonorId}
-                  donorName={sheetProfile.donor.display_name ?? "Unknown Donor"}
-                  compact
-                  onSendEmail={() => {
-                    setLogActivityDefaultTab("email")
-                    setLogActivityOpen(true)
-                  }}
-                  onLogCall={() => {
-                    setLogActivityDefaultTab("call")
-                    setLogActivityOpen(true)
-                  }}
-                />
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <div>
-                      <CardTitle className="text-base">History</CardTitle>
-                      <CardDescription>Giving and communications</CardDescription>
-                    </div>
-                    <Dialog open={logActivityOpen} onOpenChange={setLogActivityOpen}>
-                      <DialogTrigger asChild>
-                        <Button size="sm">Log Activity</Button>
-                      </DialogTrigger>
-                      <LogActivityDialog
+            </div>
+          )}
+          {!sheetLoading && sheetProfile?.donor && sheetDonorId && (
+            (() => {
+              const donations = sheetProfile.donations
+              const now = new Date()
+              const yearStartStr = new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10)
+              const monthStartStr = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
+              const toAmount = (d: DonorProfileDonation) => {
+                if (d.amount == null) return 0
+                const n = typeof d.amount === "number" ? d.amount : Number(d.amount)
+                return Number.isFinite(n) ? n : 0
+              }
+              const lifetimeSum = donations.reduce((sum, d) => sum + toAmount(d), 0)
+              const ytdSum = donations
+                .filter((d) => d.date != null && d.date >= yearStartStr)
+                .reduce((sum, d) => sum + toAmount(d), 0)
+              const thisMonthSum = donations
+                .filter((d) => d.date != null && d.date >= monthStartStr)
+                .reduce((sum, d) => sum + toAmount(d), 0)
+              return (
+                <div className="flex-1 overflow-y-auto p-6 space-y-5">
+
+                  {/* Top: info grid — two columns side by side */}
+                  <div className="grid grid-cols-2 gap-5">
+
+                    {/* Left: AI insights + stats + contact */}
+                    <div className="space-y-4">
+                      <Card className="bg-muted/30 border-dashed">
+                        <CardContent className="flex items-start gap-3 py-3 px-4">
+                          <Sparkles className="size-4 text-muted-foreground shrink-0 mt-0.5" />
+                          <p className="text-xs text-muted-foreground leading-relaxed">
+                            AI insights coming soon — personalized summary and recommendations for this donor.
+                          </p>
+                        </CardContent>
+                      </Card>
+
+                      <div className="grid grid-cols-3 divide-x border rounded-lg">
+                        <div className="flex flex-col items-center justify-center px-1 py-3">
+                          <span className="text-[10px] text-muted-foreground text-center">Lifetime</span>
+                          <span className="text-sm font-semibold tabular-nums mt-0.5">{formatCurrency(lifetimeSum)}</span>
+                        </div>
+                        <div className="flex flex-col items-center justify-center px-1 py-3">
+                          <span className="text-[10px] text-muted-foreground text-center">YTD</span>
+                          <span className="text-sm font-semibold tabular-nums mt-0.5">{formatCurrency(ytdSum)}</span>
+                        </div>
+                        <div className="flex flex-col items-center justify-center px-1 py-3">
+                          <span className="text-[10px] text-muted-foreground text-center">This Month</span>
+                          <span className="text-sm font-semibold tabular-nums mt-0.5">{formatCurrency(thisMonthSum)}</span>
+                        </div>
+                      </div>
+
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-sm">Contact</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <ul className="space-y-3">
+                            <li className="flex items-center gap-2.5">
+                              <Mail className="size-4 shrink-0 text-muted-foreground" />
+                              <span className="truncate text-sm">{sheetProfile.donor.email ?? "—"}</span>
+                            </li>
+                            <li className="flex items-center gap-2.5">
+                              <Phone className="size-4 shrink-0 text-muted-foreground" />
+                              <span className="text-sm">{sheetProfile.donor.phone ?? "—"}</span>
+                            </li>
+                            <li className="flex items-start gap-2.5">
+                              <MapPin className="size-4 shrink-0 text-muted-foreground mt-0.5" />
+                              <span className="text-sm text-muted-foreground">{sheetProfile.donor.billing_address ?? "—"}</span>
+                            </li>
+                          </ul>
+                        </CardContent>
+                      </Card>
+
+                      <MagicActionsCard
                         donorId={sheetDonorId}
-                        donorEmail={sheetProfile?.donor?.email ?? null}
-                        defaultTab={logActivityDefaultTab}
-                        onLogged={() => {
-                          getDonorInteractions(sheetDonorId).then(setSheetInteractions)
-                          setLogActivityOpen(false)
+                        donorName={sheetProfile.donor.display_name ?? "Unknown Donor"}
+                        compact
+                        onSendEmail={() => {
+                          setLogActivityDefaultTab("email")
+                          setLogActivityOpen(true)
                         }}
-                        onClose={() => setLogActivityOpen(false)}
+                        onLogCall={() => {
+                          setLogActivityDefaultTab("call")
+                          setLogActivityOpen(true)
+                        }}
                       />
-                    </Dialog>
-                  </CardHeader>
-                  <CardContent>
-                    <Tabs defaultValue="giving" className="w-full">
-                      <TabsList className="grid w-full grid-cols-2">
-                        <TabsTrigger value="giving">Giving History</TabsTrigger>
-                        <TabsTrigger value="timeline">Timeline</TabsTrigger>
-                      </TabsList>
-                      <TabsContent value="giving" className="mt-3">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Date</TableHead>
-                              <TableHead className="text-right">Amount</TableHead>
-                              <TableHead>Memo</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {sheetProfile.donations.length === 0 ? (
-                              <TableRow>
-                                <TableCell colSpan={3} className="text-muted-foreground text-center py-4 text-sm">
-                                  No donations recorded.
-                                </TableCell>
-                              </TableRow>
-                            ) : (
-                              sheetProfile.donations.map((d) => (
-                                <TableRow key={d.id}>
-                                  <TableCell className="font-medium text-sm">{formatDate(d.date)}</TableCell>
-                                  <TableCell className="text-right tabular-nums text-sm">{formatCurrency(d.amount)}</TableCell>
-                                  <TableCell className="text-muted-foreground max-w-[180px] truncate text-sm">{d.memo ?? "—"}</TableCell>
+                    </div>
+
+                    {/* Right: tags + notes */}
+                    <div className="space-y-4">
+                      <DonorTagsCard donorId={sheetDonorId} />
+                      <DonorNotesCard
+                        donorId={sheetDonorId}
+                        initialNotes={sheetProfile.donor.notes}
+                        textareaClassName="bg-muted/50"
+                        onNotesSaved={(id, notes) => {
+                          setDonors((prev) =>
+                            prev.map((d) => (d.id === id ? { ...d, notes } : d))
+                          )
+                          setSheetProfile((p) =>
+                            p ? { ...p, donor: { ...p.donor, notes } } : p
+                          )
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Log Activity dialog — state-controlled, no nested trigger */}
+                  <Dialog open={logActivityOpen} onOpenChange={setLogActivityOpen}>
+                    <LogActivityDialog
+                      donorId={sheetDonorId}
+                      donorEmail={sheetProfile?.donor?.email ?? null}
+                      defaultTab={logActivityDefaultTab}
+                      onLogged={() => {
+                        getDonorInteractions(sheetDonorId).then(setSheetInteractions)
+                        setLogActivityOpen(false)
+                      }}
+                      onClose={() => setLogActivityOpen(false)}
+                    />
+                  </Dialog>
+
+                  {/* Bottom: history — collapsed by default */}
+                  <div className="border rounded-lg overflow-hidden">
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setHistoryOpen((v) => !v)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault()
+                          setHistoryOpen((v) => !v)
+                        }
+                      }}
+                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors cursor-pointer select-none"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-medium">History</span>
+                        <span className="text-xs text-muted-foreground">
+                          {sheetProfile.donations.length} gift{sheetProfile.donations.length !== 1 ? "s" : ""}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs"
+                          onClick={(e) => { e.stopPropagation(); setLogActivityOpen(true) }}
+                        >
+                          Log Activity
+                        </Button>
+                        <IconChevronDown className={`size-4 text-muted-foreground transition-transform duration-200 ${historyOpen ? "rotate-180" : ""}`} />
+                      </div>
+                    </div>
+
+                    {historyOpen && (
+                      <div className="border-t max-h-[300px] overflow-y-auto">
+                        <Tabs defaultValue="giving" className="w-full">
+                          <TabsList className="grid w-full grid-cols-2 rounded-none border-b h-9">
+                            <TabsTrigger value="giving" className="rounded-none text-xs">Giving History</TabsTrigger>
+                            <TabsTrigger value="timeline" className="rounded-none text-xs">Timeline</TabsTrigger>
+                          </TabsList>
+                          <TabsContent value="giving" className="mt-0 p-0">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Date</TableHead>
+                                  <TableHead className="text-right">Amount</TableHead>
+                                  <TableHead>Memo</TableHead>
                                 </TableRow>
-                              ))
-                            )}
-                          </TableBody>
-                        </Table>
-                      </TabsContent>
-                      <TabsContent value="timeline" className="mt-3">
-                        <InteractionTimeline
-                          donorId={sheetDonorId}
-                          interactions={sheetInteractions}
-                          onToggleTask={async (id) => {
-                            await toggleTaskStatus(id)
-                            getDonorInteractions(sheetDonorId).then(setSheetInteractions)
-                          }}
-                          onRefresh={() => getDonorInteractions(sheetDonorId).then(setSheetInteractions)}
-                        />
-                      </TabsContent>
-                    </Tabs>
-                  </CardContent>
-                </Card>
-                <Button variant="outline" className="w-full" asChild>
-                  <Link href={`/donors/${sheetDonorId}`} onClick={closeSheet}>
-                    Open full profile page
-                  </Link>
-                </Button>
-              </>
-                )
-              })()
-            )}
-          </div>
-        </SheetContent>
-      </Sheet>
+                              </TableHeader>
+                              <TableBody>
+                                {sheetProfile.donations.length === 0 ? (
+                                  <TableRow>
+                                    <TableCell colSpan={3} className="text-muted-foreground text-center py-4 text-sm">
+                                      No donations recorded.
+                                    </TableCell>
+                                  </TableRow>
+                                ) : (
+                                  sheetProfile.donations.map((d) => (
+                                    <TableRow key={d.id}>
+                                      <TableCell className="font-medium text-sm">{formatDate(d.date)}</TableCell>
+                                      <TableCell className="text-right tabular-nums text-sm">{formatCurrency(d.amount)}</TableCell>
+                                      <TableCell className="text-muted-foreground max-w-[300px] truncate text-sm">
+                                        {d.memo && !/^qb_sales_receipt_id:/i.test(d.memo) ? d.memo : "—"}
+                                      </TableCell>
+                                    </TableRow>
+                                  ))
+                                )}
+                              </TableBody>
+                            </Table>
+                          </TabsContent>
+                          <TabsContent value="timeline" className="mt-0 p-3">
+                            <InteractionTimeline
+                              donorId={sheetDonorId}
+                              interactions={sheetInteractions}
+                              onToggleTask={async (id) => {
+                                await toggleTaskStatus(id)
+                                getDonorInteractions(sheetDonorId).then(setSheetInteractions)
+                              }}
+                              onRefresh={() => getDonorInteractions(sheetDonorId).then(setSheetInteractions)}
+                            />
+                          </TabsContent>
+                        </Tabs>
+                      </div>
+                    )}
+                  </div>
+
+                  <p className="text-xs text-muted-foreground text-center pb-1">
+                    <Link href={`/donors/${sheetDonorId}`} onClick={closeSheet} className="hover:underline">
+                      Open full profile page →
+                    </Link>
+                  </p>
+                </div>
+              )
+            })()
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

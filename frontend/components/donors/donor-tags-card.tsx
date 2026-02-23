@@ -17,7 +17,6 @@ import { Button } from "@/components/ui/button"
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
@@ -113,9 +112,6 @@ export function DonorTagsCard({ donorId }: { donorId: string }) {
     <Card>
       <CardHeader>
         <CardTitle>Tags</CardTitle>
-        <CardDescription>
-          Custom labels for this donor (e.g. Board Member, Volunteer). Filter the donor list by these tags.
-        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {loading ? (

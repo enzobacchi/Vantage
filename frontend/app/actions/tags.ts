@@ -28,6 +28,7 @@ export async function createTag(name: string, color: string): Promise<Tag> {
       organization_id: org.orgId,
       name: trimmed,
       color: color || "gray",
+      created_by_user_id: org.userId,
     })
     .select("id,name,color,created_at")
     .single()
@@ -93,6 +94,7 @@ export async function getOrganizationTags(): Promise<Tag[]> {
     .from("tags")
     .select("id,name,color,created_at")
     .eq("organization_id", org.orgId)
+    .or(`created_by_user_id.eq.${org.userId},created_by_user_id.is.null`)
     .order("name")
 
   if (error) throw new Error(error.message)
@@ -128,6 +130,7 @@ export async function getDonorTags(donorId: string): Promise<Tag[]> {
     .from("tags")
     .select("id,name,color,created_at")
     .in("id", tagIds)
+    .or(`created_by_user_id.eq.${org.userId},created_by_user_id.is.null`)
 
   if (tagsError) return []
   return (tags ?? []) as Tag[]

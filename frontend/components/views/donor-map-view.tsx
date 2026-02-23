@@ -1,8 +1,8 @@
 "use client"
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import Link from "next/link"
-import { useRouter } from "next/navigation"
+
+import { useNav } from "@/components/nav-context"
 import {
   IconFilter,
   IconMap,
@@ -35,6 +35,7 @@ class MapErrorBoundary extends React.Component<
   }
 }
 
+import { createBrowserSupabaseClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import {
   Command,
@@ -69,8 +70,6 @@ export interface DonorFilterParams {
 type DonorMapPoint = {
   id: string
   display_name: string | null
-  email: string | null
-  phone: string | null
   total_lifetime_value: number | string | null
   last_donation_date: string | null
   location_lat: number
@@ -180,7 +179,7 @@ const WEBGL_FALLBACK = (
 const MAPBOX_STYLE = "mapbox://styles/mapbox/streets-v12"
 
 export function DonorMapView() {
-  const router = useRouter()
+  const { openDonor } = useNav()
   const mapboxToken =
     process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN || process.env.NEXT_PUBLIC_MAPBOX_TOKEN
   const mapRef = useRef<MapRef>(null)
@@ -196,37 +195,65 @@ export function DonorMapView() {
   }, [])
 
   const [colorRanges, setColorRanges] = useState<ColorRangeInput[]>(DEFAULT_COLOR_RANGES)
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem("vantage-map-color-ranges")
-      if (raw) {
-        const parsed = JSON.parse(raw) as ColorRangeInput[] | Array<{ color: string; min: number; max: number | null }> | null
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const asInputs: ColorRangeInput[] = parsed.map((r: ColorRangeInput | { color: string; min: number; max: number | null }) =>
-            "minInput" in r
-              ? r
-              : { color: r.color, minInput: String(r.min), maxInput: r.max == null ? "" : String(r.max) }
-          )
-          setColorRanges(asInputs)
-        }
-      }
-    } catch {
-      // ignore
-    }
-  }, [])
-  useEffect(() => {
-    try {
-      window.localStorage.setItem("vantage-map-color-ranges", JSON.stringify(colorRanges))
-    } catch {
-      // ignore
-    }
-  }, [colorRanges])
-
-  const parsedColorRanges = useMemo(() => parseColorRanges(colorRanges), [colorRanges])
-
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [minGivingInput, setMinGivingInput] = useState<string>("")
   const [maxGivingInput, setMaxGivingInput] = useState<string>("")
+
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const [prefsLoaded, setPrefsLoaded] = useState(false)
+
+  const mapPrefsKey = currentUserId ? `vantage-map-prefs-${currentUserId}` : null
+
+  // Get user ID on mount
+  useEffect(() => {
+    const supabase = createBrowserSupabaseClient()
+    supabase.auth.getUser().then(({ data }) => {
+      if (data?.user?.id) setCurrentUserId(data.user.id)
+      else setPrefsLoaded(true)
+    })
+  }, [])
+
+  // Load all prefs when key is ready
+  useEffect(() => {
+    if (!mapPrefsKey) return
+    try {
+      const raw = window.localStorage.getItem(mapPrefsKey)
+      if (raw) {
+        const p = JSON.parse(raw) as {
+          statusFilter?: string
+          minGiving?: string
+          maxGiving?: string
+          colorRanges?: ColorRangeInput[]
+        }
+        if (p.statusFilter) setStatusFilter(p.statusFilter)
+        if (p.minGiving != null) setMinGivingInput(p.minGiving)
+        if (p.maxGiving != null) setMaxGivingInput(p.maxGiving)
+        if (Array.isArray(p.colorRanges) && p.colorRanges.length) setColorRanges(p.colorRanges)
+      } else {
+        // Migrate legacy non-user-scoped color ranges
+        const old = window.localStorage.getItem("vantage-map-color-ranges")
+        if (old) {
+          try {
+            const c = JSON.parse(old) as ColorRangeInput[] | null
+            if (Array.isArray(c) && c.length) setColorRanges(c)
+          } catch { /* ignore */ }
+        }
+      }
+    } catch { /* ignore */ }
+    setPrefsLoaded(true)
+  }, [mapPrefsKey])
+
+  // Save all prefs on change
+  useEffect(() => {
+    if (!mapPrefsKey || !prefsLoaded) return
+    try {
+      window.localStorage.setItem(mapPrefsKey, JSON.stringify({
+        statusFilter, minGiving: minGivingInput, maxGiving: maxGivingInput, colorRanges
+      }))
+    } catch { /* ignore */ }
+  }, [mapPrefsKey, prefsLoaded, statusFilter, minGivingInput, maxGivingInput, colorRanges])
+
+  const parsedColorRanges = useMemo(() => parseColorRanges(colorRanges), [colorRanges])
   const [geocodeLoading, setGeocodeLoading] = useState(false)
   const [geocodeMessage, setGeocodeMessage] = useState<string | null>(null)
 
@@ -269,6 +296,7 @@ export function DonorMapView() {
   )
 
   useEffect(() => {
+    if (!prefsLoaded) return
     let cancelled = false
     async function load() {
       try {
@@ -288,7 +316,7 @@ export function DonorMapView() {
     return () => {
       cancelled = true
     }
-  }, [filterParams, fetchMap])
+  }, [filterParams, fetchMap, prefsLoaded])
 
   const runGeocodeBackfill = useCallback(async () => {
     setGeocodeMessage(null)
@@ -517,7 +545,7 @@ export function DonorMapView() {
                 ))}
 
                 {/* Map Legend & Settings: bottom-left */}
-                <div className="absolute bottom-3 left-3 z-10 flex items-start gap-3">
+                <div className="absolute bottom-3 left-3 z-10 flex flex-col items-start gap-2">
                   <Popover open={legendOpen} onOpenChange={setLegendOpen}>
                     <PopoverTrigger asChild>
                       <button
@@ -591,7 +619,7 @@ export function DonorMapView() {
                       </div>
                     </PopoverContent>
                   </Popover>
-                  <div className="flex flex-col gap-1 rounded-md border bg-background/95 px-2 py-1.5 shadow-sm backdrop-blur">
+                  <div className="flex w-[150px] flex-col gap-1 rounded-md border bg-background/95 px-2 py-1.5 shadow-sm backdrop-blur">
                     <div className="text-xs font-medium text-muted-foreground">Lifetime value</div>
                     {parsedColorRanges.map((range, i) => (
                       <div key={i} className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -617,25 +645,8 @@ export function DonorMapView() {
                   >
                     <div className="min-w-56 rounded-lg border bg-card p-3 text-card-foreground shadow-sm">
                       <h3 className="font-semibold text-foreground leading-tight">
-                        <Link
-                          href={`/donors/${selected.id}`}
-                          className="hover:underline focus:outline-none focus:underline text-inherit"
-                        >
-                          {selected.display_name ?? "Unknown Donor"}
-                        </Link>
+                        {selected.display_name ?? "Unknown Donor"}
                       </h3>
-                      {(selected.email ?? selected.phone) ? (
-                        <div className="mt-2 space-y-0.5 text-xs text-muted-foreground">
-                          {selected.email ? (
-                            <div className="truncate" title={selected.email}>
-                              {selected.email}
-                            </div>
-                          ) : null}
-                          {selected.phone ? (
-                            <div>{selected.phone}</div>
-                          ) : null}
-                        </div>
-                      ) : null}
                       <div className="mt-2 text-xs text-muted-foreground">
                         Total giving:{" "}
                         {selected.total_lifetime_value == null
@@ -647,7 +658,10 @@ export function DonorMapView() {
                         variant="outline"
                         size="sm"
                         className="mt-3 w-full h-8 text-xs"
-                        onClick={() => router.push(`/donors/${selected.id}`)}
+                        onClick={() => {
+                          openDonor(selected.id)
+                          setSelected(null)
+                        }}
                       >
                         View profile
                       </Button>

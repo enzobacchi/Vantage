@@ -108,6 +108,7 @@ export async function POST(request: Request) {
       filters?: unknown;
       selectedColumns?: unknown;
       title?: string;
+      visibility?: string;
     } | null;
     const rawFilters = body?.filters;
     const rawSelectedColumns = body?.selectedColumns;
@@ -121,6 +122,7 @@ export async function POST(request: Request) {
         )
       : [];
     const customTitle = typeof body?.title === "string" ? body.title.trim() : "";
+    const visibility = body?.visibility === "private" ? "private" : "shared";
 
     const auth = await requireUserOrg();
     if (!auth.ok) return auth.response;
@@ -317,7 +319,7 @@ export async function POST(request: Request) {
     const csvBytes = Buffer.byteLength(csv, "utf8");
     const queryValue = "";
     const insertPayloads: Array<Record<string, unknown>> = [
-      { organization_id, title, type: "CSV", content: csv, query: queryValue, summary, records_count: rowCount },
+      { organization_id, title, type: "CSV", content: csv, query: queryValue, summary, records_count: rowCount, visibility, created_by_user_id: auth.userId },
       { organization_id, title, type: "CSV", content: csv, query: queryValue, summary, records_count: rowCount },
       { organization_id, title, filter_criteria: { type: "CSV", content: csv, summary, row_count: rowCount, bytes: csvBytes } },
       { title, type: "CSV", content: csv, query: queryValue, summary, records_count: rowCount },

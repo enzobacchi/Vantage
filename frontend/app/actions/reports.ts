@@ -19,7 +19,8 @@ export type CrmFilters = {
  */
 export async function createReportFromCrm(
   name: string,
-  filters: CrmFilters
+  filters: CrmFilters,
+  visibility: "private" | "shared" = "shared"
 ): Promise<{ id: string }> {
   const org = await getCurrentUserOrg()
   if (!org) throw new Error("Unauthorized")
@@ -46,6 +47,8 @@ export async function createReportFromCrm(
       type: "crm",
       summary: summary || title,
       query: queryJson,
+      visibility,
+      created_by_user_id: org.userId,
     })
     .select("id")
     .single()

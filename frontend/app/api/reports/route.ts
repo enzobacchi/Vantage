@@ -14,6 +14,8 @@ export type SavedReportRow = {
   records_count?: number | null;
   created_at: string;
   folder_id: string | null;
+  visibility: string | null;
+  created_by_user_id: string | null;
 };
 
 export async function GET(request: Request) {
@@ -24,12 +26,13 @@ export async function GET(request: Request) {
   const folderIdParam = searchParams.get("folderId");
 
   const supabase = createAdminClient();
-  const baseSelect = "id,title,query,type,summary,records_count,created_at,folder_id";
+  const baseSelect = "id,title,query,type,summary,records_count,created_at,folder_id,visibility,created_by_user_id";
 
   let query = supabase
     .from("saved_reports")
     .select(baseSelect)
     .eq("organization_id", auth.orgId)
+    .or(`visibility.eq.shared,created_by_user_id.eq.${auth.userId},created_by_user_id.is.null`)
     .order("created_at", { ascending: false });
 
   if (folderIdParam === "") {
@@ -43,6 +46,8 @@ export async function GET(request: Request) {
   // If folder_id column doesn't exist yet (migration not run), retry without it
   const columnMissing =
     error?.message?.includes("folder_id") ||
+    error?.message?.includes("visibility") ||
+    error?.message?.includes("created_by_user_id") ||
     error?.message?.includes("does not exist") ||
     error?.code === "42703";
   if (error && columnMissing) {
@@ -53,7 +58,7 @@ export async function GET(request: Request) {
       .eq("organization_id", auth.orgId)
       .order("created_at", { ascending: false });
     if (!fallback.error) {
-      data = (fallback.data ?? []).map((row) => ({ ...row, folder_id: null }));
+      data = (fallback.data ?? []).map((row) => ({ ...row, folder_id: null, visibility: null, created_by_user_id: null }));
       error = null;
     }
   }

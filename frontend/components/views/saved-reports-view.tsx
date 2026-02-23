@@ -466,7 +466,7 @@ export function SavedReportsView() {
       const res = await fetch("/api/reports/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: name, filters, selectedColumns }),
+        body: JSON.stringify({ title: name, filters, selectedColumns, visibility: reportVisibility }),
       })
       const data = (await res.json().catch(() => null)) as { error?: string; title?: string; reportId?: string }
       if (!res.ok) {

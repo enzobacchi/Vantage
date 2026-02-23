@@ -86,6 +86,8 @@ export interface Database {
           title: string
           filter_criteria: Json
           created_at: string
+          visibility: string
+          created_by_user_id: string | null
         }
       }
       donor_notes: {

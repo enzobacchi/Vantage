@@ -151,6 +151,58 @@ export async function getCanManageTeam(): Promise<boolean> {
   return ctx ? canManageTeam(ctx.role) : false
 }
 
+export async function getCurrentMemberInfo(): Promise<{ userId: string; role: string } | null> {
+  const ctx = await getCurrentUserOrgWithRole()
+  if (!ctx) return null
+  return { userId: ctx.userId, role: ctx.role }
+}
+
+/**
+ * Change a member's role. Owner-only. Prevents removing the last owner.
+ * memberId is the organization_members.id (not user_id).
+ */
+export async function updateMemberRole(
+  memberId: string,
+  newRole: "owner" | "admin" | "member"
+): Promise<{ error?: string }> {
+  const ctx = await getCurrentUserOrgWithRole()
+  if (!ctx) return { error: "Unauthorized" }
+  if (ctx.role !== "owner") return { error: "Only owners can change member roles." }
+
+  const supabase = createAdminClient()
+
+  // Fetch the target member to check their current role
+  const { data: target } = await supabase
+    .from("organization_members")
+    .select("user_id, role")
+    .eq("id", memberId)
+    .eq("organization_id", ctx.orgId)
+    .maybeSingle()
+
+  if (!target) return { error: "Member not found." }
+
+  // Prevent demoting the last owner
+  if ((target as { role: string }).role === "owner" && newRole !== "owner") {
+    const { count } = await supabase
+      .from("organization_members")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", ctx.orgId)
+      .eq("role", "owner")
+    if (count !== null && count <= 1) {
+      return { error: "Cannot remove the last owner. Promote another member to owner first." }
+    }
+  }
+
+  const { error } = await supabase
+    .from("organization_members")
+    .update({ role: newRole })
+    .eq("id", memberId)
+    .eq("organization_id", ctx.orgId)
+
+  if (error) return { error: error.message }
+  return {}
+}
+
 export async function getPendingInvitations(): Promise<Invitation[]> {
   const ctx = await getCurrentUserOrgWithRole()
   if (!ctx || !canManageTeam(ctx.role)) return []

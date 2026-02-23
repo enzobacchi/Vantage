@@ -79,7 +79,8 @@ export async function GET(request: Request) {
       );
     }
 
-    // Link current user to this org (do not overwrite existing role — team/ownership only via Settings)
+    // Link current user to this org.
+    // First person to connect this QB company becomes the owner; subsequent users are members.
     const serverSupabase = await createServerSupabaseClient();
     const {
       data: { user },
@@ -92,10 +93,14 @@ export async function GET(request: Request) {
         .eq("organization_id", orgRow.id)
         .maybeSingle();
       if (!existing) {
+        const { count } = await admin
+          .from("organization_members")
+          .select("id", { count: "exact", head: true })
+          .eq("organization_id", orgRow.id);
         await admin.from("organization_members").insert({
           user_id: user.id,
           organization_id: orgRow.id,
-          role: "member",
+          role: count === 0 ? "owner" : "member",
         });
       }
     }

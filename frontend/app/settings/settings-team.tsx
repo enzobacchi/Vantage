@@ -7,10 +7,12 @@ import { toast } from "sonner"
 import {
   createInvitation,
   getCanManageTeam,
+  getCurrentMemberInfo,
   getOrganizationMembers,
   getPendingInvitations,
   revokeInvitation,
   sendInviteEmail,
+  updateMemberRole,
   type Invitation,
   type OrgMember,
 } from "@/app/actions/team"
@@ -46,24 +48,30 @@ export function SettingsTeam() {
   const [members, setMembers] = React.useState<OrgMember[]>([])
   const [invitations, setInvitations] = React.useState<Invitation[]>([])
   const [canManage, setCanManage] = React.useState(false)
+  const [currentUserId, setCurrentUserId] = React.useState<string | null>(null)
+  const [currentRole, setCurrentRole] = React.useState<string>("")
   const [loading, setLoading] = React.useState(true)
   const [inviteOpen, setInviteOpen] = React.useState(false)
   const [inviteEmail, setInviteEmail] = React.useState("")
   const [inviteRole, setInviteRole] = React.useState<"admin" | "member">("member")
   const [generatedLink, setGeneratedLink] = React.useState("")
   const [generating, setGenerating] = React.useState(false)
+  const [updatingRoleId, setUpdatingRoleId] = React.useState<string | null>(null)
 
   const load = React.useCallback(async () => {
     try {
       setLoading(true)
-      const [m, inv, can] = await Promise.all([
+      const [m, inv, can, me] = await Promise.all([
         getOrganizationMembers(),
         getPendingInvitations(),
         getCanManageTeam(),
+        getCurrentMemberInfo(),
       ])
       setMembers(m)
       setInvitations(inv)
       setCanManage(can)
+      setCurrentUserId(me?.userId ?? null)
+      setCurrentRole(me?.role ?? "")
     } catch {
       toast.error("Failed to load team")
     } finally {
@@ -74,6 +82,18 @@ export function SettingsTeam() {
   React.useEffect(() => {
     load()
   }, [load])
+
+  const handleRoleChange = async (memberId: string, newRole: "owner" | "admin" | "member") => {
+    setUpdatingRoleId(memberId)
+    const result = await updateMemberRole(memberId, newRole)
+    if (result.error) {
+      toast.error(result.error)
+    } else {
+      toast.success("Role updated")
+      await load()
+    }
+    setUpdatingRoleId(null)
+  }
 
   const handleGenerateInvite = async () => {
     const result = await createInvitation(inviteEmail, inviteRole)
@@ -111,6 +131,8 @@ export function SettingsTeam() {
       await load()
     }
   }
+
+  const isOwner = currentRole === "owner"
 
   return (
     <div className="space-y-8">
@@ -239,20 +261,46 @@ export function SettingsTeam() {
                 </TableCell>
               </TableRow>
             ) : (
-              members.map((m) => (
-                <TableRow key={m.id}>
-                  <TableCell className="font-medium">{m.name}</TableCell>
-                  <TableCell className="text-muted-foreground">{m.email}</TableCell>
-                  <TableCell className="capitalize">{m.role}</TableCell>
-                  <TableCell className="text-muted-foreground text-sm">
-                    {new Date(m.created_at).toLocaleDateString(undefined, {
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
-                    })}
-                  </TableCell>
-                </TableRow>
-              ))
+              members.map((m) => {
+                const isSelf = m.user_id === currentUserId
+                const canChangeRole = isOwner && !isSelf
+                return (
+                  <TableRow key={m.id}>
+                    <TableCell className="font-medium">
+                      {m.name}
+                      {isSelf && <span className="ml-1.5 text-xs text-muted-foreground">(you)</span>}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{m.email}</TableCell>
+                    <TableCell>
+                      {canChangeRole ? (
+                        <Select
+                          value={m.role}
+                          onValueChange={(v) => handleRoleChange(m.id, v as "owner" | "admin" | "member")}
+                          disabled={updatingRoleId === m.id}
+                        >
+                          <SelectTrigger className="h-8 w-28 text-sm">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="owner">Owner</SelectItem>
+                            <SelectItem value="admin">Admin</SelectItem>
+                            <SelectItem value="member">Member</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <span className="capitalize text-sm">{m.role}</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-sm">
+                      {new Date(m.created_at).toLocaleDateString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
+                    </TableCell>
+                  </TableRow>
+                )
+              })
             )}
           </TableBody>
         </Table>

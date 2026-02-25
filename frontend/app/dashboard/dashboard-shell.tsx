@@ -2,6 +2,7 @@
 
 import React, { Suspense } from "react"
 
+import { AppHeader } from "@/components/app-header"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
   CommandMenu,
@@ -35,18 +36,18 @@ export default function DashboardShell({
       <AutoSyncTrigger />
       <NavProvider>
         <SidebarProvider
-          defaultOpen={true}
+          defaultOpen={false}
           style={
             {
               "--sidebar-width": "16rem",
-              "--sidebar-width-icon": "3rem",
+              "--sidebar-width-icon": "3.5rem",
             } as React.CSSProperties
           }
         >
         <CommandMenuProvider>
           <AppSidebar variant="inset" />
           <SidebarInset className="bg-muted/20">
-            <header className="flex h-12 shrink-0 items-center border-b border-border/50 bg-background/80 px-4 backdrop-blur-sm"></header>
+            <AppHeader />
             <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-background">
               {children}
             </div>

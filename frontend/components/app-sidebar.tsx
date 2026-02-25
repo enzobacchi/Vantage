@@ -4,30 +4,18 @@ import * as React from "react"
 import {
   IconDashboard,
   IconFileText,
-  IconLayoutDashboard,
   IconMap,
   IconRoute2,
-  IconSearch,
   IconSettings,
-  IconTrendingUp,
   IconUsers,
 } from "@tabler/icons-react"
 
-import { useCommandMenu } from "@/components/command-menu"
-import { useAuthUser } from "@/hooks/use-auth-user"
 import { NavMain } from "@/components/nav-main"
-import { NavUser } from "@/components/nav-user"
-import { ThemeToggle } from "@/components/theme-toggle"
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
-  SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
+  useSidebar,
 } from '@/components/ui/sidebar'
-import { Button } from "@/components/ui/button"
 
 const navMainData = [
   {
@@ -49,22 +37,19 @@ const navMainData = [
     view: "donor-map" as const,
   },
   {
-    title: "Route Planner (Beta)",
+    title: "Route Planner",
     url: "/dashboard/routes",
     icon: IconRoute2,
   },
-  // Pilot: Pipeline hidden until ready
-  // {
-  //   title: "Pipeline",
-  //   url: "/dashboard/pipeline",
-  //   icon: IconTrendingUp,
-  // },
   {
     title: "Saved Reports",
     url: "#",
     icon: IconFileText,
     view: "saved-reports" as const,
   },
+]
+
+const navBottomData = [
   {
     title: "Settings",
     url: "/settings",
@@ -72,59 +57,35 @@ const navMainData = [
   },
 ]
 
-const fallbackUser = {
-  name: "User",
-  email: "",
-  avatar: "",
-}
-
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
-  const { setOpen } = useCommandMenu()
-  const { user: authUser, loading } = useAuthUser()
-  const sidebarUser = loading
-    ? { ...fallbackUser, name: "Loading…", email: "" }
-    : authUser ?? fallbackUser
+  const { setOpen: setSidebarOpen } = useSidebar()
+  const collapseTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const handleMouseEnter = () => {
+    if (collapseTimer.current) {
+      clearTimeout(collapseTimer.current)
+      collapseTimer.current = null
+    }
+    setSidebarOpen(true)
+  }
+
+  const handleMouseLeave = () => {
+    collapseTimer.current = setTimeout(() => {
+      setSidebarOpen(false)
+    }, 250)
+  }
 
   return (
-    <Sidebar collapsible="none" {...props}>
-      <SidebarHeader>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              asChild
-              tooltip="Vantage"
-              className="data-[slot=sidebar-menu-button]:!p-1.5"
-            >
-              <a href="/dashboard">
-                <IconLayoutDashboard className="size-5 shrink-0 text-slate-900 dark:text-white" />
-                <span className="text-lg font-bold tracking-tight text-slate-900 dark:text-white">Vantage</span>
-              </a>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-        <div className="px-2 pt-2 group-data-[collapsible=icon]:hidden">
-          <Button
-            variant="outline"
-            className="bg-muted/30 text-muted-foreground hover:bg-muted/50 h-9 w-full justify-start rounded-md border border-border/60 text-sm font-normal shadow-none"
-            onClick={() => setOpen(true)}
-          >
-            <IconSearch className="mr-2 size-4 shrink-0" />
-            <span className="inline-flex truncate">Search...</span>
-            <kbd className="bg-muted pointer-events-none ml-auto hidden h-5 select-none items-center gap-1 rounded border px-1.5 font-mono text-[10px] font-medium opacity-100 sm:flex">
-              <span className="text-xs">⌘</span>K
-            </kbd>
-          </Button>
-        </div>
-      </SidebarHeader>
+    <Sidebar
+      collapsible="icon"
+      overlay
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      {...props}
+    >
       <SidebarContent>
-        <NavMain items={navMainData} />
+        <NavMain items={navMainData} bottomItems={navBottomData} />
       </SidebarContent>
-      <SidebarFooter>
-        <div className="flex items-center gap-1 px-2">
-          <ThemeToggle />
-        </div>
-        <NavUser user={sidebarUser} />
-      </SidebarFooter>
     </Sidebar>
   )
 }

@@ -259,7 +259,7 @@ export default async function DonorProfilePage({ params }: PageProps) {
                       {formatCurrency(d.amount)}
                     </TableCell>
                     <TableCell className="text-muted-foreground max-w-md truncate">
-                      {d.memo ?? "—"}
+                      {d.memo && !/^qb_sales_receipt_id:/i.test(d.memo) ? d.memo : "—"}
                     </TableCell>
                   </TableRow>
                 ))

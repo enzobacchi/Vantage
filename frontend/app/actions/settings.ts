@@ -25,13 +25,19 @@ export async function getOrganization(): Promise<OrganizationProfile | null> {
   return data as OrganizationProfile
 }
 
+export async function getOrganizationRole(): Promise<string | null> {
+  const org = await getCurrentUserOrgWithRole()
+  return org?.role ?? null
+}
+
 export async function updateOrganization(form: {
   name: string
   website_url: string
   logo_url: string
 }): Promise<void> {
-  const org = await getCurrentUserOrg()
+  const org = await getCurrentUserOrgWithRole()
   if (!org) throw new Error("Unauthorized")
+  if (org.role !== "owner") throw new Error("Only the organization owner can update these settings.")
 
   const supabase = createAdminClient()
   const { error } = await supabase

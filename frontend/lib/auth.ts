@@ -28,17 +28,38 @@ export async function getCurrentUserOrg(): Promise<CurrentUserOrg | null> {
   }
 
   const admin = createAdminClient();
-  let { data: member, error: memberError } = await admin
+  let { data: members, error: memberError } = await admin
     .from("organization_members")
     .select("organization_id")
     .eq("user_id", user.id)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .order("created_at", { ascending: false });
 
   if (memberError) {
     return null;
   }
+
+  // Pick the best org: prefer any org where the user is not the sole member
+  // (i.e., a real shared org vs a solo auto-created placeholder).
+  let chosenOrgId: string | null = null;
+  if (members && members.length > 0) {
+    for (const m of members as { organization_id: string }[]) {
+      const { count } = await admin
+        .from("organization_members")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", m.organization_id);
+      if (count !== null && count > 1) {
+        chosenOrgId = m.organization_id;
+        break;
+      }
+    }
+    // Fall back to most recent membership (first in list) if all are solo orgs
+    if (!chosenOrgId) {
+      chosenOrgId = (members[0] as { organization_id: string }).organization_id;
+    }
+  }
+
+  // Wrap result to match the shape previously returned by .maybeSingle()
+  const member = chosenOrgId ? { organization_id: chosenOrgId } : null;
 
   if (!member?.organization_id) {
     // User has no org (e.g. email signup). Create a default org and add them so dashboard loads.

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { IconTrash } from "@tabler/icons-react"
 import { toast } from "sonner"
 
-import { deleteOrganization, getOrganization, updateOrganization } from "@/app/actions/settings"
+import { deleteOrganization, getOrganization, getOrganizationRole, updateOrganization } from "@/app/actions/settings"
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -25,6 +25,7 @@ export function SettingsOrganization() {
   const router = useRouter()
   const [loading, setLoading] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
+  const [role, setRole] = React.useState<string | null>(null)
   const [name, setName] = React.useState("")
   const [websiteUrl, setWebsiteUrl] = React.useState("")
   const [logoUrl, setLogoUrl] = React.useState("")
@@ -37,12 +38,13 @@ export function SettingsOrganization() {
   const load = React.useCallback(async () => {
     try {
       setLoading(true)
-      const org = await getOrganization()
+      const [org, userRole] = await Promise.all([getOrganization(), getOrganizationRole()])
       if (org) {
         setName(org.name ?? "")
         setWebsiteUrl(org.website_url ?? "")
         setLogoUrl(org.logo_url ?? "")
       }
+      setRole(userRole)
     } catch {
       toast.error("Failed to load organization")
     } finally {
@@ -107,48 +109,66 @@ export function SettingsOrganization() {
         </p>
       </div>
 
-      <div className="space-y-8">
-        <div className="space-y-2">
-          <Label htmlFor="org-name" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-            Ministry name
-          </Label>
-          <p className="text-[0.8rem] text-muted-foreground mt-1.5">
-            The display name of your organization.
+      {role !== "owner" ? (
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">Ministry name</Label>
+            <p className="text-sm text-zinc-700">{name || <span className="text-muted-foreground">—</span>}</p>
+          </div>
+          {websiteUrl && (
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Website URL</Label>
+              <p className="text-sm text-zinc-700">{websiteUrl}</p>
+            </div>
+          )}
+          <p className="text-[0.8rem] text-muted-foreground pt-2">
+            Only the organization owner can edit these settings.
           </p>
-          <Input
-            id="org-name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Grace Community Church"
-            className="mt-2 h-9"
-          />
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="org-website" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-            Website URL
-          </Label>
-          <p className="text-[0.8rem] text-muted-foreground mt-1.5">
-            Your organization&apos;s public website.
-          </p>
-          <Input
-            id="org-website"
-            type="url"
-            value={websiteUrl}
-            onChange={(e) => setWebsiteUrl(e.target.value)}
-            placeholder="https://…"
-            className="mt-2 h-9"
-          />
-        </div>
+      ) : (
+        <div className="space-y-8">
+          <div className="space-y-2">
+            <Label htmlFor="org-name" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+              Ministry name
+            </Label>
+            <p className="text-[0.8rem] text-muted-foreground mt-1.5">
+              The display name of your organization.
+            </p>
+            <Input
+              id="org-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Grace Community Church"
+              className="mt-2 h-9"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="org-website" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+              Website URL
+            </Label>
+            <p className="text-[0.8rem] text-muted-foreground mt-1.5">
+              Your organization&apos;s public website.
+            </p>
+            <Input
+              id="org-website"
+              type="url"
+              value={websiteUrl}
+              onChange={(e) => setWebsiteUrl(e.target.value)}
+              placeholder="https://…"
+              className="mt-2 h-9"
+            />
+          </div>
 
-        <div>
-          <Button size="default" className="h-9 rounded-md px-4" onClick={handleSave} disabled={saving}>
-            {saving ? "Saving…" : "Save changes"}
-          </Button>
+          <div>
+            <Button size="default" className="h-9 rounded-md px-4" onClick={handleSave} disabled={saving}>
+              {saving ? "Saving…" : "Save changes"}
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Danger Zone */}
-      <div className="space-y-4 rounded-lg border border-destructive/50 bg-destructive/5 p-6">
+      {/* Danger Zone — owner only */}
+      {role === "owner" && <div className="space-y-4 rounded-lg border border-destructive/50 bg-destructive/5 p-6">
         <div>
           <h4 className="text-sm font-medium text-destructive">Danger Zone</h4>
           <p className="text-[0.8rem] text-muted-foreground mt-0.5">
@@ -196,7 +216,7 @@ export function SettingsOrganization() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-      </div>
+      </div>}
     </div>
   )
 }

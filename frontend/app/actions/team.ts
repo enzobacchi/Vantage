@@ -290,6 +290,42 @@ export async function acceptInvitation(token: string): Promise<{ error?: string;
 
   await admin.from("invitations").delete().eq("id", inv.id)
 
+  // Clean up any solo placeholder orgs the user auto-created on signup.
+  // When a user first hits the dashboard without an invite they get a "My Organization"
+  // org. Now that they've joined a real org, remove those stale placeholders so they
+  // never see "My Organization" instead of the actual org name.
+  const { data: otherMemberships } = await admin
+    .from("organization_members")
+    .select("organization_id")
+    .eq("user_id", user.id)
+    .neq("organization_id", inv.organization_id)
+
+  for (const m of otherMemberships ?? []) {
+    const orgId = (m as { organization_id: string }).organization_id
+
+    // Only remove orgs where this user is the SOLE member
+    const { count } = await admin
+      .from("organization_members")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", orgId)
+
+    if (count !== 1) continue
+
+    // Only remove if the org name is still the auto-created default
+    const { data: orgData } = await admin
+      .from("organizations")
+      .select("name")
+      .eq("id", orgId)
+      .maybeSingle()
+
+    const orgName = (orgData as { name?: string } | null)?.name
+    if (orgName && orgName !== "My Organization") continue
+
+    // Safe to delete: solo org with default name = auto-created placeholder
+    await admin.from("organization_members").delete().eq("user_id", user.id).eq("organization_id", orgId)
+    await admin.from("organizations").delete().eq("id", orgId)
+  }
+
   const { data: org } = await admin
     .from("organizations")
     .select("name")

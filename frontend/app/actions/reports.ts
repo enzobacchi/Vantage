@@ -39,7 +39,7 @@ export async function createReportFromCrm(
   const queryJson = JSON.stringify(criteria)
 
   const supabase = createAdminClient()
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("saved_reports")
     .insert({
       organization_id: org.orgId,
@@ -52,6 +52,22 @@ export async function createReportFromCrm(
     })
     .select("id")
     .single()
+
+  // Columns added in a later migration may not exist yet — retry without them
+  if (error?.message?.includes("created_by_user_id") || error?.message?.includes("visibility") || error?.message?.includes("summary")) {
+    const fallback = await supabase
+      .from("saved_reports")
+      .insert({
+        organization_id: org.orgId,
+        title,
+        type: "crm",
+        query: queryJson,
+      })
+      .select("id")
+      .single()
+    data = fallback.data
+    error = fallback.error
+  }
 
   if (error) throw new Error(error.message)
   if (!data?.id) throw new Error("Failed to create report.")

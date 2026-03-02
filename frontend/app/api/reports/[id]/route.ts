@@ -179,6 +179,11 @@ export async function GET(
     }
   }
 
+  // Count data rows (exclude header) so the UI can show a live row count
+  const records_count = content
+    ? Math.max(0, content.split("\n").filter((l) => l.trim()).length - 1)
+    : 0;
+
   return NextResponse.json({
     id: row.id,
     title: row.title,
@@ -186,6 +191,7 @@ export async function GET(
     summary: row.summary ?? null,
     created_at: row.created_at,
     content,
+    records_count,
   });
 }
 

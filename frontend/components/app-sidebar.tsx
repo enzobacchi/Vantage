@@ -66,7 +66,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       clearTimeout(collapseTimer.current)
       collapseTimer.current = null
     }
-    setSidebarOpen(true)
+    // startTransition marks the expansion as non-urgent so any in-flight
+    // click event is processed first, preventing the re-render from
+    // swallowing the click before navigation completes.
+    React.startTransition(() => {
+      setSidebarOpen(true)
+    })
   }
 
   const handleMouseLeave = () => {

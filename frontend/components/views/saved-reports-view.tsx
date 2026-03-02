@@ -284,7 +284,7 @@ export function SavedReportsView() {
     setPreviewData(null)
     fetch(`/api/reports/${encodeURIComponent(previewReportId)}`)
       .then((res) => res.json())
-      .then((data: { content?: string; title?: string; summary?: string; type?: string; created_at?: string }) => {
+      .then((data: { content?: string; title?: string; summary?: string; type?: string; created_at?: string; records_count?: number }) => {
         if (cancelled) return
         setPreviewData({
           title: typeof data?.title === "string" ? data.title : "Report",
@@ -293,6 +293,14 @@ export function SavedReportsView() {
           content: typeof data?.content === "string" ? data.content : "",
           created_at: typeof data?.created_at === "string" ? data.created_at : "",
         })
+        // Update the live row count in the report list so it reflects real data
+        if (typeof data?.records_count === "number" && previewReportId) {
+          setReports((prev) =>
+            prev.map((r) =>
+              r.id === previewReportId ? { ...r, records_count: data.records_count as number } : r
+            )
+          )
+        }
       })
       .catch(() => {
         if (!cancelled) setPreviewData(null)
@@ -941,7 +949,10 @@ export function SavedReportsView() {
       </Dialog>
 
       <Dialog open={!!previewReportId} onOpenChange={(open) => !open && setPreviewReportId(null)}>
-        <DialogContent className="sm:max-w-[900px] w-full h-[80vh] flex flex-col p-0 gap-0">
+        <DialogContent
+          className="h-[80vh] flex flex-col p-0 gap-0"
+          style={{ resize: "horizontal", overflow: "hidden", width: "900px", minWidth: "520px", maxWidth: "95vw" }}
+        >
           <DialogHeader className="p-6 pb-2 flex-shrink-0">
             <DialogTitle>
               {previewData ? stripSqlArtifacts(previewData.title) : "Report preview"}
@@ -961,7 +972,7 @@ export function SavedReportsView() {
               ) : null}
             </DialogDescription>
           </DialogHeader>
-          <div className="flex-1 overflow-y-auto overflow-x-auto min-h-0 p-6 pt-2">
+          <div className="flex-1 overflow-y-auto overflow-x-auto min-h-0 min-w-0 p-6 pt-2">
             {previewLoading ? (
               <p className="text-sm text-muted-foreground py-4">Loading…</p>
             ) : previewData?.content ? (

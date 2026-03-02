@@ -23,7 +23,7 @@ type NavItem = {
 function NavItems({ items }: { items: NavItem[] }) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const { activeView, setActiveView } = useNav()
+  const { activeView, setActiveViewOnly } = useNav()
 
   return (
     <>
@@ -51,7 +51,7 @@ function NavItems({ items }: { items: NavItem[] }) {
             >
               <Link
                 href={href}
-                onClick={() => !isExternalLink && item.view && setActiveView(item.view)}
+                onClick={() => !isExternalLink && item.view && setActiveViewOnly(item.view)}
               >
                 {item.icon && <item.icon />}
                 <span>{item.title}</span>

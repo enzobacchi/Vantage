@@ -13,6 +13,7 @@ function isValidNavView(v: string | null): v is NavView {
 interface NavContextType {
   activeView: NavView
   setActiveView: (view: NavView) => void
+  setActiveViewOnly: (view: NavView) => void
   selectedDonorId: string | null
   openDonor: (donorId: string) => void
   clearSelectedDonor: () => void
@@ -53,6 +54,12 @@ export function NavProvider({ children }: { children: React.ReactNode }) {
     }
   }, [pathname, searchParams])
 
+  // Updates local view state immediately without a redundant router call.
+  // Use this from nav links where the Link's href already handles navigation.
+  const setActiveViewOnly = React.useCallback((view: NavView) => {
+    setActiveViewState(view)
+  }, [])
+
   const [selectedDonorId, setSelectedDonorId] = React.useState<string | null>(null)
 
   const openDonor = React.useCallback(
@@ -75,6 +82,7 @@ export function NavProvider({ children }: { children: React.ReactNode }) {
       value={{
         activeView,
         setActiveView,
+        setActiveViewOnly,
         selectedDonorId,
         openDonor,
         clearSelectedDonor,

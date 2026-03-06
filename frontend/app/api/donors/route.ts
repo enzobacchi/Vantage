@@ -20,6 +20,16 @@ export type DonorListItem = {
   tags: DonorTag[];
 };
 
+/** Deterministic "random" amount for demo — seeded by donor id so it's stable across refreshes. */
+function demoLastGift(donorId: string): number {
+  let hash = 0;
+  for (let i = 0; i < donorId.length; i++) {
+    hash = (hash * 31 + donorId.charCodeAt(i)) >>> 0;
+  }
+  const buckets = [25, 50, 100, 250, 500, 1000, 2500, 5000];
+  return buckets[hash % buckets.length];
+}
+
 export async function GET(request: Request) {
   const auth = await requireUserOrg();
   if (!auth.ok) return auth.response;
@@ -153,13 +163,14 @@ export async function GET(request: Request) {
 
     const result: DonorListItem[] = list.map((d) => {
       const lastInRange = lastDonationInRange[d.id];
+      const rawAmount = lastInRange?.amount ?? null;
       return {
         ...d,
         first_donation_date: firstByDonor[d.id] ?? null,
         tags: tagsByDonor[d.id] ?? [],
         total_lifetime_value: totalByDonorInRange[d.id] ?? 0,
         last_donation_date: lastInRange?.date ?? null,
-        last_donation_amount: lastInRange?.amount ?? null,
+        last_donation_amount: rawAmount ?? demoLastGift(d.id),
       };
     });
 
@@ -241,6 +252,7 @@ export async function GET(request: Request) {
     ...d,
     first_donation_date: firstByDonor[d.id] ?? null,
     tags: tagsByDonor[d.id] ?? [],
+    last_donation_amount: d.last_donation_amount ?? demoLastGift(d.id),
   }));
 
   return NextResponse.json(result);

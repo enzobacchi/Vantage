@@ -25,9 +25,10 @@ import { DonorTagFilter, type TagForFilter } from "@/components/donors/donor-fil
 import { DateRangeFilter, getDateRangeFromSearchParams } from "@/components/date-range-filter"
 import { format } from "date-fns"
 import { SaveReportButton } from "@/components/donors/save-report-button"
-import { DonorNotesCard } from "@/components/donors/donor-notes-card"
 import { useNav } from "@/components/nav-context"
+import { DonorInsightsPanel } from "@/components/donors/donor-insights-panel"
 import { MagicActionsCard } from "@/components/donors/magic-actions-card"
+import { DonorNotesCard } from "@/components/donors/donor-notes-card"
 import { DonorTagsCard } from "@/components/donors/donor-tags-card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from '@/components/ui/button'
@@ -662,26 +663,25 @@ export function DonorCRMView() {
                   <TableHead className="font-semibold text-right">Last Gift Date</TableHead>
                   <TableHead className="font-semibold text-right">Lifetime Amount</TableHead>
                   <TableHead className="font-semibold">Address</TableHead>
-                  <TableHead className="font-semibold">Notes</TableHead>
                   <TableHead className="w-[50px]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-sm text-muted-foreground">
+                    <TableCell colSpan={7} className="text-sm text-muted-foreground">
                       Loading donors…
                     </TableCell>
                   </TableRow>
                 ) : error ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-sm text-destructive">
+                    <TableCell colSpan={7} className="text-sm text-destructive">
                       {error}
                     </TableCell>
                   </TableRow>
                 ) : paginatedDonors.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-sm text-muted-foreground">
+                    <TableCell colSpan={7} className="text-sm text-muted-foreground">
                       {searchQuery.trim()
                         ? "No donors match your search."
                         : selectedTagIds.size > 0
@@ -757,9 +757,6 @@ export function DonorCRMView() {
                       </TableCell>
                       <TableCell className="text-muted-foreground max-w-64 truncate">
                         {donor.billing_address ?? "—"}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground max-w-56 truncate text-sm">
-                        {donor.notes?.trim() ?? "—"}
                       </TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         <DropdownMenu>
@@ -911,14 +908,7 @@ export function DonorCRMView() {
 
                     {/* Left: AI insights + stats + contact */}
                     <div className="space-y-4">
-                      <Card className="bg-muted/30 border-dashed">
-                        <CardContent className="flex items-start gap-3 py-3 px-4">
-                          <Sparkles className="size-4 text-muted-foreground shrink-0 mt-0.5" />
-                          <p className="text-xs text-muted-foreground leading-relaxed">
-                            AI insights coming soon — personalized summary and recommendations for this donor.
-                          </p>
-                        </CardContent>
-                      </Card>
+                      <DonorInsightsPanel donorId={sheetProfile.donor.id} />
 
                       <div className="grid grid-cols-3 divide-x border rounded-lg">
                         <div className="flex flex-col items-center justify-center px-1 py-3">
@@ -978,15 +968,7 @@ export function DonorCRMView() {
                       <DonorNotesCard
                         donorId={sheetDonorId}
                         initialNotes={sheetProfile.donor.notes}
-                        textareaClassName="bg-muted/50"
-                        onNotesSaved={(id, notes) => {
-                          setDonors((prev) =>
-                            prev.map((d) => (d.id === id ? { ...d, notes } : d))
-                          )
-                          setSheetProfile((p) =>
-                            p ? { ...p, donor: { ...p.donor, notes } } : p
-                          )
-                        }}
+                        savedNotes={sheetActivity}
                       />
                     </div>
                   </div>

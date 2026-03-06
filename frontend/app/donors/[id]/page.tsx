@@ -2,6 +2,7 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 import { ArrowLeft } from "lucide-react"
 
+import { DonorInsightsCard } from "@/components/donors/donor-insights-card"
 import { DonorNotesCard } from "@/components/donors/donor-notes-card"
 import { DonorTagsCard } from "@/components/donors/donor-tags-card"
 import { MagicActionsCard } from "@/components/donors/magic-actions-card"
@@ -47,19 +48,6 @@ function formatDate(value: string | null | undefined): string {
     month: "short",
     day: "numeric",
     year: "numeric",
-  })
-}
-
-function formatDateTime(value: string | null | undefined): string {
-  if (!value) return "—"
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return value
-  return d.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
   })
 }
 
@@ -165,6 +153,8 @@ export default async function DonorProfilePage({ params }: PageProps) {
 
       <DonorTagsCard donorId={donor.id} />
 
+      <DonorInsightsCard donorId={donor.id} />
+
       <div className="grid gap-4 sm:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
@@ -219,7 +209,7 @@ export default async function DonorProfilePage({ params }: PageProps) {
         </CardContent>
       </Card>
 
-      <DonorNotesCard donorId={donor.id} initialNotes={donor.notes} />
+      <DonorNotesCard donorId={donor.id} initialNotes={donor.notes} savedNotes={activityNotes} />
 
       <MagicActionsCard
         donorId={donor.id}
@@ -266,36 +256,6 @@ export default async function DonorProfilePage({ params }: PageProps) {
               )}
             </TableBody>
           </Table>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Activity Log</CardTitle>
-          <CardDescription>
-            Call notes and touchpoints logged from Magic Actions
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {activityNotes.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-4">
-              No activity logged yet. Use &quot;Log Call&quot; in Magic Actions to record a note.
-            </p>
-          ) : (
-            <ul className="space-y-3">
-              {activityNotes.map((entry) => (
-                <li
-                  key={entry.id}
-                  className="flex flex-col gap-0.5 rounded-md border bg-muted/30 px-3 py-2 text-sm"
-                >
-                  <span className="text-xs text-muted-foreground">
-                    {formatDateTime(entry.created_at)}
-                  </span>
-                  <p className="whitespace-pre-wrap">{entry.note}</p>
-                </li>
-              ))}
-            </ul>
-          )}
         </CardContent>
       </Card>
     </div>

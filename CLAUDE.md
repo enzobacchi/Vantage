@@ -1,91 +1,126 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Context file for Claude Code (claude.ai/code) and Cursor when working in this repository.
+
+## Product
+
+**Vantage** is an AI-powered donor CRM for small-to-midsize nonprofits and ministries. It replaces manual data entry with intelligent automation and integrates directly with accounting software (QuickBooks today, Xero/FreshBooks/Sage planned).
+
+**Target user**: Faith-based organizations and small nonprofits with 1–5 staff managing donors, receipts, and bookkeeping — typically under 5,000 donors.
+
+**Core thesis**: Shift donor management from a passive system of record to an active, intelligent partner — automating data entry, surfacing relationship insights, and connecting fundraising to accounting in one platform.
 
 ## Commands
 
-All root-level scripts proxy to the frontend. Run from the repo root:
+All root-level scripts proxy to `/frontend`:
 
 ```bash
-npm run dev      # Start frontend dev server (port 3000)
-npm run build    # Production build
+npm run dev      # Start dev server (port 3000)
+npm run build    # Production build (also runs TypeScript type-check)
 npm run lint     # ESLint check
 ```
 
-To run the backend Next.js API server separately:
+No test framework — linting and `npm run build` (TypeScript) are the quality gates.
 
-```bash
-cd backend && npm run dev   # Backend dev server (port 3001 by default when frontend is running)
-```
+## Architecture
 
-There is no test framework configured — linting and TypeScript type-checking are the primary quality gates.
+**Single Next.js 16 application** in `/frontend` (App Router, React 19). There is no separate backend service.
 
-## Architecture Overview
-
-This is a **monorepo with two Next.js applications**:
-
-- **`/frontend`** — User-facing SPA (Next.js 16, App Router, React 19). Contains UI, server actions, and some API routes.
-- **`/backend`** — API-only Next.js app. Contains heavier server-side logic: AI chat, QuickBooks sync, report execution, donor semantic search, and OAuth flows.
-
-Both apps share the same Supabase project and use the same multi-tenant data model.
+- **Server Actions** (`frontend/app/actions/`) — all mutations (donors, donations, pipeline, reports, teams, tags, settings).
+- **API Routes** (`frontend/app/api/`) — streaming, file uploads, complex queries (map, donations, dashboard metrics, QuickBooks OAuth, email).
+- **No client state management** — server-driven via Server Components and Actions. Client state uses `useState` only.
 
 ### Multi-Tenant Org Scoping
 
 **Every data query must be scoped by `org_id`.** This is the most critical architectural invariant.
 
-- `frontend/lib/auth.ts` exports `getCurrentUserOrg()` and `requireUserOrg()` — call these at the top of every server action and API route handler before touching the database.
-- `backend/src/lib/auth.ts` has the same helpers for backend routes.
-- The admin Supabase client **bypasses RLS**, so org scoping must be enforced in application code.
-- Use query builders in `frontend/lib/supabase/scoped.ts` which pre-filter by `org_id`.
-
-### Frontend Data Flow
-
-- **Server Actions** (`/frontend/app/actions/`) for all mutations (CRM updates, pipeline, reports, teams, tags).
-- **API Routes** (`/frontend/app/api/`) for streaming responses and complex fetches (chat, map, donors, donations).
-- **Backend API Routes** (`/backend/src/app/api/`) for: AI intelligence chat, QuickBooks sync, saved report execution.
-- No Redux/Zustand — state is server-driven via Server Components and Actions. Client state uses `useState`.
+- `frontend/lib/auth.ts` exports `getCurrentUserOrg()`, `getCurrentUserOrgWithRole()`, and `requireUserOrg()`.
+- Call one of these at the top of **every** server action and API route before touching the database.
+- The admin Supabase client **bypasses RLS** — org scoping must be enforced in application code.
+- Use scoped query builders in `frontend/lib/supabase/scoped.ts` which pre-filter by `org_id` (donors, reports, tasks, opportunities).
 
 ### Key Domain Concepts
 
-- **Donor Lifecycle**: Status field with values `New`, `Active`, `Lapsed`, `Lost` — not a free-form field.
+- **Donor Lifecycle**: Computed status — `New` (≤6mo), `Active`, `Lapsed` (>12mo), `Lost` (>24mo). Calculated by `frontend/lib/donor-lifecycle.ts`, not a free-form field.
 - **Reports**: Dynamic — store filter criteria as JSON in `saved_reports`, not result snapshots.
-- **Interactions**: Touchpoints (Calls, Emails, Tasks) tracked in the `interactions` table.
+- **Interactions**: Touchpoints (Calls, Emails, Meetings, Notes, Tasks) in the `interactions` table.
+- **Opportunities**: Fundraising pipeline with stages: identified → qualified → solicited → committed → closed_won/lost.
+- **Donation Options**: Org-scoped categories, campaigns, and funds in `org_donation_options`.
 
 ### AI / Intelligence Layer
 
-The backend `/api/chat` route acts as an AI router:
-- Classifies intent (search, chat, route, report) using OpenAI
-- Runs semantic donor search via Supabase `match_donors` RPC (pgvector)
-- PII is redacted before sending donor data to the LLM (`frontend/lib/pii-redaction.ts`)
-- Embeddings stored as vectors on the `donors` table
+- **Donor Insights**: `GET /api/donors/[id]/insights` generates AI briefings via OpenAI. PII is redacted before LLM calls (`frontend/lib/pii-redaction.ts`) and unredacted in the response.
+- **Semantic Search**: pgvector embeddings on `donors` table, queried via Supabase `match_donors` RPC.
+- **Chat Agent**: Not yet built — planned as a central conversational interface for querying data, creating records, and triggering workflows.
+- Always redact PII before sending any donor data to OpenAI. Never auto-execute AI suggestions — always require human approval.
 
 ### Database
 
-Supabase (PostgreSQL + pgvector). 34 migrations in `/backend/supabase/migrations/`.
+Supabase (PostgreSQL + pgvector). Migrations in `/supabase/migrations/`.
 
-Key tables: `organizations`, `organization_members`, `donors`, `donations`, `donor_notes`, `interactions`, `opportunities`, `saved_reports`, `saved_lists`, `tags`, `team_invites`, `chat_history`, `email_send_log`, `user_feedback`.
+Key tables: `organizations`, `organization_members`, `donors`, `donations`, `donor_notes`, `interactions`, `opportunities`, `saved_reports`, `report_folders`, `saved_lists`, `org_donation_options`, `receipt_templates`, `tags`, `donor_tags`, `invitations`, `chat_history`, `email_send_log`, `user_feedback`.
 
-RLS is enabled (migration `15_rls_multi_tenant.sql`) but the admin client bypasses it — always scope queries manually.
+RLS is enabled but the admin client bypasses it — **always scope queries manually by `org_id`**.
 
-Generated TypeScript types live in `frontend/types/database.ts`.
+Generated TypeScript types: `frontend/types/database.ts` — update this when schema changes.
 
 ### Authentication
 
-Supabase Auth. On sign-in, `getCurrentUserOrg()` looks up the user's `organization_members` row and returns `{ userId, orgId }`. If no membership exists, it auto-creates an org and links the user as owner.
+Supabase Auth. `getCurrentUserOrg()` looks up the user's `organization_members` row and returns `{ userId, orgId }`. If no membership exists, it auto-creates an org and links the user as owner.
+
+Roles: `owner`, `admin`, `member` — checked via `getCurrentUserOrgWithRole()`.
+
+### Integrations
+
+- **QuickBooks**: Full OAuth 2.0 flow + sync (customers → donors, sales receipts/invoices → donations). Helpers in `frontend/lib/quickbooks-helpers.ts`. Supports sandbox and production environments.
+- **Resend**: Transactional email for donation receipts. Templates: standard, DAF, institutional. API route at `POST /api/email/send`.
+- **Mapbox**: Donor geospatial visualization. Geocoding + interactive map with status/giving filters.
+- **OpenAI**: Donor insight generation, semantic search embeddings, and future chat agent.
 
 ## UI Conventions
 
-- **Shadcn UI** for all components (no other component libraries).
+- **Shadcn UI** exclusively — no other component libraries.
 - **Lucide React** icons at **1.5px stroke width**.
-- **Light mode default** — do not add dark mode variants unless explicitly requested.
-- Backgrounds: `bg-white` or `bg-zinc-50/50` for sidebars/settings. Text: `text-zinc-950` headings, `text-zinc-500` metadata. Borders: `border-zinc-200`.
-- Shadows: `shadow-sm` only. Hover: `hover:bg-zinc-100`.
-- User feedback via Sonner `toast` — never `alert()`.
+- **Light mode default** — do not add dark mode unless explicitly requested.
+- Colors: `bg-white` / `bg-zinc-50/50` backgrounds. `text-zinc-950` headings. `text-zinc-500` metadata. `border-zinc-200` borders.
+- `shadow-sm` only. `hover:bg-zinc-100` for interactive elements.
+- User feedback via **Sonner `toast`** — never `alert()`.
+
+## Key Files
+
+| Path | Purpose |
+|------|---------|
+| `frontend/lib/auth.ts` | Org-scoping helpers (call before every DB query) |
+| `frontend/lib/supabase/scoped.ts` | Pre-filtered query builders by org_id |
+| `frontend/lib/supabase/admin.ts` | Admin Supabase client (bypasses RLS) |
+| `frontend/lib/pii-redaction.ts` | Redact/unredact PII for LLM calls |
+| `frontend/lib/donor-lifecycle.ts` | Donor status computation |
+| `frontend/lib/quickbooks-helpers.ts` | QB data parsing and API helpers |
+| `frontend/lib/format.ts` | Currency/date formatting |
+| `frontend/types/database.ts` | Generated TypeScript types for DB schema |
+| `frontend/app/actions/` | All server actions (mutations) |
+| `frontend/app/api/` | All API routes (reads, streaming, OAuth) |
+| `frontend/components/views/` | Top-level view components (CRM, map, reports, donations, pipeline) |
+| `supabase/migrations/` | Database migrations |
 
 ## Environment Variables
 
-Frontend (`.env.local`): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_MAPBOX_TOKEN`, `NEXT_PUBLIC_APP_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `QB_CLIENT_ID`, `QB_CLIENT_SECRET`, `QB_REDIRECT_URI`, `RESEND_API_KEY`, `OPENAI_API_KEY`.
+In `frontend/.env.local`:
 
-Backend (`.env.local`, see `.env.example`): same Supabase + QB + OpenAI + Resend vars, plus `QB_ENVIRONMENT` (`sandbox`/`production`).
+```
+NEXT_PUBLIC_SUPABASE_URL      # Supabase project URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY # Supabase anonymous key (public)
+NEXT_PUBLIC_MAPBOX_TOKEN      # Mapbox GL JS token
+NEXT_PUBLIC_APP_URL           # App URL (for redirects)
+SUPABASE_SERVICE_ROLE_KEY     # Admin key — NEVER expose as NEXT_PUBLIC_*
+QB_CLIENT_ID                  # QuickBooks OAuth client ID
+QB_CLIENT_SECRET              # QuickBooks OAuth client secret
+QB_REDIRECT_URI               # QuickBooks OAuth redirect URI
+QB_ENVIRONMENT                # "sandbox" or "production"
+RESEND_API_KEY                # Resend email API key
+OPENAI_API_KEY                # OpenAI API key
+```
 
-`SUPABASE_SERVICE_ROLE_KEY` must **never** be in `NEXT_PUBLIC_*` or exposed to the browser.
+## Deployment
+
+Vercel. The root `package.json` proxies all scripts to `/frontend`. Single Vercel project pointing at the repo root.

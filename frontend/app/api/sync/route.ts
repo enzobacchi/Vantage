@@ -693,11 +693,13 @@ export async function GET(request: Request) {
         }`;
 
         donationsToUpsert.push({
+          org_id: orgId,
           donor_id: donorId,
           amount,
           date,
           memo,
           payment_method: "quickbooks",
+          source: "quickbooks",
         });
       }
 

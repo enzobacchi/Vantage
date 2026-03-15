@@ -49,22 +49,12 @@ export async function GET(request: Request) {
 
   const supabase = createAdminClient();
 
-  const { data: orgDonors } = await supabase
-    .from("donors")
-    .select("id")
-    .eq("org_id", auth.orgId);
-  const donorIds = (orgDonors ?? []).map((d: { id: string }) => d.id);
-
-  if (donorIds.length === 0) {
-    return NextResponse.json({ donations: [], total: 0 });
-  }
-
   let query = supabase
     .from("donations")
     .select("id,donor_id,amount,date,memo,payment_method,category_id,campaign_id,fund_id,acknowledgment_sent_at,donors(display_name)", {
       count: "exact",
     })
-    .in("donor_id", donorIds)
+    .eq("org_id", auth.orgId)
     .order("date", { ascending: false, nullsFirst: false });
 
   if (paymentMethod && VALID_PAYMENT_METHODS.has(paymentMethod)) {
@@ -113,11 +103,13 @@ export async function GET(request: Request) {
 
   const optionNames: Record<string, string> = {};
   if (optionIds.size > 0) {
-    const { data: options } = await supabase
-      .from("org_donation_options")
-      .select("id,name")
-      .in("id", [...optionIds]);
-    for (const o of options ?? []) {
+    const ids = [...optionIds];
+    const [cats, camps, funds] = await Promise.all([
+      supabase.from("gift_categories").select("id,name").in("id", ids),
+      supabase.from("gift_campaigns").select("id,name").in("id", ids),
+      supabase.from("gift_funds").select("id,name").in("id", ids),
+    ]);
+    for (const o of [...(cats.data ?? []), ...(camps.data ?? []), ...(funds.data ?? [])]) {
       optionNames[o.id] = o.name ?? "";
     }
   }

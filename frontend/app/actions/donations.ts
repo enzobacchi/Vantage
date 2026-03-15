@@ -196,6 +196,7 @@ export async function createDonation(input: CreateDonationInput): Promise<string
   const { data: donation, error } = await supabase
     .from("donations")
     .insert({
+      org_id: org.orgId,
       donor_id: input.donor_id,
       amount,
       date: dateStr,
@@ -204,6 +205,7 @@ export async function createDonation(input: CreateDonationInput): Promise<string
       category_id: input.category_id || null,
       campaign_id: input.campaign_id || null,
       fund_id: input.fund_id || null,
+      source: "manual",
     })
     .select("id")
     .single()

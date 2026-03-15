@@ -6,7 +6,6 @@ import { useNav } from "@/components/nav-context"
 import {
   IconFilter,
   IconMap,
-  IconMapPin,
   IconRefresh,
   IconSearch,
   IconSettings2,
@@ -15,6 +14,7 @@ import {
   IconTrash,
   IconFileReport,
 } from "@tabler/icons-react"
+import { MapPin } from "lucide-react"
 import Map, { Marker, Popup } from "react-map-gl/mapbox"
 import type { MapRef } from "react-map-gl/mapbox"
 import MapboxDraw from "@mapbox/mapbox-gl-draw"
@@ -576,7 +576,7 @@ export function DonorMapView() {
                       onSelect={() => flyToDonor(p)}
                       className="cursor-pointer"
                     >
-                      <IconMapPin className="mr-2 size-4 shrink-0 text-muted-foreground" />
+                      <MapPin className="mr-2 size-4 shrink-0 text-muted-foreground" />
                       <span className="truncate">{p.display_name ?? "Unknown"}</span>
                     </CommandItem>
                   ))}
@@ -755,7 +755,7 @@ export function DonorMapView() {
                       className={`rounded-full p-1 text-white shadow ${getPinColorByLtv(p.total_lifetime_value, parsedColorRanges)}`}
                       aria-label={`View ${p.display_name ?? "donor"}`}
                     >
-                      <IconMapPin className="size-4" />
+                      <MapPin className="size-4" />
                     </button>
                   </Marker>
                 ))}

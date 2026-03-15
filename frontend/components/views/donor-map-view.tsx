@@ -899,9 +899,9 @@ export function DonorMapView() {
 
       {/* Selected donors panel */}
       {selectedByDraw.length > 0 && (
-        <div className="w-80 shrink-0 flex flex-col rounded-lg border bg-zinc-50 overflow-hidden h-[60vh] min-h-[400px]">
+        <div className="w-80 shrink-0 flex flex-col rounded-lg border bg-muted overflow-hidden h-[60vh] min-h-[400px]">
           <div className="flex items-center justify-between border-b px-3 py-2 shrink-0">
-            <span className="text-sm font-medium text-zinc-950">
+            <span className="text-sm font-medium text-foreground">
               {selectedByDraw.length} donor{selectedByDraw.length === 1 ? "" : "s"} selected
             </span>
           </div>
@@ -910,7 +910,7 @@ export function DonorMapView() {
               {donorsToShow.map((p) => (
                 <div
                   key={p.id}
-                  className="flex items-center justify-between rounded border bg-white px-3 py-2 text-sm"
+                  className="flex items-center justify-between rounded border bg-card px-3 py-2 text-sm"
                 >
                   <div className="min-w-0 flex-1">
                     <button
@@ -920,7 +920,7 @@ export function DonorMapView() {
                     >
                       {p.display_name ?? "Unknown"}
                     </button>
-                    <div className="text-xs text-zinc-500">
+                    <div className="text-xs text-muted-foreground">
                       {p.total_lifetime_value != null
                         ? formatCurrency(p.total_lifetime_value)
                         : "—"}

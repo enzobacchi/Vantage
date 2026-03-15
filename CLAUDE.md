@@ -81,8 +81,9 @@ Roles: `owner`, `admin`, `member` — checked via `getCurrentUserOrgWithRole()`.
 
 - **Shadcn UI** exclusively — no other component libraries.
 - **Lucide React** icons at **1.5px stroke width**.
-- **Light mode default** — do not add dark mode unless explicitly requested.
-- Colors: `bg-white` / `bg-zinc-50/50` backgrounds. `text-zinc-950` headings. `text-zinc-500` metadata. `border-zinc-200` borders.
+- **Both light and dark mode** — always implement design changes for both modes. Use theme-aware tokens (`bg-card`, `bg-background`, `text-foreground`, etc.) instead of hardcoded colors like `bg-white`. Test that new UI looks correct in both themes.
+- Colors: `bg-white` / `bg-zinc-50/50` backgrounds (light). `text-zinc-950` headings. `text-zinc-500` metadata. `border-zinc-200` borders.
+- **Accent color**: Teal-to-cyan gradient (`from-[#14b8a6] to-[#06b6d4]`) matching the Vantage logo icon. **Reserved for AI features and standout product features only** — do not use on standard CRUD buttons (e.g. Create Report, Save). Apply via `bg-gradient-to-r from-[#14b8a6] to-[#06b6d4] text-white hover:opacity-90 border-0`. For gradient borders, use a `p-[1px]` wrapper with the gradient background and `bg-card` inner div.
 - `shadow-sm` only. `hover:bg-zinc-100` for interactive elements.
 - User feedback via **Sonner `toast`** — never `alert()`.
 

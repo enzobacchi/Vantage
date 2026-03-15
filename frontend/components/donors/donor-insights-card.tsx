@@ -43,18 +43,19 @@ export function DonorInsightsCard({ donorId }: { donorId: string }) {
   }
 
   return (
-    <Card>
+    <div className="rounded-xl bg-gradient-to-r from-[#14b8a6] to-[#06b6d4] p-[1px]">
+    <Card className="border-0">
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>AI Insights</CardTitle>
+            <CardTitle className="flex items-center gap-2"><Sparkles className="size-4 text-[#0ea5b8]" strokeWidth={1.5} />AI Insights</CardTitle>
             <CardDescription>
               AI-generated analysis of giving patterns and engagement
             </CardDescription>
           </div>
           <Button
-            variant="outline"
             size="sm"
+            className="bg-gradient-to-r from-[#14b8a6] to-[#06b6d4] text-white shadow-sm hover:opacity-90 border-0"
             onClick={generate}
             disabled={loading}
           >
@@ -71,7 +72,7 @@ export function DonorInsightsCard({ donorId }: { donorId: string }) {
       {(data || loading || error) && (
         <CardContent>
           {loading && (
-            <div className="flex items-center gap-2 text-sm text-zinc-500 py-4">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
               <Spinner />
               Analyzing donor data...
             </div>
@@ -83,22 +84,22 @@ export function DonorInsightsCard({ donorId }: { donorId: string }) {
 
           {data && !loading && (
             <div className="space-y-4">
-              <p className="text-sm text-zinc-700 leading-relaxed">
+              <p className="text-sm text-foreground leading-relaxed">
                 {data.summary}
               </p>
 
               {data.insights.length > 0 && (
                 <div>
-                  <h4 className="text-sm font-medium text-zinc-950 mb-1.5">
+                  <h4 className="text-sm font-medium text-foreground mb-1.5">
                     Key Insights
                   </h4>
                   <ul className="space-y-1">
                     {data.insights.map((insight, i) => (
                       <li
                         key={i}
-                        className="text-sm text-zinc-600 flex items-start gap-2"
+                        className="text-sm text-muted-foreground flex items-start gap-2"
                       >
-                        <span className="text-zinc-400 mt-0.5 shrink-0">•</span>
+                        <span className="text-muted-foreground/60 mt-0.5 shrink-0">•</span>
                         {insight}
                       </li>
                     ))}
@@ -108,14 +109,14 @@ export function DonorInsightsCard({ donorId }: { donorId: string }) {
 
               {data.nextSteps.length > 0 && (
                 <div>
-                  <h4 className="text-sm font-medium text-zinc-950 mb-1.5">
+                  <h4 className="text-sm font-medium text-foreground mb-1.5">
                     Recommended Next Steps
                   </h4>
                   <ul className="space-y-1">
                     {data.nextSteps.map((step, i) => (
                       <li
                         key={i}
-                        className="text-sm text-zinc-600 flex items-start gap-2"
+                        className="text-sm text-muted-foreground flex items-start gap-2"
                       >
                         <span className="text-emerald-600 mt-0.5 shrink-0 font-medium">
                           {i + 1}.
@@ -131,5 +132,6 @@ export function DonorInsightsCard({ donorId }: { donorId: string }) {
         </CardContent>
       )}
     </Card>
+    </div>
   )
 }

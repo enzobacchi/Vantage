@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts"
+import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts"
 
 import {
   Card,
@@ -24,10 +24,7 @@ type DonationTrendPoint = { month: string; total: number }
 const chartConfig = {
   total: {
     label: "Total",
-    theme: {
-      light: "oklch(0.145 0 0)",
-      dark: "oklch(0.985 0 0)",
-    },
+    color: "#06b6d4",
   },
 } satisfies ChartConfig
 
@@ -99,8 +96,22 @@ export function ChartBarDonations() {
             config={chartConfig}
             className="aspect-auto h-[250px] w-full"
           >
-            <LineChart data={data} margin={{ left: 12, right: 12 }}>
-              <CartesianGrid vertical={false} strokeDasharray="3 3" />
+            <AreaChart
+              accessibilityLayer
+              data={data}
+              margin={{ left: 12, right: 12 }}
+            >
+              <defs>
+                <linearGradient id="fillTotal" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#06b6d4" stopOpacity={0.4} />
+                  <stop offset="100%" stopColor="#14b8a6" stopOpacity={0.02} />
+                </linearGradient>
+                <linearGradient id="strokeTotal" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stopColor="#14b8a6" />
+                  <stop offset="100%" stopColor="#06b6d4" />
+                </linearGradient>
+              </defs>
+              <CartesianGrid vertical={false} />
               <XAxis
                 dataKey="month"
                 tickLine={false}
@@ -116,23 +127,22 @@ export function ChartBarDonations() {
                 fontSize={12}
               />
               <ChartTooltip
-                cursor={{ stroke: "hsl(var(--border))" }}
+                cursor={false}
                 content={
                   <ChartTooltipContent
                     formatter={(value) => formatCurrency(Number(value))}
-                    indicator="dot"
+                    indicator="line"
                   />
                 }
               />
-              <Line
-                type="monotone"
+              <Area
                 dataKey="total"
-                stroke="var(--color-total)"
+                type="natural"
+                fill="url(#fillTotal)"
+                stroke="url(#strokeTotal)"
                 strokeWidth={2}
-                dot={{ r: 4, fill: "var(--color-total)" }}
-                activeDot={{ r: 6 }}
               />
-            </LineChart>
+            </AreaChart>
           </ChartContainer>
         )}
       </CardContent>

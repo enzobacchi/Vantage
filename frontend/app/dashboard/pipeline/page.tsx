@@ -351,7 +351,6 @@ export default function PipelinePage() {
           <h1 className="text-xl font-semibold">Pipeline</h1>
         </div>
         <Button
-          className="bg-slate-900 hover:bg-slate-800 text-white"
           onClick={openNewDialog}
         >
           <IconPlus className="mr-2 size-4" />
@@ -531,7 +530,6 @@ export default function PipelinePage() {
               Cancel
             </Button>
             <Button
-              className="bg-slate-900 hover:bg-slate-800 text-white"
               onClick={() => void handleCreate()}
               disabled={submitting || !newDonorId.trim() || !newAmount.trim()}
             >

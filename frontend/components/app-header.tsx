@@ -131,7 +131,7 @@ export function AppHeader() {
 
         {/* Org name */}
         {orgName && (
-          <span className="hidden sm:block text-sm text-zinc-400 border-l border-zinc-200 pl-3 shrink-0 truncate max-w-48">
+          <span className="hidden sm:block text-sm text-muted-foreground border-l border-border pl-3 shrink-0 truncate max-w-48">
             {orgName}
           </span>
         )}
@@ -155,7 +155,7 @@ export function AppHeader() {
         <Button
           variant="ghost"
           size="sm"
-          className="text-sm text-zinc-500 hover:text-zinc-900 px-3"
+          className="text-sm text-muted-foreground hover:text-foreground px-3"
           onClick={() => setFeedbackOpen(true)}
         >
           Feedback
@@ -268,7 +268,7 @@ export function AppHeader() {
             <Button variant="outline" onClick={() => setProfileOpen(false)} className="bg-transparent" disabled={saving}>
               Cancel
             </Button>
-            <Button onClick={handleSaveProfile} className="bg-slate-900 hover:bg-slate-800 text-white" disabled={saving}>
+            <Button onClick={handleSaveProfile} disabled={saving}>
               {saving ? "Saving…" : "Save Changes"}
             </Button>
           </DialogFooter>

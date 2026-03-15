@@ -146,7 +146,7 @@ function OptionSection({
           {options.map((opt) => (
             <div
               key={opt.id}
-              className="flex items-center gap-1 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm"
+              className="flex items-center gap-1 rounded-md border border-border bg-card px-3 py-1.5 text-sm"
             >
               <span>{opt.name}</span>
               <div className="flex items-center gap-0.5">

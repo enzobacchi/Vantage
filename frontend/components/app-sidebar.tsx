@@ -83,8 +83,8 @@ function SidebarLogo({ logoUrl, alt }: { logoUrl: string | null | undefined; alt
           onError={() => setUseFallback(true)}
         />
       ) : (
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-200">
-          <Building2 className="size-5 text-zinc-500" strokeWidth={1.5} />
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted">
+          <Building2 className="size-5 text-muted-foreground" strokeWidth={1.5} />
         </div>
       )}
     </div>
@@ -510,7 +510,6 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
             </Button>
             <Button
               onClick={handleSaveProfile}
-              className="bg-slate-900 hover:bg-slate-800 text-white"
               disabled={saving}
             >
               {saving ? "Saving…" : "Save Changes"}

@@ -261,7 +261,7 @@ export function DonationsView() {
       </div>
 
       {selectedIds.size > 0 && (
-        <div className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-2">
+        <div className="flex items-center gap-3 rounded-lg border border-border bg-muted px-4 py-2">
           <span className="text-sm font-medium">{selectedIds.size} selected</span>
           <Button
             variant="outline"
@@ -401,7 +401,7 @@ export function DonationsView() {
         </div>
       )}
 
-      <div className="rounded-lg border border-zinc-200 bg-white">
+      <div className="rounded-lg border border-border bg-card">
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <p className="text-sm text-muted-foreground">Loading donations…</p>
@@ -468,7 +468,7 @@ export function DonationsView() {
                 ))}
               </TableBody>
             </Table>
-            <div className="flex items-center justify-between border-t border-zinc-200 px-4 py-2">
+            <div className="flex items-center justify-between border-t border-border px-4 py-2">
               <div className="flex items-center gap-4">
                 <p className="text-sm text-muted-foreground">
                   Showing {total === 0 ? 0 : page * pageSize + 1}–{Math.min((page + 1) * pageSize, total)} of {total}

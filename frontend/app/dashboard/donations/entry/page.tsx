@@ -348,7 +348,7 @@ export default function DonationEntryPage() {
                                 key={d.id}
                                 role="button"
                                 tabIndex={0}
-                                className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-100 focus:bg-zinc-100 focus:outline-none cursor-pointer"
+                                className="w-full px-3 py-2 text-left text-sm hover:bg-accent focus:bg-accent focus:outline-none cursor-pointer"
                                 onClick={() => selectDonor(d)}
                                 onKeyDown={(e) => {
                                   if (e.key === "Enter" || e.key === " ") {

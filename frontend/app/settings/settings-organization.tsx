@@ -190,7 +190,7 @@ export function SettingsOrganization() {
             <div className="space-y-2">
               <Label className="text-sm font-medium">Logo</Label>
               <div className="flex items-center gap-3">
-                <div className="flex shrink-0 items-center justify-center size-12 rounded-lg border border-zinc-200 bg-zinc-50 overflow-hidden">
+                <div className="flex shrink-0 items-center justify-center size-12 rounded-lg border border-border bg-muted overflow-hidden">
                   <img src={logoUrl} alt="Organization logo" className="size-10 object-contain" />
                 </div>
               </div>
@@ -198,12 +198,12 @@ export function SettingsOrganization() {
           )}
           <div className="space-y-2">
             <Label className="text-sm font-medium">Ministry name</Label>
-            <p className="text-sm text-zinc-700">{name || <span className="text-muted-foreground">—</span>}</p>
+            <p className="text-sm text-foreground">{name || <span className="text-muted-foreground">—</span>}</p>
           </div>
           {taxId && (
             <div className="space-y-2">
               <Label className="text-sm font-medium">Tax ID (EIN)</Label>
-              <p className="text-sm text-zinc-700">{taxId}</p>
+              <p className="text-sm text-foreground">{taxId}</p>
             </div>
           )}
           <p className="text-[0.8rem] text-muted-foreground pt-2">
@@ -232,7 +232,7 @@ export function SettingsOrganization() {
               onClick={() => role === "owner" && !uploading && fileInputRef.current?.click()}
               onDrop={handleDrop}
               onDragOver={handleDragOver}
-              className={`flex size-24 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-lg border-2 border-dashed border-zinc-200 bg-zinc-50 transition-colors hover:border-zinc-300 hover:bg-zinc-100 ${
+              className={`flex size-24 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-lg border-2 border-dashed border-border bg-muted transition-colors hover:border-muted-foreground/30 hover:bg-accent ${
                 uploading ? "pointer-events-none opacity-60" : ""
               } ${role !== "owner" ? "cursor-default" : ""}`}
             >
@@ -250,11 +250,25 @@ export function SettingsOrganization() {
                   {uploading ? (
                     <span className="text-xs text-muted-foreground">Uploading…</span>
                   ) : (
-                    <Upload className="size-8 text-zinc-500" strokeWidth={1.5} />
+                    <Upload className="size-8 text-muted-foreground" strokeWidth={1.5} />
                   )}
                 </div>
               )}
             </div>
+            {logoUrl && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 gap-1.5"
+                onClick={() => {
+                  setLogoUrl("")
+                  toast.success("Logo removed — save changes to confirm")
+                }}
+              >
+                <Trash2 className="size-3.5" strokeWidth={1.5} />
+                Remove logo
+              </Button>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="org-name" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
@@ -298,7 +312,7 @@ export function SettingsOrganization() {
               value={legalWording}
               onChange={(e) => setLegalWording(e.target.value)}
               placeholder="e.g. No goods or services were provided in exchange for this contribution. Tax ID is provided for your records."
-              className="mt-2 min-h-[80px] w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm ring-offset-white placeholder:text-zinc-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-2 min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               rows={3}
             />
           </div>

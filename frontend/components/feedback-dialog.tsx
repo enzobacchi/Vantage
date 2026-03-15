@@ -140,7 +140,7 @@ export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={submitting} className="bg-slate-900 hover:bg-slate-800 text-white">
+              <Button type="submit" disabled={submitting}>
                 {submitting ? (
                   <>
                     <IconLoader2 className="mr-2 size-4 animate-spin" />

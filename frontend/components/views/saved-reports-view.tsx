@@ -786,7 +786,8 @@ export function SavedReportsView() {
                 {uploading ? "Uploading…" : "Upload External File"}
               </Button>
               <Button
-                className="bg-slate-900 hover:bg-slate-800 text-white"
+                variant="outline"
+                className="bg-transparent"
                 onClick={() => {
                   setGenerateDialogOpen(true)
                   setReportName("")

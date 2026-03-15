@@ -3,7 +3,7 @@
 import * as React from "react"
 import { useRouter, useSearchParams, usePathname } from "next/navigation"
 
-const NAV_VIEWS = ["dashboard", "donor-crm", "donor-map", "saved-reports", "settings"] as const
+const NAV_VIEWS = ["dashboard", "donor-crm", "donor-map", "donations", "saved-reports", "settings"] as const
 type NavView = (typeof NAV_VIEWS)[number]
 
 function isValidNavView(v: string | null): v is NavView {

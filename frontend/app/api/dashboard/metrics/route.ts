@@ -9,6 +9,7 @@ export type DashboardMetrics = {
   totalDonors: number;
   totalRevenue: number;
   averageGift: number;
+  medianGift: number;
 };
 
 function toNumber(value: unknown): number {
@@ -39,10 +40,19 @@ export async function GET() {
   }
 
   const totalDonors = count ?? (data?.length ?? 0);
-  const totalRevenue = (data ?? []).reduce((sum, row) => sum + toNumber((row as any).total_lifetime_value), 0);
+  const values = (data ?? []).map((row) => toNumber((row as { total_lifetime_value?: unknown }).total_lifetime_value));
+  const totalRevenue = values.reduce((sum, v) => sum + v, 0);
   const averageGift = totalDonors > 0 ? totalRevenue / totalDonors : 0;
 
-  const metrics: DashboardMetrics = { totalDonors, totalRevenue, averageGift };
+  const sorted = [...values].sort((a, b) => a - b);
+  const medianGift =
+    sorted.length === 0
+      ? 0
+      : sorted.length % 2 === 1
+        ? sorted[Math.floor(sorted.length / 2)]!
+        : (sorted[sorted.length / 2 - 1]! + sorted[sorted.length / 2]!) / 2;
+
+  const metrics: DashboardMetrics = { totalDonors, totalRevenue, averageGift, medianGift };
   return NextResponse.json(metrics);
 }
 

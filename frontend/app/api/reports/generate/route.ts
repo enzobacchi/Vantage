@@ -49,7 +49,7 @@ function escapeCsvCell(value: unknown): string {
 }
 
 function buildSelectFromColumns(selectedColumns: string[]): string {
-  const set = new Set<string>();
+  const set = new Set<string>(["id"]);
   for (const id of selectedColumns) {
     const config = REPORT_COLUMN_CONFIG[id];
     if (config) for (const col of config.dbColumns) set.add(col);
@@ -109,7 +109,10 @@ export async function POST(request: Request) {
       selectedColumns?: unknown;
       title?: string;
       visibility?: string;
+      reportId?: string;
+      donorIds?: unknown;
     } | null;
+    const regenerateReportId = typeof body?.reportId === "string" ? body.reportId.trim() || null : null;
     const rawFilters = body?.filters;
     const rawSelectedColumns = body?.selectedColumns;
     const selectedColumns: string[] = Array.isArray(rawSelectedColumns)
@@ -123,6 +126,11 @@ export async function POST(request: Request) {
       : [];
     const customTitle = typeof body?.title === "string" ? body.title.trim() : "";
     const visibility = body?.visibility === "private" ? "private" : "shared";
+    const rawDonorIds = body?.donorIds;
+    const donorIds =
+      Array.isArray(rawDonorIds) && rawDonorIds.length > 0
+        ? (rawDonorIds as string[]).filter((id) => typeof id === "string" && id.trim())
+        : null;
 
     const auth = await requireUserOrg();
     if (!auth.ok) return auth.response;
@@ -136,6 +144,10 @@ export async function POST(request: Request) {
       .eq("org_id", auth.orgId)
       .limit(MAX_ROWS);
 
+    // When donorIds provided (e.g. from map selection), restrict to those donors and skip other filters
+    if (donorIds && donorIds.length > 0) {
+      q = q.in("id", donorIds);
+    } else {
     // Tags filter: donor_ids that have at least one of the selected tags
     const tagFilter = filters.find((f) => f.field === "tags");
     if (tagFilter && Array.isArray(tagFilter.value) && tagFilter.value.length > 0) {
@@ -165,8 +177,33 @@ export async function POST(request: Request) {
     // Actually let me do it properly: run the base query with all simple filters, get donor ids, then for
     // gift_count and first_donation_date run separate queries and intersect. Let me rewrite.
 
+    // Payment method filter: restrict to donors who have at least one donation with that payment method
+    const paymentMethodFilter = filters.find((f) => f.field === "payment_method");
+    if (paymentMethodFilter && typeof paymentMethodFilter.value === "string" && paymentMethodFilter.value.trim()) {
+      const { data: orgDonorsForPm } = await supabase
+        .from("donors")
+        .select("id")
+        .eq("org_id", auth.orgId);
+      const orgDonorIdsForPm = (orgDonorsForPm ?? []).map((d: { id: string }) => d.id);
+      if (orgDonorIdsForPm.length > 0) {
+        const { data: donationRows } = await supabase
+          .from("donations")
+          .select("donor_id")
+          .in("donor_id", orgDonorIdsForPm)
+          .eq("payment_method", paymentMethodFilter.value.trim());
+        const donorIdsWithPm = [...new Set((donationRows ?? []).map((r: { donor_id: string }) => r.donor_id))];
+        if (donorIdsWithPm.length === 0) {
+          return NextResponse.json(
+            { error: "No donors have donations with that payment method." },
+            { status: 400 }
+          );
+        }
+        q = q.in("id", donorIdsWithPm);
+      }
+    }
+
     for (const f of filters) {
-      if (f.field === "tags" || f.field === "gift_count" || f.field === "first_donation_date")
+      if (f.field === "tags" || f.field === "gift_count" || f.field === "first_donation_date" || f.field === "payment_method")
         continue;
 
       const col = f.field === "total_lifetime_value"
@@ -230,6 +267,7 @@ export async function POST(request: Request) {
         q = q.gt(col, String(val));
       }
     }
+    }
 
     const { data, error } = await q;
     if (error) {
@@ -240,16 +278,16 @@ export async function POST(request: Request) {
     }
 
     let rawRows = Array.isArray(data) ? (data as unknown as Array<Record<string, unknown>>) : [];
-    const donorIds = rawRows.map((r) => r.id as string).filter(Boolean);
+    const rowDonorIds = rawRows.map((r) => r.id as string).filter(Boolean);
 
     // Post-fetch: gift_count and first_donation_date (require donations subquery)
     const giftCountFilter = filters.find((f) => f.field === "gift_count");
     const firstDateFilter = filters.find((f) => f.field === "first_donation_date");
-    if ((giftCountFilter || firstDateFilter) && donorIds.length > 0) {
+    if ((giftCountFilter || firstDateFilter) && rowDonorIds.length > 0) {
       const { data: donations } = await supabase
         .from("donations")
         .select("donor_id,date")
-        .in("donor_id", donorIds);
+        .in("donor_id", rowDonorIds);
       const countByDonor = new Map<string, number>();
       const firstByDonor = new Map<string, string>();
       for (const r of donations ?? []) {
@@ -261,13 +299,13 @@ export async function POST(request: Request) {
           if (!cur || d < cur) firstByDonor.set(did, d);
         }
       }
-      let keepIds = new Set(donorIds);
+      let keepIds = new Set(rowDonorIds);
       if (giftCountFilter && giftCountFilter.value != null && giftCountFilter.value !== "") {
         const op = giftCountFilter.operator;
         const val = Number(giftCountFilter.value);
         const val2 = giftCountFilter.value2 != null ? Number(giftCountFilter.value2) : null;
         keepIds = new Set(
-          donorIds.filter((id) => {
+          rowDonorIds.filter((id) => {
             const cnt = countByDonor.get(id) ?? 0;
             if (op === "eq") return cnt === val;
             if (op === "gt") return cnt > val;
@@ -318,13 +356,71 @@ export async function POST(request: Request) {
     const organization_id = auth.orgId;
     const csvBytes = Buffer.byteLength(csv, "utf8");
     const queryValue = "";
+    const filterCriteria = {
+      type: "CSV",
+      content: csv,
+      summary,
+      row_count: rowCount,
+      bytes: csvBytes,
+      reportSource: "generate" as const,
+      filters,
+      selectedColumns,
+      visibility,
+    };
     const insertPayloads: Array<Record<string, unknown>> = [
-      { organization_id, title, type: "CSV", content: csv, query: queryValue, summary, records_count: rowCount, visibility, created_by_user_id: auth.userId },
-      { organization_id, title, type: "CSV", content: csv, query: queryValue, summary, records_count: rowCount },
-      { organization_id, title, filter_criteria: { type: "CSV", content: csv, summary, row_count: rowCount, bytes: csvBytes } },
+      { organization_id, title, type: "CSV", content: csv, query: queryValue, summary, records_count: rowCount, visibility, created_by_user_id: auth.userId, filter_criteria: filterCriteria },
+      { organization_id, title, type: "CSV", content: csv, query: queryValue, summary, records_count: rowCount, filter_criteria: filterCriteria },
+      { organization_id, title, filter_criteria: filterCriteria },
       { title, type: "CSV", content: csv, query: queryValue, summary, records_count: rowCount },
-      { title, filter_criteria: { type: "CSV", content: csv, summary, row_count: rowCount, bytes: csvBytes } },
+      { title, filter_criteria: filterCriteria },
     ];
+
+    if (regenerateReportId) {
+      const updatePayloads: Array<Record<string, unknown>> = [
+        { type: "CSV", content: csv, query: queryValue, summary, records_count: rowCount, filter_criteria: filterCriteria },
+        { content: csv, filter_criteria: filterCriteria },
+      ];
+      for (const update of updatePayloads) {
+        const { error: updErr } = await supabase
+          .from("saved_reports")
+          .update(update as Record<string, unknown>)
+          .eq("id", regenerateReportId)
+          .eq("organization_id", auth.orgId)
+          .select("id")
+          .single()
+        if (!updErr) {
+          return NextResponse.json({
+            success: true,
+            reportId: regenerateReportId,
+            rowCount,
+            bytes: csvBytes,
+            title: stripSqlArtifacts(title),
+            summary: stripSqlArtifacts(summary),
+          })
+        }
+        const { error: updErr2 } = await supabase
+          .from("saved_reports")
+          .update(update as Record<string, unknown>)
+          .eq("id", regenerateReportId)
+          .eq("org_id", auth.orgId)
+          .select("id")
+          .single()
+        if (!updErr2) {
+          return NextResponse.json({
+            success: true,
+            reportId: regenerateReportId,
+            rowCount,
+            bytes: csvBytes,
+            title: stripSqlArtifacts(title),
+            summary: stripSqlArtifacts(summary),
+          })
+        }
+      }
+      return NextResponse.json(
+        { error: "Failed to update report. It may have been created by a different flow." },
+        { status: 400 }
+      )
+    }
 
     let inserted: { id?: string } | null = null;
     const errors: string[] = [];

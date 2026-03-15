@@ -71,14 +71,8 @@ const COLUMN_LABELS: Record<OpportunityStatus, string> = {
   closed_lost: "Closed Lost",
 }
 
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat(undefined, {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value)
-}
+import { useNav } from "@/components/nav-context"
+import { formatCurrency } from "@/lib/format"
 
 function formatDate(value: string | null): string {
   if (!value) return "—"
@@ -98,6 +92,7 @@ function KanbanCard({
 }: {
   opportunity: PipelineOpportunity
 }) {
+  const { openDonor } = useNav()
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: opportunity.id,
     data: { opportunity },
@@ -114,7 +109,16 @@ function KanbanCard({
       {...attributes}
     >
       <CardContent className="p-3">
-        <p className="font-medium text-foreground truncate">{donorName}</p>
+        <button
+          type="button"
+          className="font-medium text-foreground truncate text-primary hover:underline block text-left w-full"
+          onClick={(e) => {
+            e.stopPropagation()
+            openDonor(opportunity.donor_id)
+          }}
+        >
+          {donorName}
+        </button>
         <p className="text-sm text-muted-foreground truncate">
           {opportunity.title}
         </p>
@@ -159,6 +163,7 @@ function KanbanColumn({
 }
 
 export default function PipelinePage() {
+  const { openDonor } = useNav()
   const [opportunities, setOpportunities] = React.useState<PipelineOpportunity[]>([])
   const [loading, setLoading] = React.useState(true)
   const [newOpen, setNewOpen] = React.useState(false)
@@ -424,13 +429,29 @@ export default function PipelinePage() {
                       )}
                       {!donorSearching &&
                         donorSearchResults.map((d) => (
-                          <button
+                          <div
                             key={d.id}
-                            type="button"
-                            className="w-full px-3 py-2 text-left text-sm hover:bg-muted focus:bg-muted focus:outline-none"
+                            role="button"
+                            tabIndex={0}
+                            className="w-full px-3 py-2 text-left text-sm hover:bg-muted focus:bg-muted focus:outline-none cursor-pointer"
                             onClick={() => selectDonor(d)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault()
+                                selectDonor(d)
+                              }
+                            }}
                           >
-                            <span className="font-medium">{d.display_name ?? "Unknown"}</span>
+                            <button
+                              type="button"
+                              className="font-medium text-primary hover:underline"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                openDonor(d.id)
+                              }}
+                            >
+                              {d.display_name ?? "Unknown"}
+                            </button>
                             {d.total_lifetime_value != null && (
                               <span className="ml-2 text-muted-foreground">
                                 {typeof d.total_lifetime_value === "number"
@@ -438,7 +459,7 @@ export default function PipelinePage() {
                                   : String(d.total_lifetime_value)}
                               </span>
                             )}
-                          </button>
+                          </div>
                         ))}
                     </div>
                   </div>

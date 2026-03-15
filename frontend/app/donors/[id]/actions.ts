@@ -17,6 +17,7 @@ export type DonorProfileDonor = {
   total_lifetime_value: number | string | null
   last_donation_date: string | null
   notes: string | null
+  donor_type: "individual" | "corporate" | "school" | "church"
 }
 
 export type DonorProfileDonation = {
@@ -25,6 +26,7 @@ export type DonorProfileDonation = {
   amount: number | string | null
   date: string | null
   memo: string | null
+  payment_method: string | null
 }
 
 export type DonorProfileResult = {
@@ -46,7 +48,7 @@ export async function getDonorProfile(id: string): Promise<DonorProfileResult> {
   const { data: donor, error: donorError } = await supabase
     .from("donors")
     .select(
-      "id,org_id,display_name,email,phone,billing_address,city,state,zip,total_lifetime_value,last_donation_date,notes"
+      "id,org_id,display_name,email,phone,billing_address,city,state,zip,total_lifetime_value,last_donation_date,notes,donor_type"
     )
     .eq("id", id)
     .eq("org_id", org.orgId)
@@ -62,7 +64,7 @@ export async function getDonorProfile(id: string): Promise<DonorProfileResult> {
 
   const { data: donations, error: donationsError } = await supabase
     .from("donations")
-    .select("id,donor_id,amount,date,memo")
+    .select("id,donor_id,amount,date,memo,payment_method")
     .eq("donor_id", id)
     .order("date", { ascending: false })
 

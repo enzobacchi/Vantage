@@ -73,7 +73,7 @@ export function useCommandMenu() {
 
 export function CommandMenu() {
   const router = useRouter()
-  const { setActiveView } = useNav()
+  const { setActiveView, openDonor } = useNav()
   const { open, setOpen } = useCommandMenu()
   const [search, setSearch] = React.useState("")
   const [donors, setDonors] = React.useState<SearchDonorResult[]>([])
@@ -117,9 +117,9 @@ export function CommandMenu() {
 
   const goToDonor = React.useCallback(
     (id: string) => {
-      run(() => router.push(`/donors/${id}`))
+      run(() => openDonor(id))
     },
-    [run, router]
+    [run, openDonor]
   )
 
   return (

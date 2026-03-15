@@ -5,6 +5,7 @@ import React, { useEffect } from "react"
 import { useNav } from "@/components/nav-context"
 import { SettingsView } from "@/components/views/settings-view"
 import { DashboardView } from "@/components/views/dashboard-view"
+import { DonationsView } from "@/components/views/donations-view"
 import { DonorCRMView } from "@/components/views/donor-crm-view"
 import { DonorMapView } from "@/components/views/donor-map-view"
 import { SavedReportsView } from "@/components/views/saved-reports-view"
@@ -16,6 +17,7 @@ function MainContent() {
     <>
       {activeView === "dashboard" && <DashboardView />}
       {activeView === "donor-crm" && <DonorCRMView />}
+      {activeView === "donations" && <DonationsView />}
       {activeView === "donor-map" && <DonorMapView />}
       {activeView === "saved-reports" && <SavedReportsView />}
       {activeView === "settings" && <SettingsView />}

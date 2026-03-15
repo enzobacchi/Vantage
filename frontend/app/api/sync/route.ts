@@ -697,6 +697,7 @@ export async function GET(request: Request) {
           amount,
           date,
           memo,
+          payment_method: "quickbooks",
         });
       }
 

@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { IconAlertTriangle, IconLink } from "@tabler/icons-react"
+import { AlertTriangle, Link2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -104,7 +104,7 @@ export function SettingsIntegrations() {
       <Card className="max-w-2xl">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <IconLink className="size-5" />
+            <Link2 className="size-5" strokeWidth={1.5} />
             QuickBooks
           </CardTitle>
           <CardDescription>
@@ -179,7 +179,7 @@ export function SettingsIntegrations() {
                 </>
               ) : (
                 <>
-                  <IconAlertTriangle className="mr-2 size-4" />
+                  <AlertTriangle className="mr-2 size-4" strokeWidth={1.5} />
                   Resync All Donor Data (Historical)
                 </>
               )}

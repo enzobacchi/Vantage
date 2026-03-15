@@ -16,13 +16,13 @@ export default async function SettingsLayout({
     <DashboardShell>
       <div className="flex flex-1 flex-col">
         <header className="px-4 lg:px-6 pt-6">
-          <h2 className="text-2xl font-bold tracking-tight">Settings</h2>
+          <h2 className="text-xl font-semibold">Settings</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Manage your account settings and set e-mail preferences.
           </p>
           <Separator className="mt-6" />
         </header>
-        <div className="flex-1 px-4 lg:px-6 pt-8 pb-8">
+        <div className="flex-1 px-4 lg:px-6 pt-6 pb-8">
           {children}
         </div>
       </div>

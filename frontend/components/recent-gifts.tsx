@@ -11,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { formatCurrency } from "@/lib/format"
 
 type RecentDonation = {
   id: string
@@ -23,11 +24,6 @@ type RecentDonation = {
 function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean)
   return (parts[0]?.[0] ?? "D") + (parts[1]?.[0] ?? parts[0]?.[1] ?? "")
-}
-
-function formatCurrency(amount: number | null) {
-  if (amount == null) return "—"
-  return amount.toLocaleString(undefined, { style: "currency", currency: "USD" })
 }
 
 export function RecentGifts() {
@@ -83,25 +79,25 @@ export function RecentGifts() {
             gifts.slice(0, 8).map((gift) => {
               const name = gift.donor_name ?? "Unknown"
               return (
-                <div key={gift.id} className="flex items-center gap-3">
+                <div
+                  key={gift.id}
+                  className="flex items-center gap-3 cursor-pointer hover:bg-muted/50 rounded-lg -mx-2 px-2 py-1 transition-colors"
+                  onClick={() => openDonor(gift.donor_id)}
+                >
                   <Avatar className="size-8 shrink-0">
                     <AvatarFallback className="text-xs">{initials(name)}</AvatarFallback>
                   </Avatar>
                   <div className="min-w-0 flex-1">
-                    <button
-                      type="button"
-                      onClick={() => openDonor(gift.donor_id)}
-                      className="text-left text-sm font-medium leading-none truncate text-primary hover:underline block w-full"
-                    >
+                    <span className="text-left text-sm font-medium leading-none truncate text-primary block w-full">
                       {name}
-                    </button>
+                    </span>
                     <p className="text-xs text-muted-foreground truncate">
                       {gift.date ?? "—"}
                     </p>
                   </div>
-                  <div className="shrink-0 font-medium text-slate-900 dark:text-white text-sm whitespace-nowrap">
+                  <span className="shrink-0 font-medium text-slate-900 dark:text-white text-sm whitespace-nowrap text-primary">
                     {formatCurrency(gift.amount)}
-                  </div>
+                  </span>
                 </div>
               )
             })

@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
+import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts"
 
 import {
   Card,
@@ -17,6 +17,7 @@ import {
   type ChartConfig,
 } from '@/components/ui/chart'
 import { Skeleton } from '@/components/ui/skeleton'
+import { formatCurrency } from "@/lib/format"
 
 type DonationTrendPoint = { month: string; total: number }
 
@@ -30,26 +31,17 @@ const chartConfig = {
   },
 } satisfies ChartConfig
 
-// Fixed heights so server and client render identically (avoids hydration mismatch).
-const SKELETON_BAR_HEIGHTS = [82, 91, 86, 63, 129, 97, 64, 128, 114, 67, 90, 127]
-
 function ChartSkeleton() {
   return (
-    <div className="flex h-[250px] w-full items-end gap-2 px-2 pt-4 sm:px-6 sm:pt-6">
+    <div className="flex h-[250px] w-full items-center gap-2 px-2 pt-4 sm:px-6 sm:pt-6">
       <div className="flex flex-col justify-between h-full pb-8 pr-2">
         <Skeleton className="h-3 w-8" />
         <Skeleton className="h-3 w-8" />
         <Skeleton className="h-3 w-8" />
         <Skeleton className="h-3 w-8" />
       </div>
-      <div className="flex flex-1 items-end justify-around pb-8">
-        {SKELETON_BAR_HEIGHTS.map((h, i) => (
-          <Skeleton
-            key={i}
-            className="w-4 sm:w-6"
-            style={{ height: `${h}px` }}
-          />
-        ))}
+      <div className="flex flex-1 h-[180px] items-end">
+        <Skeleton className="h-full w-full rounded" />
       </div>
     </div>
   )
@@ -107,7 +99,7 @@ export function ChartBarDonations() {
             config={chartConfig}
             className="aspect-auto h-[250px] w-full"
           >
-            <BarChart data={data} barCategoryGap="12%">
+            <LineChart data={data} margin={{ left: 12, right: 12 }}>
               <CartesianGrid vertical={false} strokeDasharray="3 3" />
               <XAxis
                 dataKey="month"
@@ -124,20 +116,23 @@ export function ChartBarDonations() {
                 fontSize={12}
               />
               <ChartTooltip
-                cursor={{ fill: "hsl(var(--muted) / 0.3)" }}
+                cursor={{ stroke: "hsl(var(--border))" }}
                 content={
                   <ChartTooltipContent
-                    formatter={(value) => `$${Number(value).toLocaleString()}`}
+                    formatter={(value) => formatCurrency(Number(value))}
                     indicator="dot"
                   />
                 }
               />
-              <Bar
+              <Line
+                type="monotone"
                 dataKey="total"
-                fill="var(--color-total)"
-                radius={[4, 4, 0, 0]}
+                stroke="var(--color-total)"
+                strokeWidth={2}
+                dot={{ r: 4, fill: "var(--color-total)" }}
+                activeDot={{ r: 6 }}
               />
-            </BarChart>
+            </LineChart>
           </ChartContainer>
         )}
       </CardContent>

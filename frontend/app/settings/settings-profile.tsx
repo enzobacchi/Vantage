@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { IconLock } from "@tabler/icons-react"
+import { Lock } from "lucide-react"
 import { toast } from "sonner"
 
 import { updateProfile } from "@/app/actions/settings"
@@ -9,6 +9,13 @@ import { useAuthUser } from "@/hooks/use-auth-user"
 import { createBrowserSupabaseClient } from "@/lib/supabase/client"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
@@ -85,15 +92,14 @@ export function SettingsProfile() {
   const initials = getInitials(user.name, user.email)
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h3 className="text-lg font-medium">My Profile</h3>
-        <p className="text-[0.8rem] text-muted-foreground mt-0.5">
+    <Card>
+      <CardHeader>
+        <CardTitle>My Profile</CardTitle>
+        <CardDescription>
           Manage your account details and how you appear in the app.
-        </p>
-      </div>
-
-      <div className="space-y-8">
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-8">
         <div className="flex flex-col gap-6 sm:flex-row sm:items-start">
           <Avatar className="size-20 shrink-0 rounded-xl">
             <AvatarImage src={user.avatar || undefined} alt={user.name} />
@@ -150,11 +156,11 @@ export function SettingsProfile() {
             {saving ? "Saving…" : "Save changes"}
           </Button>
           <Button variant="outline" size="default" className="h-9 rounded-md px-4 gap-2" onClick={handleChangePassword}>
-            <IconLock className="size-4" />
+            <Lock className="size-4" strokeWidth={1.5} />
             Change password
           </Button>
         </div>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   )
 }

@@ -43,6 +43,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { SidebarTrigger } from "@/components/ui/sidebar"
 import {
   Tooltip,
   TooltipContent,
@@ -118,13 +119,14 @@ export function AppHeader() {
   return (
     <>
       <header className="flex h-14 shrink-0 items-center border-b border-border/50 bg-background px-4 gap-3">
+        <SidebarTrigger />
         {/* Logo */}
-        <Link href="/dashboard" className="flex items-center gap-2 shrink-0 mr-1 dark:invert">
-          <svg viewBox="0 0 100 100" className="h-7 w-7 text-zinc-800" fill="currentColor">
-            <path d="M50 5L95 50L50 95L5 50Z"/>
-            <path d="M30 42L70 42L50 68Z" fill="white"/>
-          </svg>
-          <span className="text-lg font-bold tracking-tight text-zinc-800">vantage</span>
+        <Link href="/dashboard" className="flex items-center shrink-0 mr-1">
+          <img
+            src={isDark ? "/vantage-logo-dark.svg" : "/vantage-logo-light.svg"}
+            alt="Vantage"
+            className="h-9 w-auto"
+          />
         </Link>
 
         {/* Org name */}

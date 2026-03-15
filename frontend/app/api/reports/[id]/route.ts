@@ -145,7 +145,7 @@ export async function GET(
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from("saved_reports")
-    .select("id,title,type,content,summary,created_at,organization_id,query")
+    .select("id,title,type,content,summary,created_at,organization_id,query,filter_criteria")
     .eq("id", id)
     .single();
 
@@ -179,10 +179,24 @@ export async function GET(
     }
   }
 
+  const criteria = row?.filter_criteria as Record<string, unknown> | null | undefined;
+  if (!content && criteria && typeof criteria.content === "string") {
+    content = criteria.content;
+  }
+
   // Count data rows (exclude header) so the UI can show a live row count
   const records_count = content
     ? Math.max(0, content.split("\n").filter((l) => l.trim()).length - 1)
     : 0;
+
+  const reportParams =
+    criteria && criteria.reportSource === "generate"
+      ? {
+          filters: (criteria.filters as Array<{ id: string; field: string; operator: string; value: unknown; value2?: unknown }>) ?? [],
+          selectedColumns: (criteria.selectedColumns as string[]) ?? [],
+          visibility: (criteria.visibility as string) ?? "private",
+        }
+      : null;
 
   return NextResponse.json({
     id: row.id,
@@ -192,6 +206,7 @@ export async function GET(
     created_at: row.created_at,
     content,
     records_count,
+    reportParams,
   });
 }
 

@@ -7,6 +7,8 @@ export type OrganizationProfile = {
   name: string | null
   website_url: string | null
   logo_url: string | null
+  tax_id: string | null
+  legal_501c3_wording: string | null
 }
 
 export async function getOrganization(): Promise<OrganizationProfile | null> {
@@ -16,7 +18,7 @@ export async function getOrganization(): Promise<OrganizationProfile | null> {
   const supabase = createAdminClient()
   const { data, error } = await supabase
     .from("organizations")
-    .select("name,website_url,logo_url")
+    .select("name,website_url,logo_url,tax_id,legal_501c3_wording")
     .eq("id", org.orgId)
     .maybeSingle()
 
@@ -34,6 +36,8 @@ export async function updateOrganization(form: {
   name: string
   website_url: string
   logo_url: string
+  tax_id: string
+  legal_501c3_wording: string
 }): Promise<void> {
   const org = await getCurrentUserOrgWithRole()
   if (!org) throw new Error("Unauthorized")
@@ -46,6 +50,8 @@ export async function updateOrganization(form: {
       name: form.name.trim() || null,
       website_url: form.website_url.trim() || null,
       logo_url: form.logo_url.trim() || null,
+      tax_id: form.tax_id.trim() || null,
+      legal_501c3_wording: form.legal_501c3_wording.trim() || null,
     })
     .eq("id", org.orgId)
 

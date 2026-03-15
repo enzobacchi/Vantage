@@ -47,7 +47,17 @@ const DONOR_COLS = new Set([
   "last_donation_amount",
 ]);
 
-const DONATION_COLS = new Set(["id", "donor_id", "amount", "date", "memo"]);
+const DONATION_COLS = new Set([
+  "id",
+  "donor_id",
+  "amount",
+  "date",
+  "memo",
+  "payment_method",
+  "category_id",
+  "campaign_id",
+  "fund_id",
+]);
 
 /** Get value from a donation row (with nested donors) for a column name (donors.x or x). */
 function getCellValue(row: Record<string, unknown>, col: string): unknown {

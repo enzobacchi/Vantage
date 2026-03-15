@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { IconCopy, IconUserPlus } from "@tabler/icons-react"
+import { Copy, UserPlus } from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -17,6 +17,13 @@ import {
   type OrgMember,
 } from "@/app/actions/team"
 import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import {
   Dialog,
   DialogContent,
@@ -135,18 +142,18 @@ export function SettingsTeam() {
   const isOwner = currentRole === "owner"
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h3 className="text-lg font-medium">Team</h3>
-        <p className="text-[0.8rem] text-muted-foreground mt-0.5">
+    <Card>
+      <CardHeader>
+        <CardTitle>Team</CardTitle>
+        <CardDescription>
           Manage members and invite others to your organization.
-        </p>
-      </div>
-
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-8">
       <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
         <DialogTrigger asChild>
           <Button size="default" className="h-9 rounded-md px-4 gap-2">
-            <IconUserPlus className="size-4" />
+            <UserPlus className="size-4" strokeWidth={1.5} />
             Invite
           </Button>
         </DialogTrigger>
@@ -194,7 +201,7 @@ export function SettingsTeam() {
                       className="h-9 text-xs font-mono"
                     />
                     <Button type="button" variant="outline" size="icon" className="h-9 shrink-0" onClick={handleCopyLink}>
-                      <IconCopy className="size-4" />
+                      <Copy className="size-4" strokeWidth={1.5} />
                       <span className="sr-only">Copy</span>
                     </Button>
                   </div>
@@ -328,6 +335,7 @@ export function SettingsTeam() {
           </ul>
         </div>
       )}
-    </div>
+      </CardContent>
+    </Card>
   )
 }

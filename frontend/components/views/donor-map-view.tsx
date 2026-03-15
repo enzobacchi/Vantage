@@ -10,9 +10,16 @@ import {
   IconRefresh,
   IconSearch,
   IconSettings2,
+  IconCircle,
+  IconPolygon,
+  IconTrash,
+  IconFileReport,
 } from "@tabler/icons-react"
 import Map, { Marker, Popup } from "react-map-gl/mapbox"
 import type { MapRef } from "react-map-gl/mapbox"
+import MapboxDraw from "@mapbox/mapbox-gl-draw"
+import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css"
+import { isPointInPolygon, isPointInCircle } from "@/lib/geo-utils"
 
 /** Catches WebGL/map init errors and shows a friendly message instead of a blank map. */
 class MapErrorBoundary extends React.Component<
@@ -36,6 +43,7 @@ class MapErrorBoundary extends React.Component<
 }
 
 import { createBrowserSupabaseClient } from "@/lib/supabase/client"
+import { formatCurrency } from "@/lib/format"
 import { Button } from "@/components/ui/button"
 import {
   Command,
@@ -59,6 +67,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { toast } from "sonner"
 
 /** Params sent to the map API; all optional. */
 export interface DonorFilterParams {
@@ -179,10 +189,13 @@ const WEBGL_FALLBACK = (
 const MAPBOX_STYLE = "mapbox://styles/mapbox/streets-v12"
 
 export function DonorMapView() {
-  const { openDonor } = useNav()
+  const { openDonor, setActiveView } = useNav()
   const mapboxToken =
     process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN || process.env.NEXT_PUBLIC_MAPBOX_TOKEN
   const mapRef = useRef<MapRef>(null)
+  const drawRef = useRef<MapboxDraw | null>(null)
+  const pointsRef = useRef<DonorMapPoint[]>([])
+  const circleModeRef = useRef(false)
   const [points, setPoints] = useState<DonorMapPoint[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -190,6 +203,22 @@ export function DonorMapView() {
   const [flyToSearchOpen, setFlyToSearchOpen] = useState(false)
   const [legendOpen, setLegendOpen] = useState(false)
   const [webglOk, setWebglOk] = useState<boolean | null>(null)
+  const [selectedByDraw, setSelectedByDraw] = useState<DonorMapPoint[]>([])
+  const [drawMode, setDrawMode] = useState<"polygon" | "circle" | null>(null)
+  const [circleCenter, setCircleCenter] = useState<[number, number] | null>(null)
+  const [circleRadiusInput, setCircleRadiusInput] = useState("")
+  const [generateReportLoading, setGenerateReportLoading] = useState(false)
+  const [showAllSelectedDonors, setShowAllSelectedDonors] = useState(false)
+
+  const INITIAL_DONORS_SHOWN = 10
+  const donorsToShow =
+    showAllSelectedDonors || selectedByDraw.length <= INITIAL_DONORS_SHOWN
+      ? selectedByDraw
+      : selectedByDraw.slice(0, INITIAL_DONORS_SHOWN)
+  const hasMoreDonors = selectedByDraw.length > INITIAL_DONORS_SHOWN
+
+  pointsRef.current = points
+  circleModeRef.current = drawMode === "circle"
   useEffect(() => {
     setWebglOk(isWebGLSupported())
   }, [])
@@ -366,14 +395,145 @@ export function DonorMapView() {
     return { latitude: 39.5, longitude: -98.35, zoom: 3 }
   }, [points])
 
+  const filterDonorsByPolygon = useCallback(
+    (polygon: number[][], donors: DonorMapPoint[]) =>
+      donors.filter((p) =>
+        isPointInPolygon([p.location_lng, p.location_lat], polygon)
+      ),
+    []
+  )
+
+  const filterDonorsByCircle = useCallback(
+    (center: [number, number], radiusMiles: number, donors: DonorMapPoint[]) =>
+      donors.filter((p) =>
+        isPointInCircle([p.location_lng, p.location_lat], center, radiusMiles)
+      ),
+    []
+  )
+
+  const handleDrawCreate = useCallback(
+    (e: { features?: Array<{ geometry?: { type?: string; coordinates?: number[][][] } }> }) => {
+      const features = e.features ?? []
+      const pts = pointsRef.current
+      if (features.length === 0) return
+      for (const f of features) {
+        const geom = f.geometry
+        if (geom?.type === "Polygon" && geom.coordinates) {
+          const ring = geom.coordinates[0]
+          if (ring && ring.length >= 3) {
+            const polygon = ring.map((c) => [c[0], c[1]] as [number, number])
+            setSelectedByDraw(filterDonorsByPolygon(polygon, pts))
+            return
+          }
+        }
+      }
+    },
+    [filterDonorsByPolygon]
+  )
+
+  const handleDrawUpdate = useCallback(() => {
+    const draw = drawRef.current
+    const pts = pointsRef.current
+    if (!draw) return
+    const data = draw.getAll()
+    if (data.features.length > 0) {
+      const f = data.features[0]
+      const geom = f.geometry
+      if (geom?.type === "Polygon" && geom.coordinates) {
+        const ring = geom.coordinates[0]
+        if (ring && ring.length >= 3) {
+          const polygon = ring.map((c) => [c[0], c[1]] as [number, number])
+          setSelectedByDraw(filterDonorsByPolygon(polygon, pts))
+        }
+      }
+    }
+  }, [filterDonorsByPolygon])
+
   const handleMapLoad = useCallback(() => {
     const map = mapRef.current?.getMap()
-    if (map) {
-      requestAnimationFrame(() => {
-        map.resize()
-      })
-    }
+    if (!map) return
+    requestAnimationFrame(() => {
+      map.resize()
+    })
+    const draw = new MapboxDraw({
+      displayControlsDefault: false,
+      controls: { polygon: false, trash: false },
+    })
+    ;(map as { addControl: (c: unknown, pos?: string) => void }).addControl(draw, "top-left")
+    drawRef.current = draw
+    map.on("draw.create", handleDrawCreate)
+    map.on("draw.update", handleDrawUpdate)
+    map.on("click", (e: { lngLat: { lng: number; lat: number } }) => {
+      if (circleModeRef.current) {
+        setCircleCenter([e.lngLat.lng, e.lngLat.lat])
+      }
+    })
+  }, [handleDrawCreate, handleDrawUpdate])
+
+  const activatePolygonMode = useCallback(() => {
+    setDrawMode("polygon")
+    setCircleCenter(null)
+    setCircleRadiusInput("")
+    drawRef.current?.changeMode("draw_polygon")
   }, [])
+
+  const activateCircleMode = useCallback(() => {
+    setDrawMode("circle")
+    setCircleCenter(null)
+    setCircleRadiusInput("")
+    drawRef.current?.changeMode("simple_select")
+    drawRef.current?.deleteAll()
+  }, [])
+
+  const clearDraw = useCallback(() => {
+    setDrawMode(null)
+    setCircleCenter(null)
+    setCircleRadiusInput("")
+    setSelectedByDraw([])
+    setShowAllSelectedDonors(false)
+    drawRef.current?.deleteAll()
+    drawRef.current?.changeMode("simple_select")
+  }, [])
+
+  const applyCircleFilter = useCallback(() => {
+    const center = circleCenter
+    const radius = Number(circleRadiusInput)
+    if (!center || !Number.isFinite(radius) || radius <= 0 || radius > 500) return
+    const filtered = filterDonorsByCircle(center, radius, points)
+    setSelectedByDraw(filtered)
+    setCircleRadiusInput("")
+  }, [circleCenter, circleRadiusInput, filterDonorsByCircle, points])
+
+  const handleGenerateReport = useCallback(async () => {
+    if (selectedByDraw.length === 0) return
+    setGenerateReportLoading(true)
+    try {
+      const title = `Map selection - ${new Date().toLocaleDateString()}`
+      const res = await fetch("/api/reports/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          donorIds: selectedByDraw.map((p) => p.id),
+          selectedColumns: ["display_name", "email", "lifetime_value", "last_gift_date"],
+          title,
+          visibility: "private",
+        }),
+      })
+      const data = (await res.json()) as { reportId?: string; error?: string }
+      if (!res.ok) {
+        toast.error(data.error ?? "Failed to create report.")
+        return
+      }
+      toast.success("Report created.")
+      if (data.reportId) {
+        setActiveView("saved-reports")
+      }
+    } catch {
+      toast.error("Failed to create report.")
+    } finally {
+      setGenerateReportLoading(false)
+    }
+  }, [selectedByDraw, setActiveView])
 
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 lg:p-6">
@@ -477,8 +637,64 @@ export function DonorMapView() {
         </span>
       </div>
 
+      {/* Draw toolbar */}
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-background/95 px-3 py-2">
+        <span className="text-xs font-medium text-muted-foreground">Select by area:</span>
+        <Button
+          type="button"
+          variant={drawMode === "polygon" ? "secondary" : "outline"}
+          size="sm"
+          className="h-8"
+          onClick={activatePolygonMode}
+        >
+          <IconPolygon className="mr-1.5 size-4" />
+          Polygon
+        </Button>
+        <Button
+          type="button"
+          variant={drawMode === "circle" ? "secondary" : "outline"}
+          size="sm"
+          className="h-8"
+          onClick={activateCircleMode}
+        >
+          <IconCircle className="mr-1.5 size-4" />
+          Circle
+        </Button>
+        {(drawMode || selectedByDraw.length > 0) && (
+          <Button type="button" variant="ghost" size="sm" className="h-8" onClick={clearDraw}>
+            <IconTrash className="mr-1.5 size-4" />
+            Clear
+          </Button>
+        )}
+        {drawMode === "circle" && (
+          <div className="ml-2 flex items-center gap-2 border-l pl-2">
+            {circleCenter ? (
+              <>
+                <Input
+                  type="number"
+                  min={0.1}
+                  max={500}
+                  step={1}
+                  placeholder="Radius (mi)"
+                  value={circleRadiusInput}
+                  onChange={(e) => setCircleRadiusInput(e.target.value)}
+                  className="h-8 w-24 text-xs"
+                />
+                <Button type="button" size="sm" className="h-8" onClick={applyCircleFilter}>
+                  Apply
+                </Button>
+              </>
+            ) : (
+              <span className="text-xs text-muted-foreground">Click map to set center</span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Map + optional selected donors panel */}
+      <div className="flex gap-4 flex-1 min-h-0">
       {/* Map: explicit height so Mapbox GL can render tiles; resize() onLoad fixes blank tiles */}
-      <div className="relative w-full h-[60vh] min-h-[400px] flex-1 overflow-hidden rounded-lg border bg-muted/30">
+      <div className="relative flex-1 w-full h-[60vh] min-h-[400px] overflow-hidden rounded-lg border bg-muted/30">
             {!mapboxToken ? (
               <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
                 <p className="text-sm text-muted-foreground">
@@ -644,14 +860,21 @@ export function DonorMapView() {
                     className="[&_.mapboxgl-popup-content]:!p-0 [&_.mapboxgl-popup-content]:!bg-background [&_.mapboxgl-popup-content]:!text-foreground [&_.mapboxgl-popup-content]:border [&_.mapboxgl-popup-content]:border-border [&_.mapboxgl-popup-content]:rounded-lg [&_.mapboxgl-popup-content]:shadow-md"
                   >
                     <div className="min-w-56 rounded-lg border bg-card p-3 text-card-foreground shadow-sm">
-                      <h3 className="font-semibold text-foreground leading-tight">
+                      <button
+                        type="button"
+                        className="font-semibold text-foreground leading-tight text-primary hover:underline block text-left w-full"
+                        onClick={() => {
+                          openDonor(selected.id)
+                          setSelected(null)
+                        }}
+                      >
                         {selected.display_name ?? "Unknown Donor"}
-                      </h3>
+                      </button>
                       <div className="mt-2 text-xs text-muted-foreground">
                         Total giving:{" "}
                         {selected.total_lifetime_value == null
                           ? "—"
-                          : `$${Number(selected.total_lifetime_value).toLocaleString()}`}
+                          : formatCurrency(selected.total_lifetime_value)}
                       </div>
                       <Button
                         type="button"
@@ -672,6 +895,87 @@ export function DonorMapView() {
               </div>
               </MapErrorBoundary>
             )}
+      </div>
+
+      {/* Selected donors panel */}
+      {selectedByDraw.length > 0 && (
+        <div className="w-80 shrink-0 flex flex-col rounded-lg border bg-zinc-50 overflow-hidden h-[60vh] min-h-[400px]">
+          <div className="flex items-center justify-between border-b px-3 py-2 shrink-0">
+            <span className="text-sm font-medium text-zinc-950">
+              {selectedByDraw.length} donor{selectedByDraw.length === 1 ? "" : "s"} selected
+            </span>
+          </div>
+          <ScrollArea className="flex-1 min-h-0">
+            <div className="p-2 space-y-1">
+              {donorsToShow.map((p) => (
+                <div
+                  key={p.id}
+                  className="flex items-center justify-between rounded border bg-white px-3 py-2 text-sm"
+                >
+                  <div className="min-w-0 flex-1">
+                    <button
+                      type="button"
+                      className="font-medium text-primary hover:underline truncate block text-left w-full"
+                      onClick={() => openDonor(p.id)}
+                    >
+                      {p.display_name ?? "Unknown"}
+                    </button>
+                    <div className="text-xs text-zinc-500">
+                      {p.total_lifetime_value != null
+                        ? formatCurrency(p.total_lifetime_value)
+                        : "—"}
+                      {p.last_donation_date &&
+                        ` · ${new Date(p.last_donation_date).toLocaleDateString()}`}
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 shrink-0"
+                    onClick={() => openDonor(p.id)}
+                  >
+                    View
+                  </Button>
+                </div>
+              ))}
+            </div>
+            {hasMoreDonors && !showAllSelectedDonors && (
+              <div className="p-2 pt-0">
+                <button
+                  type="button"
+                  onClick={() => setShowAllSelectedDonors(true)}
+                  className="text-xs text-primary hover:underline font-medium"
+                >
+                  See more ({selectedByDraw.length - INITIAL_DONORS_SHOWN} more)
+                </button>
+              </div>
+            )}
+            {hasMoreDonors && showAllSelectedDonors && (
+              <div className="p-2 pt-0">
+                <button
+                  type="button"
+                  onClick={() => setShowAllSelectedDonors(false)}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  Show less
+                </button>
+              </div>
+            )}
+          </ScrollArea>
+          <div className="border-t p-3 shrink-0">
+            <Button
+              type="button"
+              className="w-full"
+              disabled={generateReportLoading}
+              onClick={handleGenerateReport}
+            >
+              <IconFileReport className="mr-2 size-4" />
+              {generateReportLoading ? "Creating…" : "Generate Report"}
+            </Button>
+          </div>
+        </div>
+      )}
       </div>
     </div>
   )

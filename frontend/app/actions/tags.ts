@@ -28,7 +28,6 @@ export async function createTag(name: string, color: string): Promise<Tag> {
       organization_id: org.orgId,
       name: trimmed,
       color: color || "gray",
-      created_by_user_id: org.userId,
     })
     .select("id,name,color,created_at")
     .single()
@@ -83,6 +82,81 @@ export async function removeTag(donorId: string, tagId: string): Promise<void> {
 }
 
 /**
+ * Assign a tag to multiple donors. Idempotent (no-op if already assigned).
+ * Returns the number of donors successfully tagged.
+ */
+export async function bulkAssignTag(
+  donorIds: string[],
+  tagId: string
+): Promise<number> {
+  const org = await getCurrentUserOrg()
+  if (!org) throw new Error("Unauthorized")
+  if (donorIds.length === 0) return 0
+
+  const supabase = createAdminClient()
+
+  const { data: orgDonors } = await supabase
+    .from("donors")
+    .select("id")
+    .eq("org_id", org.orgId)
+    .in("id", donorIds)
+  const validDonorIds = new Set((orgDonors ?? []).map((d: { id: string }) => d.id))
+
+  if (validDonorIds.size === 0) return 0
+
+  const rows = [...validDonorIds].map((donorId) => ({
+    donor_id: donorId,
+    tag_id: tagId,
+  }))
+
+  const { error } = await supabase.from("donor_tags").upsert(rows, {
+    onConflict: "donor_id,tag_id",
+  })
+
+  if (error) throw new Error(error.message)
+
+  revalidatePath("/dashboard")
+  revalidatePath("/donors")
+  return validDonorIds.size
+}
+
+/**
+ * Remove a tag from multiple donors.
+ * Returns the number of donors successfully untagged.
+ */
+export async function bulkRemoveTag(
+  donorIds: string[],
+  tagId: string
+): Promise<number> {
+  const org = await getCurrentUserOrg()
+  if (!org) throw new Error("Unauthorized")
+  if (donorIds.length === 0) return 0
+
+  const supabase = createAdminClient()
+
+  const { data: orgDonors } = await supabase
+    .from("donors")
+    .select("id")
+    .eq("org_id", org.orgId)
+    .in("id", donorIds)
+  const validDonorIds = (orgDonors ?? []).map((d: { id: string }) => d.id)
+
+  if (validDonorIds.length === 0) return 0
+
+  const { error } = await supabase
+    .from("donor_tags")
+    .delete()
+    .eq("tag_id", tagId)
+    .in("donor_id", validDonorIds)
+
+  if (error) throw new Error(error.message)
+
+  revalidatePath("/dashboard")
+  revalidatePath("/donors")
+  return validDonorIds.length
+}
+
+/**
  * Fetch all tags for the current organization (for filter menu and tag picker).
  */
 export async function getOrganizationTags(): Promise<Tag[]> {
@@ -94,7 +168,6 @@ export async function getOrganizationTags(): Promise<Tag[]> {
     .from("tags")
     .select("id,name,color,created_at")
     .eq("organization_id", org.orgId)
-    .or(`created_by_user_id.eq.${org.userId},created_by_user_id.is.null`)
     .order("name")
 
   if (error) throw new Error(error.message)
@@ -130,7 +203,6 @@ export async function getDonorTags(donorId: string): Promise<Tag[]> {
     .from("tags")
     .select("id,name,color,created_at")
     .in("id", tagIds)
-    .or(`created_by_user_id.eq.${org.userId},created_by_user_id.is.null`)
 
   if (tagsError) return []
   return (tags ?? []) as Tag[]

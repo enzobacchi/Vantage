@@ -10,16 +10,15 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Skeleton } from "@/components/ui/skeleton"
+import { formatCurrency } from "@/lib/format"
 
 type DashboardMetrics = {
   totalDonors: number
   totalRevenue: number
   averageGift: number
+  medianGift: number
 }
 
-function formatCurrency(value: number) {
-  return value.toLocaleString(undefined, { style: "currency", currency: "USD" })
-}
 
 export function SectionCards() {
   const [metrics, setMetrics] = React.useState<DashboardMetrics | null>(null)
@@ -51,7 +50,7 @@ export function SectionCards() {
   }, [])
 
   return (
-    <div className="*:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card dark:*:data-[slot=card]:bg-card grid grid-cols-1 gap-4 *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:shadow-xs @xl/main:grid-cols-3">
+    <div className="*:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card dark:*:data-[slot=card]:bg-card grid grid-cols-1 gap-4 *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:shadow-xs sm:grid-cols-2 @xl/main:grid-cols-4">
       <Card className="@container/card">
         <CardHeader>
           <CardDescription>Total Revenue</CardDescription>
@@ -94,7 +93,7 @@ export function SectionCards() {
       </Card>
       <Card className="@container/card">
         <CardHeader>
-          <CardDescription>Average Gift</CardDescription>
+          <CardDescription>Average Donation</CardDescription>
           <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
             {metrics ? (
               formatCurrency(metrics.averageGift)
@@ -107,7 +106,25 @@ export function SectionCards() {
           <div className="line-clamp-1 flex gap-2 font-medium">
             Revenue / Donors
           </div>
-          <div className="text-muted-foreground">More small gifts received</div>
+          <div className="text-muted-foreground">Mean gift size</div>
+        </CardFooter>
+      </Card>
+      <Card className="@container/card">
+        <CardHeader>
+          <CardDescription>Median Donation</CardDescription>
+          <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
+            {metrics ? (
+              formatCurrency(metrics.medianGift)
+            ) : (
+              <Skeleton className="h-8 w-32 @[250px]/card:h-9" />
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardFooter className="flex-col items-start gap-1.5 text-sm">
+          <div className="line-clamp-1 flex gap-2 font-medium">
+            Middle value
+          </div>
+          <div className="text-muted-foreground">Less skewed by outliers</div>
         </CardFooter>
       </Card>
     </div>

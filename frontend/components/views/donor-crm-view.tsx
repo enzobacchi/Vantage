@@ -1,18 +1,8 @@
 "use client"
 
 import * as React from "react"
-import {
-  IconChevronLeft,
-  IconChevronRight,
-  IconChevronsLeft,
-  IconChevronsRight,
-  IconDotsVertical,
-  IconSearch,
-  IconUsers,
-  IconChevronDown,
-} from "@tabler/icons-react"
-import Link from "next/link"
-import { useSearchParams } from "next/navigation"
+import { IconChevronDown, IconSearch, IconUsers } from "@tabler/icons-react"
+import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { toast } from "sonner"
 import { Calendar, CheckSquare, FileText, Mail, MapPin, Phone, Sparkles } from "lucide-react"
 
@@ -20,7 +10,7 @@ import { getDonorProfile, getDonorActivityNotes, type DonorProfileDonor, type Do
 import { getDonorInteractions, logInteraction, toggleTaskStatus } from "@/app/actions/crm"
 import { DEFAULT_LIFECYCLE_CONFIG } from "@/lib/donor-lifecycle"
 import type { Interaction } from "@/types/database"
-import { getOrganizationTags } from "@/app/actions/tags"
+import { bulkAssignTag, bulkRemoveTag, getOrganizationTags } from "@/app/actions/tags"
 import { DonorTagFilter, type TagForFilter } from "@/components/donors/donor-filters"
 import { DateRangeFilter, getDateRangeFromSearchParams } from "@/components/date-range-filter"
 import { format } from "date-fns"
@@ -30,7 +20,7 @@ import { DonorInsightsPanel } from "@/components/donors/donor-insights-panel"
 import { MagicActionsCard } from "@/components/donors/magic-actions-card"
 import { DonorNotesCard } from "@/components/donors/donor-notes-card"
 import { DonorTagsCard } from "@/components/donors/donor-tags-card"
-import { Badge } from "@/components/ui/badge"
+import { formatCurrency } from "@/lib/format"
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -39,12 +29,6 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import { Input } from "@/components/ui/input"
 import { Label } from '@/components/ui/label'
 import {
@@ -63,37 +47,28 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
+import {
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table'
+} from "@/components/ui/table"
+import { DataTable, type DataTableRef } from "@/components/ui/data-table"
+import { createDonorColumns, type Donor } from "@/components/views/donor-crm/columns"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-
-type DonorTag = { id: string; name: string; color: string }
-
-type Donor = {
-  id: string
-  display_name: string | null
-  total_lifetime_value: number | string | null
-  last_donation_amount: number | string | null
-  last_donation_date: string | null
-  first_donation_date?: string | null
-  billing_address: string | null
-  state: string | null
-  notes: string | null
-  tags?: DonorTag[]
-}
-
-function formatCurrency(value: number | string | null | undefined) {
-  if (value == null) return "—"
-  const n = typeof value === "number" ? value : Number(value)
-  if (!Number.isFinite(n)) return "—"
-  return n.toLocaleString(undefined, { style: "currency", currency: "USD" })
-}
 
 function formatDate(value: string | null | undefined) {
   if (!value) return "—"
@@ -436,13 +411,17 @@ function LogActivityDialog({
 
 export function DonorCRMView() {
   const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
   const { selectedDonorId, clearSelectedDonor } = useNav()
   const [donors, setDonors] = React.useState<Donor[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
-  const [pageIndex, setPageIndex] = React.useState(0)
-  const [pageSize, setPageSize] = React.useState(10)
   const [sortBy, setSortBy] = React.useState<SortOption>("recent")
+  const [selectedDonors, setSelectedDonors] = React.useState<Donor[]>([])
+  const [bulkTagOpen, setBulkTagOpen] = React.useState<"add" | "remove" | null>(null)
+  const [bulkTagSaving, setBulkTagSaving] = React.useState(false)
+  const dataTableRef = React.useRef<DataTableRef<Donor> | null>(null)
   const [searchQuery, setSearchQuery] = React.useState("")
 
   const [orgTags, setOrgTags] = React.useState<TagForFilter[]>([])
@@ -463,6 +442,19 @@ export function DonorCRMView() {
       clearSelectedDonor()
     }
   }, [selectedDonorId, clearSelectedDonor])
+
+  // Handle /donors/[id] redirect: URL has donorId param → open sheet and clear param
+  const donorIdFromUrl = searchParams.get("donorId")
+  React.useEffect(() => {
+    if (donorIdFromUrl && pathname === "/dashboard") {
+      setSheetDonorId(donorIdFromUrl)
+      setSheetOpen(true)
+      const params = new URLSearchParams(searchParams.toString())
+      params.delete("donorId")
+      const q = params.toString()
+      router.replace(q ? `/dashboard?${q}` : "/dashboard?view=donor-crm", { scroll: false })
+    }
+  }, [donorIdFromUrl, pathname, searchParams, router])
   const [sheetProfile, setSheetProfile] = React.useState<{ donor: DonorProfileDonor; donations: DonorProfileDonation[] } | null>(null)
   const [sheetActivity, setSheetActivity] = React.useState<DonorNoteRow[]>([])
   const [sheetInteractions, setSheetInteractions] = React.useState<Interaction[]>([])
@@ -489,7 +481,6 @@ export function DonorCRMView() {
         throw new Error(msg || `Failed to load donors (HTTP ${res.status}).`)
       }
       setDonors(Array.isArray(data) ? (data as Donor[]) : [])
-      setPageIndex(0)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load donors.")
     } finally {
@@ -514,10 +505,66 @@ export function DonorCRMView() {
     let list = sortDonors(donors, sortBy)
     const q = searchQuery.trim().toLowerCase()
     if (q) {
-      list = list.filter((d) => (d.display_name ?? "").toLowerCase().includes(q))
+      list = list.filter((d) =>
+        (d.display_name ?? "").toLowerCase().includes(q)
+      )
     }
     return list
   }, [donors, sortBy, searchQuery])
+
+  const openDonorSheet = React.useCallback((donorId: string) => {
+    setSheetDonorId(donorId)
+    setSheetOpen(true)
+  }, [])
+
+  const donorColumns = React.useMemo(
+    () => createDonorColumns({ onOpenDonorSheet: openDonorSheet }),
+    [openDonorSheet]
+  )
+
+  const handleBulkAddTag = React.useCallback(
+    async (tagId: string) => {
+      if (selectedDonors.length === 0) return
+      setBulkTagSaving(true)
+      try {
+        const count = await bulkAssignTag(
+          selectedDonors.map((d) => d.id),
+          tagId
+        )
+        toast.success(`Tag added to ${count} donor${count === 1 ? "" : "s"}`)
+        setBulkTagOpen(null)
+        dataTableRef.current?.clearSelection()
+        loadDonors(selectedTagIds, dateRange)
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Failed to add tag")
+      } finally {
+        setBulkTagSaving(false)
+      }
+    },
+    [selectedDonors, selectedTagIds, dateRange, loadDonors]
+  )
+
+  const handleBulkRemoveTag = React.useCallback(
+    async (tagId: string) => {
+      if (selectedDonors.length === 0) return
+      setBulkTagSaving(true)
+      try {
+        const count = await bulkRemoveTag(
+          selectedDonors.map((d) => d.id),
+          tagId
+        )
+        toast.success(`Tag removed from ${count} donor${count === 1 ? "" : "s"}`)
+        setBulkTagOpen(null)
+        dataTableRef.current?.clearSelection()
+        loadDonors(selectedTagIds, dateRange)
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Failed to remove tag")
+      } finally {
+        setBulkTagSaving(false)
+      }
+    },
+    [selectedDonors, selectedTagIds, dateRange, loadDonors]
+  )
 
   React.useEffect(() => {
     if (!sheetOpen || !sheetDonorId) {
@@ -556,24 +603,16 @@ export function DonorCRMView() {
     }
   }, [sheetOpen, sheetDonorId])
 
-  const openDonorSheet = React.useCallback((donorId: string) => {
-    setSheetDonorId(donorId)
-    setSheetOpen(true)
-  }, [])
-
   const closeSheet = React.useCallback(() => {
     setSheetOpen(false)
     setSheetDonorId(null)
     setHistoryOpen(false)
   }, [])
-  const totalPages = Math.ceil(sortedDonors.length / pageSize)
-  const paginatedDonors = sortedDonors.slice(
-    pageIndex * pageSize,
-    (pageIndex + 1) * pageSize
-  )
-
-  const canPreviousPage = pageIndex > 0
-  const canNextPage = pageIndex < totalPages - 1
+  const emptyMessage = searchQuery.trim()
+    ? "No donors match your search."
+    : selectedTagIds.size > 0
+      ? "No donors have the selected tags."
+      : "No donors found."
 
   return (
     <div className="flex flex-col gap-4 py-4 md:py-6">
@@ -582,7 +621,7 @@ export function DonorCRMView() {
         <h1 className="text-xl font-semibold">Donor CRM</h1>
       </div>
 
-      <Card className="mx-4 lg:mx-6 bg-gradient-to-t from-primary/5 to-card shadow-xs">
+      <Card className="mx-4 lg:mx-6">
         <CardHeader>
           <CardTitle>All Donors</CardTitle>
           <CardDescription>
@@ -597,10 +636,7 @@ export function DonorCRMView() {
                 type="search"
                 placeholder="Search donors by name…"
                 value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value)
-                  setPageIndex(0)
-                }}
+                onChange={(e) => setSearchQuery(e.target.value)}
                 className="flex h-9 w-full rounded-md border border-input bg-transparent pl-9 pr-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               />
             </div>
@@ -635,10 +671,7 @@ export function DonorCRMView() {
               </Label>
               <Select
                 value={sortBy}
-                onValueChange={(value) => {
-                  setSortBy(value as SortOption)
-                  setPageIndex(0)
-                }}
+                onValueChange={(value) => setSortBy(value as SortOption)}
               >
                 <SelectTrigger id="donor-sort" className="w-[180px]">
                   <SelectValue />
@@ -653,228 +686,112 @@ export function DonorCRMView() {
               </Select>
             </div>
           </div>
-          <div className="rounded-lg border overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-muted/50">
-                  <TableHead className="font-semibold">Name</TableHead>
-                  <TableHead className="font-semibold">Tags</TableHead>
-                  <TableHead className="font-semibold text-right">Last Gift Amount</TableHead>
-                  <TableHead className="font-semibold text-right">Last Gift Date</TableHead>
-                  <TableHead className="font-semibold text-right">Lifetime Amount</TableHead>
-                  <TableHead className="font-semibold">Address</TableHead>
-                  <TableHead className="w-[50px]"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-sm text-muted-foreground">
-                      Loading donors…
-                    </TableCell>
-                  </TableRow>
-                ) : error ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-sm text-destructive">
-                      {error}
-                    </TableCell>
-                  </TableRow>
-                ) : paginatedDonors.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-sm text-muted-foreground">
-                      {searchQuery.trim()
-                        ? "No donors match your search."
-                        : selectedTagIds.size > 0
-                          ? "No donors have the selected tags."
-                          : "No donors found."}
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  paginatedDonors.map((donor) => (
-                    <TableRow
-                      key={donor.id}
-                      className={
-                        donor.id === sheetDonorId
-                          ? "bg-primary/10 hover:bg-primary/10 cursor-pointer"
-                          : "cursor-pointer"
-                      }
-                      onClick={() => openDonorSheet(donor.id)}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault()
-                          openDonorSheet(donor.id)
-                        }
-                      }}
-                    >
-                      <TableCell className="font-medium">
-                        {donor.display_name ?? "Unknown"}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          {(donor.tags ?? []).map((t) => (
-                            <Badge
-                              key={t.id}
-                              variant="secondary"
-                              className="text-xs font-normal border-0"
-                              style={{
-                                backgroundColor:
-                                  t.color === "red"
-                                    ? "rgb(254 226 226)"
-                                    : t.color === "blue"
-                                      ? "rgb(219 234 254)"
-                                      : t.color === "green"
-                                        ? "rgb(220 252 231)"
-                                        : t.color === "orange"
-                                          ? "rgb(255 237 213)"
-                                          : "rgb(243 244 246)",
-                                color:
-                                  t.color === "red"
-                                    ? "rgb(153 27 27)"
-                                    : t.color === "blue"
-                                      ? "rgb(29 78 216)"
-                                      : t.color === "green"
-                                        ? "rgb(20 83 45)"
-                                        : t.color === "orange"
-                                          ? "rgb(154 52 18)"
-                                          : "rgb(55 65 81)",
-                              }}
-                            >
-                              {t.name}
-                            </Badge>
-                          ))}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {formatCurrency(donor.last_donation_amount)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {formatDate(donor.last_donation_date)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {formatCurrency(donor.total_lifetime_value)}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground max-w-64 truncate">
-                        {donor.billing_address ?? "—"}
-                      </TableCell>
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              className="data-[state=open]:bg-muted text-muted-foreground flex size-8"
-                              size="icon"
-                            >
-                              <IconDotsVertical className="size-4" />
-                              <span className="sr-only">Open menu</span>
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-40">
-                            <DropdownMenuItem onClick={() => openDonorSheet(donor.id)}>
-                              View profile
-                            </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                              <Link href={`/donors/${donor.id}`}>Open in full page</Link>
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-
-          {/* Pagination Controls */}
-          <div className="flex items-center justify-between">
-            <div className="text-muted-foreground text-sm">
-              {sortedDonors.length} donor(s) total
-            </div>
-            <div className="flex items-center gap-6">
-              <div className="hidden items-center gap-2 lg:flex">
-                <Label htmlFor="rows-per-page" className="text-sm font-medium">
-                  Rows per page
-                </Label>
-                <Select
-                  value={`${pageSize}`}
-                  onValueChange={(value) => {
-                    setPageSize(Number(value))
-                    setPageIndex(0)
-                  }}
-                >
-                  <SelectTrigger className="w-20" size="sm" id="rows-per-page">
-                    <SelectValue placeholder={pageSize} />
-                  </SelectTrigger>
-                  <SelectContent side="top">
-                    {[10, 20, 30, 40, 50].map((size) => (
-                      <SelectItem key={size} value={`${size}`}>
-                        {size}
-                      </SelectItem>
+          {selectedDonors.length > 0 && (
+            <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 px-4 py-2">
+              <span className="text-sm font-medium">
+                {selectedDonors.length} selected
+              </span>
+              <Popover
+                open={bulkTagOpen === "add"}
+                onOpenChange={(open) =>
+                  setBulkTagOpen(open ? "add" : null)
+                }
+              >
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={bulkTagSaving || orgTags.length === 0}
+                  >
+                    Add tag
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-56 p-2" align="start">
+                  <div className="flex flex-col gap-1">
+                    {orgTags.map((tag) => (
+                      <Button
+                        key={tag.id}
+                        variant="ghost"
+                        size="sm"
+                        className="justify-start"
+                        onClick={() => void handleBulkAddTag(tag.id)}
+                        disabled={bulkTagSaving}
+                      >
+                        {tag.name}
+                      </Button>
                     ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex items-center justify-center text-sm font-medium">
-                Page {pageIndex + 1} of {totalPages}
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  className="hidden h-8 w-8 p-0 lg:flex bg-transparent"
-                  onClick={() => setPageIndex(0)}
-                  disabled={!canPreviousPage}
-                >
-                  <span className="sr-only">Go to first page</span>
-                  <IconChevronsLeft className="size-4" />
-                </Button>
-                <Button
-                  variant="outline"
-                  className="size-8 bg-transparent"
-                  size="icon"
-                  onClick={() => setPageIndex(pageIndex - 1)}
-                  disabled={!canPreviousPage}
-                >
-                  <span className="sr-only">Go to previous page</span>
-                  <IconChevronLeft className="size-4" />
-                </Button>
-                <Button
-                  variant="outline"
-                  className="size-8 bg-transparent"
-                  size="icon"
-                  onClick={() => setPageIndex(pageIndex + 1)}
-                  disabled={!canNextPage}
-                >
-                  <span className="sr-only">Go to next page</span>
-                  <IconChevronRight className="size-4" />
-                </Button>
-                <Button
-                  variant="outline"
-                  className="hidden size-8 lg:flex bg-transparent"
-                  size="icon"
-                  onClick={() => setPageIndex(totalPages - 1)}
-                  disabled={!canNextPage}
-                >
-                  <span className="sr-only">Go to last page</span>
-                  <IconChevronsRight className="size-4" />
-                </Button>
-              </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
+              <Popover
+                open={bulkTagOpen === "remove"}
+                onOpenChange={(open) =>
+                  setBulkTagOpen(open ? "remove" : null)
+                }
+              >
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={bulkTagSaving || orgTags.length === 0}
+                  >
+                    Remove tag
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-56 p-2" align="start">
+                  <div className="flex flex-col gap-1">
+                    {orgTags.map((tag) => (
+                      <Button
+                        key={tag.id}
+                        variant="ghost"
+                        size="sm"
+                        className="justify-start"
+                        onClick={() => void handleBulkRemoveTag(tag.id)}
+                        disabled={bulkTagSaving}
+                      >
+                        {tag.name}
+                      </Button>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => dataTableRef.current?.clearSelection()}
+              >
+                Clear selection
+              </Button>
             </div>
-          </div>
+          )}
+
+          <DataTable<Donor, unknown>
+            columns={donorColumns}
+            data={sortedDonors}
+            loading={loading}
+            error={error}
+            emptyMessage={emptyMessage}
+            onRowSelectionChange={setSelectedDonors}
+            onRowClick={(row) => openDonorSheet(row.id)}
+            tableRef={dataTableRef}
+            getRowClassName={(row) =>
+              row.id === sheetDonorId ? "bg-primary/10 hover:bg-primary/10" : undefined
+            }
+          />
         </CardContent>
       </Card>
 
-      <Dialog open={sheetOpen} onOpenChange={(open) => !open && closeSheet()}>
-        <DialogContent className="sm:max-w-5xl w-[95vw] max-h-[85vh] p-0 gap-0 flex flex-col overflow-hidden">
+      <Sheet open={sheetOpen} onOpenChange={(open) => !open && closeSheet()}>
+        <SheetContent
+          side="right"
+          className="flex flex-col w-full sm:max-w-xl p-0 gap-0 overflow-hidden"
+        >
           {/* Header */}
-          <div className="shrink-0 border-b bg-muted/30 px-6 py-4">
-            <DialogHeader>
-              <DialogTitle className="text-xl font-bold tracking-tight truncate">
-                {sheetProfile?.donor?.display_name ?? "Donor"}
-              </DialogTitle>
-            </DialogHeader>
-          </div>
+          <SheetHeader className="shrink-0 border-b bg-muted/30 px-6 py-4 text-left">
+            <SheetTitle className="text-xl font-bold tracking-tight truncate">
+              {sheetProfile?.donor?.display_name ?? "Donor"}
+            </SheetTitle>
+          </SheetHeader>
 
           {/* Scrollable body */}
           {sheetLoading && (
@@ -903,74 +820,76 @@ export function DonorCRMView() {
               return (
                 <div className="flex-1 overflow-y-auto p-6 space-y-5">
 
-                  {/* Top: info grid — two columns side by side */}
-                  <div className="grid grid-cols-2 gap-5">
+                  {/* AI donor briefing + stats + contact — single column for compact panel */}
+                  <div className="space-y-4">
+                    <DonorInsightsPanel donorId={sheetProfile.donor.id} />
 
-                    {/* Left: AI insights + stats + contact */}
-                    <div className="space-y-4">
-                      <DonorInsightsPanel donorId={sheetProfile.donor.id} />
-
-                      <div className="grid grid-cols-3 divide-x border rounded-lg">
-                        <div className="flex flex-col items-center justify-center px-1 py-3">
-                          <span className="text-[10px] text-muted-foreground text-center">Lifetime</span>
-                          <span className="text-sm font-semibold tabular-nums mt-0.5">{formatCurrency(lifetimeSum)}</span>
-                        </div>
-                        <div className="flex flex-col items-center justify-center px-1 py-3">
-                          <span className="text-[10px] text-muted-foreground text-center">YTD</span>
-                          <span className="text-sm font-semibold tabular-nums mt-0.5">{formatCurrency(ytdSum)}</span>
-                        </div>
-                        <div className="flex flex-col items-center justify-center px-1 py-3">
-                          <span className="text-[10px] text-muted-foreground text-center">This Month</span>
-                          <span className="text-sm font-semibold tabular-nums mt-0.5">{formatCurrency(thisMonthSum)}</span>
-                        </div>
+                    <div className="grid grid-cols-3 divide-x border rounded-lg">
+                      <div className="flex flex-col items-center justify-center px-1 py-3">
+                        <span className="text-[10px] text-muted-foreground text-center">Lifetime</span>
+                        <span className="text-sm font-semibold tabular-nums mt-0.5">{formatCurrency(lifetimeSum)}</span>
                       </div>
-
-                      <Card>
-                        <CardHeader>
-                          <CardTitle className="text-sm">Contact</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <ul className="space-y-3">
-                            <li className="flex items-center gap-2.5">
-                              <Mail className="size-4 shrink-0 text-muted-foreground" />
-                              <span className="truncate text-sm">{sheetProfile.donor.email ?? "—"}</span>
-                            </li>
-                            <li className="flex items-center gap-2.5">
-                              <Phone className="size-4 shrink-0 text-muted-foreground" />
-                              <span className="text-sm">{sheetProfile.donor.phone ?? "—"}</span>
-                            </li>
-                            <li className="flex items-start gap-2.5">
-                              <MapPin className="size-4 shrink-0 text-muted-foreground mt-0.5" />
-                              <span className="text-sm text-muted-foreground">{sheetProfile.donor.billing_address ?? "—"}</span>
-                            </li>
-                          </ul>
-                        </CardContent>
-                      </Card>
-
-                      <MagicActionsCard
-                        donorId={sheetDonorId}
-                        donorName={sheetProfile.donor.display_name ?? "Unknown Donor"}
-                        compact
-                        onSendEmail={() => {
-                          setLogActivityDefaultTab("email")
-                          setLogActivityOpen(true)
-                        }}
-                        onLogCall={() => {
-                          setLogActivityDefaultTab("call")
-                          setLogActivityOpen(true)
-                        }}
-                      />
+                      <div className="flex flex-col items-center justify-center px-1 py-3">
+                        <span className="text-[10px] text-muted-foreground text-center">YTD</span>
+                        <span className="text-sm font-semibold tabular-nums mt-0.5">{formatCurrency(ytdSum)}</span>
+                      </div>
+                      <div className="flex flex-col items-center justify-center px-1 py-3">
+                        <span className="text-[10px] text-muted-foreground text-center">This Month</span>
+                        <span className="text-sm font-semibold tabular-nums mt-0.5">{formatCurrency(thisMonthSum)}</span>
+                      </div>
                     </div>
 
-                    {/* Right: tags + notes */}
-                    <div className="space-y-4">
-                      <DonorTagsCard donorId={sheetDonorId} />
-                      <DonorNotesCard
-                        donorId={sheetDonorId}
-                        initialNotes={sheetProfile.donor.notes}
-                        savedNotes={sheetActivity}
-                      />
-                    </div>
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-sm">Contact</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <ul className="space-y-3">
+                          <li className="flex items-center gap-2.5">
+                            <Mail className="size-4 shrink-0 text-muted-foreground" />
+                            {sheetProfile.donor.email ? (
+                              <a
+                                href={`mailto:${sheetProfile.donor.email}`}
+                                className="truncate text-sm text-primary hover:underline"
+                              >
+                                {sheetProfile.donor.email}
+                              </a>
+                            ) : (
+                              <span className="truncate text-sm">—</span>
+                            )}
+                          </li>
+                          <li className="flex items-center gap-2.5">
+                            <Phone className="size-4 shrink-0 text-muted-foreground" />
+                            <span className="text-sm">{sheetProfile.donor.phone ?? "—"}</span>
+                          </li>
+                          <li className="flex items-start gap-2.5">
+                            <MapPin className="size-4 shrink-0 text-muted-foreground mt-0.5" />
+                            <span className="text-sm text-muted-foreground">{sheetProfile.donor.billing_address ?? "—"}</span>
+                          </li>
+                        </ul>
+                      </CardContent>
+                    </Card>
+
+                    <MagicActionsCard
+                      donorId={sheetDonorId}
+                      donorName={sheetProfile.donor.display_name ?? "Unknown Donor"}
+                      compact
+                      onSendEmail={() => {
+                        setLogActivityDefaultTab("email")
+                        setLogActivityOpen(true)
+                      }}
+                      onLogCall={() => {
+                        setLogActivityDefaultTab("call")
+                        setLogActivityOpen(true)
+                      }}
+                    />
+
+                    <DonorTagsCard donorId={sheetDonorId} />
+                    <DonorNotesCard
+                      donorId={sheetDonorId}
+                      initialNotes={sheetProfile.donor.notes}
+                      savedNotes={sheetActivity}
+                    />
                   </div>
 
                   {/* Log Activity dialog — state-controlled, no nested trigger */}
@@ -1072,18 +991,12 @@ export function DonorCRMView() {
                       </div>
                     )}
                   </div>
-
-                  <p className="text-xs text-muted-foreground text-center pb-1">
-                    <Link href={`/donors/${sheetDonorId}`} onClick={closeSheet} className="hover:underline">
-                      Open full profile page →
-                    </Link>
-                  </p>
                 </div>
               )
             })()
           )}
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }

@@ -30,9 +30,7 @@ const RANGE_OPTIONS = [
 
 type RangeValue = (typeof RANGE_OPTIONS)[number]["value"]
 
-function formatCurrency(amount: number) {
-  return amount.toLocaleString(undefined, { style: "currency", currency: "USD" })
-}
+import { formatCurrency } from "@/lib/format"
 
 function formatLastGift(date: string | null): string {
   if (!date) return "—"
@@ -114,7 +112,8 @@ export function TopDonorsWidget() {
             {donors.map((d, index) => (
               <li
                 key={d.id}
-                className="flex items-center gap-3 rounded-lg border border-transparent py-1.5 pr-2 transition-colors hover:bg-muted/50"
+                className="flex items-center gap-3 rounded-lg border border-transparent py-1.5 pr-2 transition-colors hover:bg-muted/50 cursor-pointer"
+                onClick={() => openDonor(d.id)}
               >
                 <span className="text-muted-foreground w-6 shrink-0 text-sm tabular-nums">
                   {index === 0 ? (
@@ -123,14 +122,10 @@ export function TopDonorsWidget() {
                     index + 1
                   )}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => openDonor(d.id)}
-                  className="min-w-0 flex-1 text-left text-sm font-medium text-primary hover:underline"
-                >
+                <span className="min-w-0 flex-1 text-left text-sm font-medium text-primary hover:underline">
                   {d.display_name ?? "—"}
-                </button>
-                <span className="shrink-0 text-sm font-medium tabular-nums">
+                </span>
+                <span className="shrink-0 text-sm font-medium tabular-nums text-primary">
                   {formatCurrency(d.amount)}
                 </span>
                 <span className="text-muted-foreground shrink-0 text-xs">

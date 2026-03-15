@@ -16,6 +16,8 @@ export interface Database {
           qb_realm_id: string | null
           qb_access_token: string | null
           qb_refresh_token: string | null
+          tax_id: string | null
+          legal_501c3_wording: string | null
         }
         Insert: {
           id?: string
@@ -52,6 +54,7 @@ export interface Database {
           total_lifetime_value: number | null
           last_donation_date: string | null
           notes: string | null
+          donor_type: "individual" | "corporate" | "school" | "church"
           // embedding is handled by vector search, usually not needed in frontend types directly
         }
         Insert: {
@@ -168,6 +171,105 @@ export interface Database {
           created_at?: string
         }
       }
+      donations: {
+        Row: {
+          id: string
+          donor_id: string
+          amount: number
+          date: string | null
+          memo: string | null
+          payment_method: string
+          category_id: string | null
+          campaign_id: string | null
+          fund_id: string | null
+          acknowledgment_sent_at: string | null
+        }
+        Insert: {
+          id?: string
+          donor_id: string
+          amount: number
+          date: string
+          memo?: string | null
+          payment_method?: string
+          category_id?: string | null
+          campaign_id?: string | null
+          fund_id?: string | null
+        }
+        Update: {
+          id?: string
+          donor_id?: string
+          amount?: number
+          date?: string
+          memo?: string | null
+          payment_method?: string
+          category_id?: string | null
+          campaign_id?: string | null
+          fund_id?: string | null
+        }
+      }
+      org_donation_options: {
+        Row: {
+          id: string
+          org_id: string
+          type: "category" | "campaign" | "fund"
+          name: string
+          sort_order: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          type: "category" | "campaign" | "fund"
+          name: string
+          sort_order?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          type?: "category" | "campaign" | "fund"
+          name?: string
+          sort_order?: number
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      receipt_templates: {
+        Row: {
+          id: string
+          org_id: string
+          category: ReceiptTemplateCategory
+          name: string
+          subject: string
+          body: string
+          sort_order: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          category: ReceiptTemplateCategory
+          name: string
+          subject?: string
+          body?: string
+          sort_order?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          category?: ReceiptTemplateCategory
+          name?: string
+          subject?: string
+          body?: string
+          sort_order?: number
+          updated_at?: string
+        }
+      }
       interactions: {
         Row: {
           id: string
@@ -209,3 +311,23 @@ export interface Database {
 
 /** CRM interaction row (single donor touchpoint or task). */
 export type Interaction = Database["public"]["Tables"]["interactions"]["Row"]
+
+/** Donation row with payment method and optional category/campaign/fund. */
+export type Donation = Database["public"]["Tables"]["donations"]["Row"]
+
+/** Org-scoped dropdown option for categories, campaigns, or funds. */
+export type OrgDonationOption = Database["public"]["Tables"]["org_donation_options"]["Row"]
+
+export type PaymentMethod =
+  | "check"
+  | "cash"
+  | "zelle"
+  | "wire"
+  | "venmo"
+  | "other"
+  | "quickbooks"
+  | "daf"
+
+export type DonorType = "individual" | "corporate" | "school" | "church"
+
+export type ReceiptTemplateCategory = "standard" | "daf" | "institutional"

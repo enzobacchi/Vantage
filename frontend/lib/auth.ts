@@ -42,19 +42,30 @@ export async function getCurrentUserOrg(): Promise<CurrentUserOrg | null> {
   // (i.e., a real shared org vs a solo auto-created placeholder).
   let chosenOrgId: string | null = null;
   if (members && members.length > 0) {
-    for (const m of members as { organization_id: string }[]) {
-      const { count } = await admin
-        .from("organization_members")
-        .select("id", { count: "exact", head: true })
-        .eq("organization_id", m.organization_id);
-      if (count !== null && count > 1) {
-        chosenOrgId = m.organization_id;
+    const orgIds = (members as { organization_id: string }[]).map((m) => m.organization_id);
+
+    // Single query to get all members for candidate orgs, then count in JS
+    const { data: allMembers } = await admin
+      .from("organization_members")
+      .select("organization_id")
+      .in("organization_id", orgIds);
+
+    const countByOrg = new Map<string, number>();
+    for (const row of allMembers ?? []) {
+      const oid = row.organization_id;
+      countByOrg.set(oid, (countByOrg.get(oid) ?? 0) + 1);
+    }
+
+    // Prefer a multi-member org (in recency order)
+    for (const oid of orgIds) {
+      if ((countByOrg.get(oid) ?? 0) > 1) {
+        chosenOrgId = oid;
         break;
       }
     }
     // Fall back to most recent membership (first in list) if all are solo orgs
     if (!chosenOrgId) {
-      chosenOrgId = (members[0] as { organization_id: string }).organization_id;
+      chosenOrgId = orgIds[0];
     }
   }
 

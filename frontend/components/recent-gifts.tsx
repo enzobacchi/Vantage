@@ -11,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { formatCurrency } from "@/lib/format"
 
 type RecentDonation = {
@@ -70,7 +71,16 @@ export function RecentGifts() {
       <CardContent className="px-4">
         <div className="space-y-3">
           {loading ? (
-            <p className="text-sm text-muted-foreground">Loading…</p>
+            Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 py-1">
+                <Skeleton className="size-8 shrink-0 rounded-full" />
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <Skeleton className="h-3.5 w-28" />
+                  <Skeleton className="h-3 w-16" />
+                </div>
+                <Skeleton className="h-4 w-14" />
+              </div>
+            ))
           ) : error ? (
             <p className="text-sm text-destructive">{error}</p>
           ) : gifts.length === 0 ? (

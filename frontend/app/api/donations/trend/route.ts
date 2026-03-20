@@ -28,44 +28,33 @@ function monthLabel(d: Date) {
   return d.toLocaleDateString(undefined, { month: "short", year: "2-digit", timeZone: "UTC" });
 }
 
-const DONOR_ID_BATCH_SIZE = 100;
-
 export async function GET() {
   const auth = await requireUserOrg();
   if (!auth.ok) return auth.response;
 
   const supabase = createAdminClient();
-  const { data: orgDonors } = await supabase.from("donors").select("id").eq("org_id", auth.orgId);
-  const donorIds = (orgDonors ?? []).map((d: { id: string }) => d.id);
 
   // last 12 months (inclusive)
   const now = new Date();
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 11, 1));
   const startIso = start.toISOString().slice(0, 10); // YYYY-MM-DD
 
-  const idsToQuery =
-    donorIds.length > 0 ? donorIds : ["00000000-0000-0000-0000-000000000000"];
-  const allRows: { amount: unknown; date: string }[] = [];
+  // Single query using org_id directly — no batch loop needed
+  const { data, error } = await supabase
+    .from("donations")
+    .select("amount, date")
+    .eq("org_id", auth.orgId)
+    .gte("date", startIso);
 
-  for (let i = 0; i < idsToQuery.length; i += DONOR_ID_BATCH_SIZE) {
-    const batch = idsToQuery.slice(i, i + DONOR_ID_BATCH_SIZE);
-    const { data, error } = await supabase
-      .from("donations")
-      .select("amount,date")
-      .in("donor_id", batch)
-      .gte("date", startIso);
-
-    if (error) {
-      return NextResponse.json(
-        { error: "Failed to load donation trend.", details: error.message },
-        { status: 500 }
-      );
-    }
-    if (Array.isArray(data)) allRows.push(...(data as { amount: unknown; date: string }[]));
+  if (error) {
+    return NextResponse.json(
+      { error: "Failed to load donation trend.", details: error.message },
+      { status: 500 }
+    );
   }
 
   const totals = new Map<string, number>();
-  for (const row of allRows) {
+  for (const row of (data ?? []) as { amount: unknown; date: string }[]) {
     if (typeof row?.date !== "string") continue;
     const d = new Date(`${row.date}T00:00:00Z`);
     if (Number.isNaN(d.getTime())) continue;
@@ -83,4 +72,3 @@ export async function GET() {
 
   return NextResponse.json(points);
 }
-

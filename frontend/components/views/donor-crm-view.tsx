@@ -30,6 +30,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Input } from "@/components/ui/input"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -811,8 +812,25 @@ export function DonorCRMView() {
 
           {/* Scrollable body */}
           {sheetLoading && (
-            <div className="flex flex-1 items-center justify-center">
-              <p className="text-sm text-muted-foreground">Loading…</p>
+            <div className="flex flex-1 p-6 space-y-4">
+              <div className="space-y-4 w-full">
+                <div className="grid grid-cols-3 gap-3">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className="space-y-2 rounded-lg border p-3">
+                      <Skeleton className="h-3 w-16" />
+                      <Skeleton className="h-5 w-20" />
+                    </div>
+                  ))}
+                </div>
+                <div className="space-y-3">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <Skeleton className="size-4 rounded" />
+                      <Skeleton className="h-4 w-32" />
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
           {!sheetLoading && sheetProfile?.donor && sheetDonorId && (

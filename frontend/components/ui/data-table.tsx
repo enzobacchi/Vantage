@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
+import { Skeleton } from "@/components/ui/skeleton"
 
 export interface DataTableRef<TData> {
   clearSelection: () => void
@@ -152,14 +153,15 @@ export function DataTable<TData, TValue>({
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow>
-                <TableCell
-                  colSpan={columns.length}
-                  className="h-24 text-center text-sm text-muted-foreground"
-                >
-                  Loading…
-                </TableCell>
-              </TableRow>
+              Array.from({ length: 5 }).map((_, i) => (
+                <TableRow key={i}>
+                  {columns.map((_, j) => (
+                    <TableCell key={j}>
+                      <Skeleton className="h-4 w-full" />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
             ) : error ? (
               <TableRow>
                 <TableCell

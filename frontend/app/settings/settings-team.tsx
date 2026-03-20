@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Copy, UserPlus } from "lucide-react"
+import { UserPlus } from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -62,7 +62,6 @@ export function SettingsTeam() {
   const [inviteEmail, setInviteEmail] = React.useState("")
   const [inviterName, setInviterName] = React.useState("")
   const [inviteRole, setInviteRole] = React.useState<"admin" | "member">("member")
-  const [generatedLink, setGeneratedLink] = React.useState("")
   const [generating, setGenerating] = React.useState(false)
   const [updatingRoleId, setUpdatingRoleId] = React.useState<string | null>(null)
 
@@ -104,31 +103,29 @@ export function SettingsTeam() {
   }
 
   const handleGenerateInvite = async () => {
+    setGenerating(true)
     const result = await createInvitation(inviteEmail, inviteRole)
     if (result.error) {
       toast.error(result.error)
+      setGenerating(false)
       return
     }
-    setGenerating(true)
     const baseUrl =
       process.env.NEXT_PUBLIC_APP_URL ||
       (typeof window !== "undefined" ? window.location.origin : "")
     const fullUrl = baseUrl ? `${baseUrl.replace(/\/$/, "")}${result.link}` : result.link
-    setGeneratedLink(fullUrl)
     const emailResult = await sendInviteEmail(inviteEmail.trim(), fullUrl, inviteRole, inviterName.trim() || undefined)
     setGenerating(false)
-    await load()
     if (emailResult.error) {
-      toast.warning(`Invite created, but email could not be sent: ${emailResult.error}. Copy the link below to share.`)
+      toast.error(`Invite created, but email could not be sent: ${emailResult.error}`)
     } else {
-      toast.success(`Invite sent to ${inviteEmail.trim()}. They can also use the link below.`)
+      toast.success(`Invite sent to ${inviteEmail.trim()}`)
     }
-  }
-
-  const handleCopyLink = () => {
-    if (!generatedLink) return
-    navigator.clipboard.writeText(generatedLink)
-    toast.success("Link copied to clipboard")
+    setInviteEmail("")
+    setInviterName("")
+    setInviteRole("member")
+    setInviteOpen(false)
+    await load()
   }
 
   const handleRevoke = async (id: string) => {
@@ -206,51 +203,19 @@ export function SettingsTeam() {
                   </SelectContent>
                 </Select>
               </div>
-              {generatedLink ? (
-                <div className="space-y-2">
-                  <Label>Invite link</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      readOnly
-                      value={generatedLink}
-                      className="h-9 text-xs font-mono"
-                    />
-                    <Button type="button" variant="outline" size="icon" className="h-9 shrink-0" onClick={handleCopyLink}>
-                      <Copy className="size-4" strokeWidth={1.5} />
-                      <span className="sr-only">Copy</span>
-                    </Button>
-                  </div>
-                  <p className="text-[0.8rem] text-muted-foreground">
-                    Link expires in 48 hours. An email was sent to them; you can also copy the link to share.
-                  </p>
-                </div>
-              ) : (
-                <Button
-                  type="button"
-                  onClick={handleGenerateInvite}
-                  disabled={!inviteEmail.trim() || generating}
-                  className="w-full"
-                >
-                  {generating ? "Sending…" : "Send invite"}
-                </Button>
-              )}
+              <Button
+                type="button"
+                onClick={handleGenerateInvite}
+                disabled={!inviteEmail.trim() || generating}
+                className="w-full"
+              >
+                {generating ? "Sending…" : "Send invite"}
+              </Button>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setInviteOpen(false)}>
-                {generatedLink ? "Done" : "Cancel"}
+                Cancel
               </Button>
-              {generatedLink && (
-                <Button
-                  onClick={() => {
-                    setGeneratedLink("")
-                    setInviteEmail("")
-                    setInviterName("")
-                    setInviteRole("member")
-                  }}
-                >
-                  Create another
-                </Button>
-              )}
             </DialogFooter>
           </DialogContent>
         </Dialog>

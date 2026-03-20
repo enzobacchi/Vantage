@@ -60,6 +60,7 @@ export function SettingsTeam() {
   const [loading, setLoading] = React.useState(true)
   const [inviteOpen, setInviteOpen] = React.useState(false)
   const [inviteEmail, setInviteEmail] = React.useState("")
+  const [inviterName, setInviterName] = React.useState("")
   const [inviteRole, setInviteRole] = React.useState<"admin" | "member">("member")
   const [generatedLink, setGeneratedLink] = React.useState("")
   const [generating, setGenerating] = React.useState(false)
@@ -114,7 +115,7 @@ export function SettingsTeam() {
       (typeof window !== "undefined" ? window.location.origin : "")
     const fullUrl = baseUrl ? `${baseUrl.replace(/\/$/, "")}${result.link}` : result.link
     setGeneratedLink(fullUrl)
-    const emailResult = await sendInviteEmail(inviteEmail.trim(), fullUrl, inviteRole)
+    const emailResult = await sendInviteEmail(inviteEmail.trim(), fullUrl, inviteRole, inviterName.trim() || undefined)
     setGenerating(false)
     await load()
     if (emailResult.error) {
@@ -165,6 +166,20 @@ export function SettingsTeam() {
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="inviter-name">Your name</Label>
+                <Input
+                  id="inviter-name"
+                  type="text"
+                  placeholder="Jane Smith"
+                  value={inviterName}
+                  onChange={(e) => setInviterName(e.target.value)}
+                  className="h-9"
+                />
+                <p className="text-[0.8rem] text-muted-foreground">
+                  Shown in the invite email so they know who it's from.
+                </p>
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="invite-email">Email address</Label>
                 <Input
@@ -229,6 +244,7 @@ export function SettingsTeam() {
                   onClick={() => {
                     setGeneratedLink("")
                     setInviteEmail("")
+                    setInviterName("")
                     setInviteRole("member")
                   }}
                 >

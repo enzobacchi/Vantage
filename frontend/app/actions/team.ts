@@ -4,7 +4,7 @@ import { Resend } from "resend"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUserOrg, getCurrentUserOrgWithRole } from "@/lib/auth"
 
-const INVITE_FROM_EMAIL = "Vantage <onboarding@resend.dev>"
+const INVITE_FROM_EMAIL = "Vantage <invites@vantagedonorai.com>"
 
 export type OrgMember = {
   id: string
@@ -96,7 +96,8 @@ export async function createInvitation(
 export async function sendInviteEmail(
   toEmail: string,
   inviteLinkFullUrl: string,
-  role: "admin" | "member"
+  role: "admin" | "member",
+  inviterName?: string
 ): Promise<{ error?: string }> {
   const ctx = await getCurrentUserOrgWithRole()
   if (!ctx) return { error: "Unauthorized" }
@@ -113,16 +114,47 @@ export async function sendInviteEmail(
     .single()
   const orgName = (org as { name?: string } | null)?.name ?? "the team"
 
+  const safeOrgName = orgName.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  const safeInviterName = inviterName
+    ? inviterName.trim().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    : null
+  const safeLink = inviteLinkFullUrl.replace(/&/g, "&amp;").replace(/"/g, "&quot;")
+  const roleLabel = role.charAt(0).toUpperCase() + role.slice(1)
+  const invitedByLine = safeInviterName
+    ? `<strong>${safeInviterName}</strong> has invited you to join`
+    : "You've been invited to join"
+
   const resend = new Resend(apiKey)
   const { error } = await resend.emails.send({
     from: INVITE_FROM_EMAIL,
     to: toEmail.trim().toLowerCase(),
-    subject: `You're invited to join ${orgName}`,
+    subject: `${safeInviterName ?? "Your team"} invited you to join ${orgName} on Vantage`,
     html: `
-      <p>You've been invited to join <strong>${orgName.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</strong> as a ${role}.</p>
-      <p><a href="${inviteLinkFullUrl.replace(/"/g, "&quot;")}">Accept invite</a></p>
-      <p>Or copy this link: ${inviteLinkFullUrl.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>
-      <p>This link expires in 48 hours.</p>
+<div style="font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; max-width: 520px; margin: 0 auto; padding: 48px 24px;">
+  <div style="margin-bottom: 32px;">
+    <h1 style="font-size: 24px; font-weight: 600; color: #18181b; margin: 0 0 8px 0;">You're invited</h1>
+    <div style="width: 48px; height: 3px; background: linear-gradient(to right, #007A3F, #21E0D6); border-radius: 2px;"></div>
+  </div>
+  <p style="color: #52525b; font-size: 15px; line-height: 1.7; margin: 0 0 16px 0;">
+    ${invitedByLine} <strong>${safeOrgName}</strong> on Vantage as a <strong>${roleLabel}</strong>.
+  </p>
+  <p style="color: #52525b; font-size: 15px; line-height: 1.7; margin: 0 0 32px 0;">
+    Click the button below to accept and get started.
+  </p>
+  <div style="margin: 0 0 32px 0;">
+    <a href="${safeLink}" style="display: inline-block; background: linear-gradient(to right, #007A3F, #21E0D6); color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; padding: 12px 32px; border-radius: 8px;">Accept Invitation</a>
+  </div>
+  <p style="color: #71717a; font-size: 13px; line-height: 1.6; margin: 0 0 32px 0;">
+    Or copy and paste this link into your browser:<br>
+    <span style="color: #007A3F; word-break: break-all;">${safeLink}</span>
+  </p>
+  <p style="color: #a1a1aa; font-size: 12px; line-height: 1.6; margin: 0 0 32px 0;">
+    This invitation expires in 48 hours. If you didn't expect this email, you can safely ignore it.
+  </p>
+  <p style="color: #a1a1aa; font-size: 13px; margin: 0;">
+    — The Vantage Team
+  </p>
+</div>
     `.trim(),
   })
 

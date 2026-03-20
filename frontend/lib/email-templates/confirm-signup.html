@@ -1,0 +1,19 @@
+<div style="font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; max-width: 520px; margin: 0 auto; padding: 48px 24px;">
+  <div style="margin-bottom: 32px;">
+    <h1 style="font-size: 24px; font-weight: 600; color: #18181b; margin: 0 0 8px 0;">Confirm your email</h1>
+    <div style="width: 48px; height: 3px; background: linear-gradient(to right, #007A3F, #21E0D6); border-radius: 2px;"></div>
+  </div>
+  <p style="color: #52525b; font-size: 15px; line-height: 1.7; margin: 0 0 16px 0;">
+    Thanks for signing up for Vantage. Tap the button below to confirm your email address and get started.
+  </p>
+  <div style="margin: 32px 0;">
+    <a href="{{ .ConfirmationURL }}" style="display: inline-block; background: linear-gradient(to right, #007A3F, #21E0D6); color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; padding: 12px 32px; border-radius: 8px;">Confirm Email</a>
+  </div>
+  <p style="color: #71717a; font-size: 13px; line-height: 1.6; margin: 0 0 32px 0;">
+    If the button doesn't work, copy and paste this link into your browser:<br>
+    <span style="color: #007A3F; word-break: break-all;">{{ .ConfirmationURL }}</span>
+  </p>
+  <p style="color: #a1a1aa; font-size: 13px; margin: 0;">
+    — The Vantage Team
+  </p>
+</div>

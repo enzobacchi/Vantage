@@ -41,6 +41,17 @@ type QBCustomer = {
     PostalCode?: string;
     Country?: string;
   };
+  ShipAddr?: {
+    Line1?: string;
+    Line2?: string;
+    Line3?: string;
+    Line4?: string;
+    Line5?: string;
+    City?: string;
+    CountrySubDivisionCode?: string;
+    PostalCode?: string;
+    Country?: string;
+  };
 };
 
 /** Extract phone from QB Customer; API may return PrimaryPhone/AlternatePhone with FreeFormNumber or DisplayForm, or raw string. */
@@ -355,7 +366,7 @@ export async function GET(request: Request) {
 
     if (orgError) {
       return NextResponse.json(
-        { error: "Org lookup failed.", details: orgError.message },
+        { error: "Org lookup failed." },
         { status: 500 }
       );
     }
@@ -547,7 +558,7 @@ export async function GET(request: Request) {
 
       if (existingDonorsError) {
         return NextResponse.json(
-          { error: "Failed to load existing donors.", details: existingDonorsError.message },
+          { error: "Failed to load existing donors." },
           { status: 500 }
         );
       }
@@ -583,6 +594,9 @@ export async function GET(request: Request) {
       const billingAddress = stringifyBillAddrHelper(c.BillAddr);
       const { city: parsedCity, state: parsedState, zip: parsedZip } =
         getCityStateZipFromBillAddr(c.BillAddr);
+      const mailingAddress = stringifyBillAddrHelper(c.ShipAddr);
+      const { city: mailingCity, state: mailingState, zip: mailingZip } =
+        getCityStateZipFromBillAddr(c.ShipAddr);
       const { display_name: displayName, household_greeting: householdGreeting } =
         parseDisplayNameAndHousehold(c);
       const { first_name: firstName, last_name: lastName } = parseFirstAndLastName(c, displayName ?? null);
@@ -604,6 +618,10 @@ export async function GET(request: Request) {
         city: parsedCity,
         state: parsedState,
         zip: parsedZip,
+        mailing_address: mailingAddress || null,
+        mailing_city: mailingCity,
+        mailing_state: mailingState,
+        mailing_zip: mailingZip,
         total_lifetime_value: total,
         last_donation_date: lastGift?.date ?? null,
         last_donation_amount: lastGift?.amount ?? null,
@@ -642,7 +660,7 @@ export async function GET(request: Request) {
 
       if (upsertError) {
         return NextResponse.json(
-          { error: "Failed to upsert donors.", details: upsertError.message },
+          { error: "Failed to upsert donors." },
           { status: 500 }
         );
       }
@@ -662,7 +680,7 @@ export async function GET(request: Request) {
 
       if (donorIdError) {
         return NextResponse.json(
-          { error: "Failed to load donor IDs for donations.", details: donorIdError.message },
+          { error: "Failed to load donor IDs for donations." },
           { status: 500 }
         );
       }
@@ -710,7 +728,7 @@ export async function GET(request: Request) {
 
         if (donationsError) {
           return NextResponse.json(
-            { error: "Failed to upsert donations.", details: donationsError.message },
+            { error: "Failed to upsert donations." },
             { status: 500 }
           );
         }
@@ -766,7 +784,7 @@ export async function GET(request: Request) {
 
           if (updateError) {
             return NextResponse.json(
-              { error: "Failed to update donor totals.", details: updateError.message },
+              { error: "Failed to update donor totals." },
               { status: 500 }
             );
           }
@@ -796,13 +814,9 @@ export async function GET(request: Request) {
     });
   } catch (e) {
     if (e instanceof QBApiError) {
+      console.error("[Sync] QB API error:", e.message, e.status, e.body);
       return NextResponse.json(
-        {
-          error: "Sync failed (QuickBooks API error).",
-          details: e.message,
-          qbStatus: e.status,
-          qbBody: e.body,
-        },
+        { error: "Sync failed (QuickBooks API error)." },
         { status: 502 }
       );
     }

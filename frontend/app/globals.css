@@ -124,3 +124,52 @@
     @apply bg-background text-foreground;
   }
 }
+
+@keyframes spin-once {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.chat-logo-spin:hover {
+  animation: spin-once 0.7s ease-in-out;
+}
+
+@keyframes gradient-rotate {
+  0% {
+    --gradient-angle: 0deg;
+  }
+  100% {
+    --gradient-angle: 360deg;
+  }
+}
+
+@property --gradient-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.animated-gradient-border {
+  position: relative;
+  border-radius: 1rem;
+  padding: 1.5px;
+  background: conic-gradient(
+    from var(--gradient-angle),
+    #007A3F,
+    #21E0D6,
+    #007A3F80,
+    transparent,
+    transparent,
+    #21E0D680,
+    #007A3F
+  );
+  animation: gradient-rotate 3s linear infinite;
+}
+
+.animated-gradient-border > * {
+  border-radius: calc(1rem - 1.5px);
+}

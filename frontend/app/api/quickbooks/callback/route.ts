@@ -73,8 +73,9 @@ export async function GET(request: Request) {
       .single();
 
     if (error) {
+      console.error("[QB callback] Failed to save tokens:", error.message);
       return NextResponse.json(
-        { error: "Failed to save tokens to Supabase.", details: error.message },
+        { error: "Failed to save tokens to Supabase." },
         { status: 500 }
       );
     }

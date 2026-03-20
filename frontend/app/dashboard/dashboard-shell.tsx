@@ -4,10 +4,14 @@ import React, { Suspense } from "react"
 
 import { AppHeader } from "@/components/app-header"
 import { AppSidebar } from "@/components/app-sidebar"
+import { ChatBar } from "@/components/chat/chat-bar"
+import { ChatOverlay } from "@/components/chat/chat-overlay"
+import { ChatProvider } from "@/components/chat/chat-provider"
 import {
   CommandMenu,
   CommandMenuProvider,
 } from "@/components/command-menu"
+import { DonorPopupProvider } from "@/components/donors/donor-popup"
 import { NavProvider } from "@/components/nav-context"
 import {
   SidebarInset,
@@ -45,14 +49,20 @@ export default function DashboardShell({
           }
         >
         <CommandMenuProvider>
-          <AppSidebar variant="inset" />
-          <SidebarInset className="bg-muted/20">
+        <ChatProvider>
+        <DonorPopupProvider>
+          <AppSidebar />
+          <SidebarInset>
             <AppHeader />
             <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-background">
               {children}
             </div>
           </SidebarInset>
+          <ChatBar />
+          <ChatOverlay />
           <CommandMenu />
+        </DonorPopupProvider>
+        </ChatProvider>
         </CommandMenuProvider>
       </SidebarProvider>
     </NavProvider>

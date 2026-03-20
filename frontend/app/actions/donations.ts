@@ -310,3 +310,91 @@ export async function bulkUpdateDonations(input: BulkUpdateDonationsInput): Prom
   revalidatePath("/dashboard/donations")
   return validIds.length
 }
+
+/**
+ * Mark donations as acknowledged (thank-you sent).
+ */
+export async function markDonationsAcknowledged(input: {
+  donationIds: string[]
+  sentBy?: string | null
+}): Promise<number> {
+  const org = await getCurrentUserOrg()
+  if (!org) throw new Error("Unauthorized")
+
+  if (input.donationIds.length === 0) return 0
+
+  const supabase = createAdminClient()
+
+  // Verify donations belong to org via donor
+  const { data: orgDonors } = await supabase
+    .from("donors")
+    .select("id")
+    .eq("org_id", org.orgId)
+  const orgDonorIds = new Set((orgDonors ?? []).map((d: { id: string }) => d.id))
+
+  const { data: donations } = await supabase
+    .from("donations")
+    .select("id,donor_id")
+    .in("id", input.donationIds)
+
+  const validIds = (donations ?? [])
+    .filter((d: { donor_id: string }) => orgDonorIds.has(d.donor_id))
+    .map((d: { id: string }) => d.id)
+
+  if (validIds.length === 0) return 0
+
+  const { error } = await supabase
+    .from("donations")
+    .update({
+      acknowledgment_sent_at: new Date().toISOString(),
+      acknowledgment_sent_by: input.sentBy?.trim() || null,
+    })
+    .in("id", validIds)
+
+  if (error) throw new Error(error.message)
+
+  revalidatePath("/dashboard/donations")
+  return validIds.length
+}
+
+/**
+ * Clear acknowledgment status from donations.
+ */
+export async function clearDonationAcknowledgment(donationIds: string[]): Promise<number> {
+  const org = await getCurrentUserOrg()
+  if (!org) throw new Error("Unauthorized")
+
+  if (donationIds.length === 0) return 0
+
+  const supabase = createAdminClient()
+
+  const { data: orgDonors } = await supabase
+    .from("donors")
+    .select("id")
+    .eq("org_id", org.orgId)
+  const orgDonorIds = new Set((orgDonors ?? []).map((d: { id: string }) => d.id))
+
+  const { data: donations } = await supabase
+    .from("donations")
+    .select("id,donor_id")
+    .in("id", donationIds)
+
+  const validIds = (donations ?? [])
+    .filter((d: { donor_id: string }) => orgDonorIds.has(d.donor_id))
+    .map((d: { id: string }) => d.id)
+
+  if (validIds.length === 0) return 0
+
+  const { error } = await supabase
+    .from("donations")
+    .update({
+      acknowledgment_sent_at: null,
+      acknowledgment_sent_by: null,
+    })
+    .in("id", validIds)
+
+  if (error) throw new Error(error.message)
+
+  revalidatePath("/dashboard/donations")
+  return validIds.length
+}

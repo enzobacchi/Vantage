@@ -18,6 +18,10 @@ export interface Database {
           qb_refresh_token: string | null
           tax_id: string | null
           legal_501c3_wording: string | null
+          website_url: string | null
+          logo_url: string | null
+          last_synced_at: string | null
+          updated_at: string | null
         }
         Insert: {
           id?: string
@@ -25,6 +29,12 @@ export interface Database {
           qb_realm_id?: string | null
           qb_access_token?: string | null
           qb_refresh_token?: string | null
+          tax_id?: string | null
+          legal_501c3_wording?: string | null
+          website_url?: string | null
+          logo_url?: string | null
+          last_synced_at?: string | null
+          updated_at?: string | null
         }
         Update: {
           id?: string
@@ -32,6 +42,12 @@ export interface Database {
           qb_realm_id?: string | null
           qb_access_token?: string | null
           qb_refresh_token?: string | null
+          tax_id?: string | null
+          legal_501c3_wording?: string | null
+          website_url?: string | null
+          logo_url?: string | null
+          last_synced_at?: string | null
+          updated_at?: string | null
         }
       }
       donors: {
@@ -49,13 +65,17 @@ export interface Database {
           city: string | null
           state: string | null
           zip: string | null
+          mailing_address: string | null
+          mailing_city: string | null
+          mailing_state: string | null
+          mailing_zip: string | null
           location_lat: number | null
           location_lng: number | null
           total_lifetime_value: number | null
           last_donation_date: string | null
           notes: string | null
+          last_donation_amount: number | null
           donor_type: "individual" | "corporate" | "school" | "church"
-          // embedding is handled by vector search, usually not needed in frontend types directly
         }
         Insert: {
           id?: string
@@ -66,9 +86,21 @@ export interface Database {
           first_name?: string | null
           last_name?: string | null
           email?: string | null
+          phone?: string | null
+          billing_address?: string | null
           city?: string | null
           state?: string | null
           zip?: string | null
+          mailing_address?: string | null
+          mailing_city?: string | null
+          mailing_state?: string | null
+          mailing_zip?: string | null
+          location_lat?: number | null
+          location_lng?: number | null
+          total_lifetime_value?: number | null
+          last_donation_date?: string | null
+          last_donation_amount?: number | null
+          donor_type?: "individual" | "corporate" | "school" | "church"
         }
         Update: {
           id?: string
@@ -77,9 +109,21 @@ export interface Database {
           first_name?: string | null
           last_name?: string | null
           email?: string | null
+          phone?: string | null
+          billing_address?: string | null
           city?: string | null
           state?: string | null
           zip?: string | null
+          mailing_address?: string | null
+          mailing_city?: string | null
+          mailing_state?: string | null
+          mailing_zip?: string | null
+          location_lat?: number | null
+          location_lng?: number | null
+          total_lifetime_value?: number | null
+          last_donation_date?: string | null
+          last_donation_amount?: number | null
+          donor_type?: "individual" | "corporate" | "school" | "church"
           notes?: string | null
         }
       }
@@ -174,37 +218,48 @@ export interface Database {
       donations: {
         Row: {
           id: string
+          org_id: string
           donor_id: string
           amount: number
           date: string | null
           memo: string | null
           payment_method: string
+          source: string | null
           category_id: string | null
           campaign_id: string | null
           fund_id: string | null
           acknowledgment_sent_at: string | null
+          acknowledgment_sent_by: string | null
+          created_at: string
         }
         Insert: {
           id?: string
+          org_id: string
           donor_id: string
           amount: number
           date: string
           memo?: string | null
           payment_method?: string
+          source?: string | null
           category_id?: string | null
           campaign_id?: string | null
           fund_id?: string | null
+          acknowledgment_sent_by?: string | null
         }
         Update: {
           id?: string
+          org_id?: string
           donor_id?: string
           amount?: number
           date?: string
           memo?: string | null
           payment_method?: string
+          source?: string | null
           category_id?: string | null
           campaign_id?: string | null
           fund_id?: string | null
+          acknowledgment_sent_at?: string | null
+          acknowledgment_sent_by?: string | null
         }
       }
       org_donation_options: {
@@ -302,6 +357,35 @@ export interface Database {
           content?: string
           date?: string
           status?: "pending" | "completed" | null
+          created_at?: string
+        }
+      }
+      chat_history: {
+        Row: {
+          id: string
+          org_id: string
+          user_id: string
+          role: "user" | "assistant" | "system"
+          content: string
+          tool_invocations: Json | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          user_id: string
+          role: "user" | "assistant" | "system"
+          content: string
+          tool_invocations?: Json | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          user_id?: string
+          role?: "user" | "assistant" | "system"
+          content?: string
+          tool_invocations?: Json | null
           created_at?: string
         }
       }

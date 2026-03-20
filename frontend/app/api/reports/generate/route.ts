@@ -23,6 +23,10 @@ const REPORT_COLUMN_CONFIG: Record<
   city: { dbColumns: ["city"], label: "City" },
   state: { dbColumns: ["state"], label: "State" },
   zip: { dbColumns: ["zip"], label: "Zip" },
+  mailing_street: { dbColumns: ["mailing_address"], label: "Mailing Street" },
+  mailing_city: { dbColumns: ["mailing_city"], label: "Mailing City" },
+  mailing_state: { dbColumns: ["mailing_state"], label: "Mailing State" },
+  mailing_zip: { dbColumns: ["mailing_zip"], label: "Mailing Zip" },
   lifetime_value: { dbColumns: ["total_lifetime_value"], label: "Donation Amount" },
   donation_date: { dbColumns: ["last_donation_date"], label: "Donation Date" },
   last_gift_date: { dbColumns: ["last_donation_date"], label: "Last Gift Date" },
@@ -62,7 +66,7 @@ function mapRowToOutputColumns(
   raw: Record<string, unknown>,
   selectedColumns: string[]
 ): Record<string, unknown> {
-  const displayName = typeof raw.display_name === "string" ? raw.display_name.trim() : "";
+  const displayName = typeof raw.display_name === "string" ? raw.display_name.replace(/\s+/g, " ").trim() : "";
   const parts = displayName.split(/\s+/).filter(Boolean);
   const derivedFirst = parts.length <= 1 ? (parts[0] ?? "") : parts.slice(0, -1).join(" ");
   const derivedLast = parts.length <= 1 ? "" : (parts[parts.length - 1] ?? "");

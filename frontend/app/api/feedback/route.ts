@@ -5,7 +5,7 @@ import { Resend } from "resend"
 import { requireUserOrg } from "@/lib/auth"
 import { createAdminClient } from "@/lib/supabase/admin"
 
-const FROM_EMAIL = "Vantage <onboarding@resend.dev>"
+const FROM_EMAIL = "Vantage <notifications@vantagedonorai.com>"
 
 /** Explicitly load .env.local if FEEDBACK_EMAIL_TO or RESEND_API_KEY are missing (Next.js/Turbopack may not load them) */
 function ensureFeedbackEnv(): void {

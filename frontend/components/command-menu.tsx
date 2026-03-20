@@ -6,12 +6,14 @@ import {
   LayoutDashboard,
   Map,
   MapPin,
+  MessageSquare,
   Route,
   Settings,
   Users,
 } from "lucide-react"
 
 import { searchDonors, type SearchDonorResult } from "@/app/actions/search"
+import { useChatOverlay } from "@/components/chat/chat-provider"
 import { useNav } from "@/components/nav-context"
 import {
   CommandDialog,
@@ -74,6 +76,7 @@ export function useCommandMenu() {
 export function CommandMenu() {
   const router = useRouter()
   const { setActiveView, openDonor } = useNav()
+  const { open: chatOpen } = useChatOverlay()
   const { open, setOpen } = useCommandMenu()
   const [search, setSearch] = React.useState("")
   const [donors, setDonors] = React.useState<SearchDonorResult[]>([])
@@ -180,6 +183,12 @@ export function CommandMenu() {
           >
             <MapPin className="mr-2 size-4" />
             Plan a Route
+          </CommandItem>
+          <CommandItem
+            onSelect={() => run(() => chatOpen())}
+          >
+            <MessageSquare className="mr-2 size-4" />
+            Chat with AI
           </CommandItem>
         </CommandGroup>
         {search.trim() && (

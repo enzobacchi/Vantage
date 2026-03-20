@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server"
 import OpenAI from "openai"
+import { NextRequest, NextResponse } from "next/server"
 
 import { requireUserOrg } from "@/lib/auth"
 import { redactPII, unredactPII, type PIIValues } from "@/lib/pii-redaction"
@@ -15,6 +15,8 @@ export async function GET(
   const { orgId } = auth
   const { id: donorId } = await params
   const supabase = createAdminClient()
+
+  try {
 
   // Fetch donor (we need PII values for redaction, plus safe fields for the prompt)
   const { data: donor, error: donorErr } = await supabase
@@ -53,13 +55,13 @@ export async function GET(
     .order("date", { ascending: false })
     .limit(20)
 
-  // Fetch tags via donor_tags join
+  // Fetch tags via donor_tags join (scoped indirectly through donor_id FK)
   const { data: tagRows } = await supabase
     .from("donor_tags")
     .select("tag_id, tags(name)")
     .eq("donor_id", donorId)
 
-  // Fetch donor notes
+  // Fetch donor notes (scoped indirectly through donor_id FK)
   const { data: donorNotes } = await supabase
     .from("donor_notes")
     .select("note,created_at")
@@ -107,15 +109,9 @@ export async function GET(
     activity_notes: safeNotes,
   }
 
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    temperature: 0.4,
-    messages: [
-      {
-        role: "system",
-        content: `You are a nonprofit fundraising advisor. Analyze the donor data provided and return a JSON object with exactly this shape:
+  const systemPrompt = `You are a nonprofit fundraising advisor. Analyze the donor data provided and return a JSON object with exactly this shape:
 {
   "summary": "A 2-3 sentence overview of this donor's engagement and giving patterns.",
   "insights": ["insight 1", "insight 2", "insight 3"],
@@ -126,8 +122,14 @@ Rules:
 - Focus on giving trends, engagement frequency, lifecycle status, and actionable recommendations.
 - Keep insights concise (1 sentence each).
 - Next steps should be concrete actions a fundraiser can take this week.
-- Return ONLY valid JSON, no markdown fences.`,
-      },
+- Return ONLY valid JSON, no markdown fences.`
+
+  const completion = await client.chat.completions.create({
+    model: "gpt-4o-mini",
+    max_tokens: 1024,
+    temperature: 0.4,
+    messages: [
+      { role: "system", content: systemPrompt },
       {
         role: "user",
         content: `Analyze this donor's data and provide insights:\n${JSON.stringify(donorData, null, 2)}`,
@@ -161,4 +163,11 @@ Rules:
   }
 
   return NextResponse.json(result)
+
+  } catch (err) {
+    console.error("[donor-insights] Failed to generate insights:", err)
+    const message =
+      err instanceof Error ? err.message : "Failed to generate insights"
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
 }

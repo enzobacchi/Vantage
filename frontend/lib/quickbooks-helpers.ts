@@ -158,9 +158,14 @@ export function parseFirstAndLastName(
   customer: QBCustomerName,
   displayName: string | null
 ): { first_name: string | null; last_name: string | null } {
-  const given = (customer.GivenName ?? "").trim();
-  const family = (customer.FamilyName ?? "").trim();
+  const given = (customer.GivenName ?? "").replace(/\s+/g, " ").trim();
+  const family = (customer.FamilyName ?? "").replace(/\s+/g, " ").trim();
   if (given && family) {
+    // Handle middle initial incorrectly placed in FamilyName: "A Schappert" → move "A" to given
+    const middleMatch = family.match(/^([A-Za-z])\s+(.+)$/);
+    if (middleMatch) {
+      return { first_name: `${given} ${middleMatch[1]}`, last_name: middleMatch[2]!.trim() };
+    }
     return { first_name: given, last_name: family };
   }
   if (given && !family) {

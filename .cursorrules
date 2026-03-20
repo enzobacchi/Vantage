@@ -18,22 +18,22 @@ npm run lint     # ESLint
 
 - **Single app** in `/frontend` — no separate backend service.
 - **Server Actions** (`frontend/app/actions/`) for all mutations.
-- **API Routes** (`frontend/app/api/`) for reads, streaming, OAuth, uploads.
+- **API Routes** (`frontend/app/api/`) for reads, streaming, OAuth, uploads, chat.
 - **Multi-tenant**: Every query must be scoped by `org_id`. Call `getCurrentUserOrg()` or `requireUserOrg()` from `frontend/lib/auth.ts` before any DB access.
 - Admin Supabase client bypasses RLS — always scope manually.
 
 ## UI Conventions
 
-- **Shadcn UI** exclusively. **Lucide React** icons (1.5px stroke).
-- **Light mode default.** No dark mode unless explicitly requested.
-- Backgrounds: `bg-white` / `bg-zinc-50/50`. Text: `text-zinc-950` headings, `text-zinc-500` metadata. Borders: `border-zinc-200`.
-- Shadows: `shadow-sm` only. Hover: `hover:bg-zinc-100`.
+- **Shadcn UI** exclusively. **Lucide React** icons only (1.5px stroke).
+- **Both light and dark mode** — always implement for both. Use theme-aware tokens (`bg-background`, `bg-card`, `text-foreground`, `text-muted-foreground`, `border-border`) instead of hardcoded colors.
+- Light-mode specifics when hardcoded values are needed: `bg-white` / `bg-zinc-50/50` backgrounds, `text-zinc-950` headings, `text-zinc-500` metadata, `border-zinc-200` borders.
+- Shadows: `shadow-sm` only. Hover: `hover:bg-accent`.
 - User feedback: Sonner `toast` — never `alert()`.
 
 ## Coding Standards
 
 - Strict TypeScript — never use `any`. Types in `frontend/types/database.ts`.
-- PII redaction required before any OpenAI API call (`frontend/lib/pii-redaction.ts`).
+- PII redaction required before any LLM API call (`frontend/lib/pii-redaction.ts`).
 - Donor lifecycle statuses are computed (New/Active/Lapsed/Lost), not free-form.
 - Reports store filter criteria as JSON, not result snapshots.
 
@@ -42,4 +42,4 @@ npm run lint     # ESLint
 - **Donor Lifecycle**: Computed status via `frontend/lib/donor-lifecycle.ts`.
 - **Interactions**: Touchpoints (Calls, Emails, Meetings, Notes, Tasks).
 - **Opportunities**: Pipeline stages: identified → qualified → solicited → committed → closed.
-- **Integrations**: QuickBooks (OAuth + sync), Resend (email), Mapbox (maps), OpenAI (AI insights).
+- **Integrations**: QuickBooks (OAuth + sync), Resend (email), Mapbox (maps), OpenAI (insights + embeddings), Anthropic/Claude (chat agent).

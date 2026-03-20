@@ -6,6 +6,7 @@ import { usePathname, useSearchParams, useRouter } from "next/navigation"
 import {
   Banknote,
   Building2,
+  CheckSquare,
   ChevronRight,
   DollarSign,
   LayoutDashboard,
@@ -13,6 +14,7 @@ import {
   FileText,
   Route,
   Settings,
+  Sparkles,
   Users,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -20,6 +22,7 @@ import { toast } from "sonner"
 import { getOrganization } from "@/app/actions/settings"
 import { FeedbackDialog } from "@/components/feedback-dialog"
 import { useAuthUser } from "@/hooks/use-auth-user"
+import { useChatOverlay } from "@/components/chat/chat-provider"
 import { useNav } from "@/components/nav-context"
 import { createBrowserSupabaseClient } from "@/lib/supabase/client"
 import {
@@ -111,6 +114,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const { setActiveView, setActiveViewOnly } = useNav()
+  const { open: openChat } = useChatOverlay()
   const { isMobile, state: sidebarState } = useSidebar()
 
   const [org, setOrg] = React.useState<{ name: string | null; logo_url: string | null } | null>(null)
@@ -124,12 +128,29 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   })
   const initials = getInitials(user.name, user.email)
 
+  const isDonorCRMActive =
+    (pathname === "/dashboard" && searchParams.get("view") === "donor-crm") ||
+    (pathname === "/dashboard" && searchParams.get("view") === "tasks") ||
+    pathname.startsWith("/dashboard/donors/")
+
   const isDonorMapActive =
     pathname === "/dashboard" && searchParams.get("view") === "donor-map"
 
   const isDonationsActive =
     (pathname === "/dashboard" && searchParams.get("view") === "donations") ||
     pathname === "/dashboard/donations/entry"
+
+  // Use controlled state for collapsibles to avoid hydration mismatch.
+  // Start closed (consistent server/client), then open the active section after mount.
+  const [crmOpen, setCrmOpen] = React.useState(false)
+  const [mapOpen, setMapOpen] = React.useState(false)
+  const [donationsOpen, setDonationsOpen] = React.useState(false)
+
+  React.useEffect(() => {
+    setCrmOpen(isDonorCRMActive)
+    setMapOpen(isDonorMapActive || pathname === "/dashboard/routes")
+    setDonationsOpen(isDonationsActive)
+  }, [isDonorCRMActive, isDonorMapActive, isDonationsActive, pathname])
 
   React.useEffect(() => {
     setProfileData((prev) => ({
@@ -242,24 +263,57 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
 
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    tooltip="Donor CRM"
-                    isActive={isActive("donor-crm")}
-                    asChild
-                  >
-                    <Link
-                      href="/dashboard?view=donor-crm"
-                      onClick={() => setActiveViewOnly("donor-crm")}
-                    >
-                      <Users />
-                      <span>Donor CRM</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+                <Collapsible
+                  open={crmOpen}
+                  onOpenChange={setCrmOpen}
+                  className="group/collapsible"
+                >
+                  <SidebarMenuItem>
+                    <CollapsibleTrigger asChild>
+                      <SidebarMenuButton tooltip="Donor CRM">
+                        <Users />
+                        <span>Donor CRM</span>
+                        <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                      </SidebarMenuButton>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <SidebarMenuSub>
+                        <SidebarMenuSubItem>
+                          <SidebarMenuSubButton
+                            asChild
+                            isActive={isActive("donor-crm")}
+                          >
+                            <Link
+                              href="/dashboard?view=donor-crm"
+                              onClick={() => setActiveViewOnly("donor-crm")}
+                            >
+                              <Users />
+                              <span>All Donors</span>
+                            </Link>
+                          </SidebarMenuSubButton>
+                        </SidebarMenuSubItem>
+                        <SidebarMenuSubItem>
+                          <SidebarMenuSubButton
+                            asChild
+                            isActive={isActive("tasks")}
+                          >
+                            <Link
+                              href="/dashboard?view=tasks"
+                              onClick={() => setActiveViewOnly("tasks")}
+                            >
+                              <CheckSquare />
+                              <span>Tasks</span>
+                            </Link>
+                          </SidebarMenuSubButton>
+                        </SidebarMenuSubItem>
+                      </SidebarMenuSub>
+                    </CollapsibleContent>
+                  </SidebarMenuItem>
+                </Collapsible>
 
                 <Collapsible
-                  defaultOpen={isDonorMapActive || pathname === "/dashboard/routes"}
+                  open={mapOpen}
+                  onOpenChange={setMapOpen}
                   className="group/collapsible"
                 >
                   <SidebarMenuItem>
@@ -302,7 +356,8 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
                 </Collapsible>
 
                 <Collapsible
-                  defaultOpen={isDonationsActive}
+                  open={donationsOpen}
+                  onOpenChange={setDonationsOpen}
                   className="group/collapsible"
                 >
                   <SidebarMenuItem>
@@ -357,6 +412,15 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
                       <FileText />
                       <span>Saved Reports</span>
                     </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    tooltip="Vantage AI"
+                    onClick={openChat}
+                  >
+                    <Sparkles />
+                    <span>Vantage AI</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               </SidebarMenu>

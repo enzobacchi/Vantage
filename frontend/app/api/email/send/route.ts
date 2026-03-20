@@ -3,7 +3,7 @@ import { Resend } from "resend"
 import { requireUserOrg } from "@/lib/auth"
 import { createAdminClient } from "@/lib/supabase/admin"
 
-const FROM_EMAIL = "Vantage <onboarding@resend.dev>"
+const FROM_EMAIL = "Vantage <notifications@vantagedonorai.com>"
 
 export async function POST(request: Request) {
   const auth = await requireUserOrg()

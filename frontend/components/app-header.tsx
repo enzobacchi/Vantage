@@ -20,6 +20,7 @@ import { getOrganization } from "@/app/actions/settings"
 import { FeedbackDialog } from "@/components/feedback-dialog"
 import { useCommandMenu } from "@/components/command-menu"
 import { useAuthUser } from "@/hooks/use-auth-user"
+import { useChatOverlay } from "@/components/chat/chat-provider"
 import { useNav } from "@/components/nav-context"
 import { createBrowserSupabaseClient } from "@/lib/supabase/client"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -61,6 +62,7 @@ function getInitials(name: string, email: string): string {
 
 export function AppHeader() {
   const { setOpen: openCommandMenu } = useCommandMenu()
+  const { open: openChat } = useChatOverlay()
   const { user: authUser, loading } = useAuthUser()
   const { setActiveView } = useNav()
   const router = useRouter()
@@ -123,7 +125,7 @@ export function AppHeader() {
         {/* Logo */}
         <Link href="/dashboard" className="flex items-center shrink-0 mr-1">
           <img
-            src={isDark ? "/vantage-logo-dark.svg" : "/vantage-logo-light.svg"}
+            src={isDark ? "/vantage-wordmark-light.png" : "/vantage-wordmark-dark.png"}
             alt="Vantage"
             className="h-9 w-auto"
           />
@@ -150,6 +152,29 @@ export function AppHeader() {
             <span className="text-xs">⌘</span>K
           </kbd>
         </Button>
+
+        {/* AI Chat */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className="relative flex items-center justify-center size-10 rounded-lg hover:bg-muted/60 transition-colors"
+              onClick={openChat}
+              aria-label="Chat with Vantage AI (⌘J)"
+            >
+              <img
+                src="/vantage-icon.png"
+                alt="Vantage AI"
+                className="size-8 chat-logo-spin"
+              />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            Chat with Vantage AI
+            <kbd className="ml-1.5 pointer-events-none inline-flex h-4 select-none items-center gap-0.5 rounded border bg-muted px-1 font-mono text-[10px] font-medium">
+              <span className="text-xs">⌘</span>J
+            </kbd>
+          </TooltipContent>
+        </Tooltip>
 
         {/* Feedback */}
         <Button

@@ -9,7 +9,7 @@ import { DonationsView } from "@/components/views/donations-view"
 import { DonorCRMView } from "@/components/views/donor-crm-view"
 import { DonorMapView } from "@/components/views/donor-map-view"
 import { SavedReportsView } from "@/components/views/saved-reports-view"
-
+import { TasksView } from "@/components/views/tasks-view"
 function MainContent() {
   const { activeView } = useNav()
 
@@ -21,6 +21,7 @@ function MainContent() {
       {activeView === "donor-map" && <DonorMapView />}
       {activeView === "saved-reports" && <SavedReportsView />}
       {activeView === "settings" && <SettingsView />}
+      {activeView === "tasks" && <TasksView />}
     </>
   )
 }

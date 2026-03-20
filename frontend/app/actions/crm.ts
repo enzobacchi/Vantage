@@ -141,3 +141,51 @@ export async function toggleTaskStatus(id: string): Promise<Interaction> {
   revalidatePath("/dashboard")
   return updated as Interaction
 }
+
+export type TaskWithDonor = Interaction & {
+  donor_name: string | null
+}
+
+/**
+ * Fetch all tasks across all donors for the current org.
+ * Optionally filter by status. Returns newest first.
+ */
+export async function getAllTasks(
+  status?: "pending" | "completed" | "all"
+): Promise<TaskWithDonor[]> {
+  const org = await getCurrentUserOrg()
+  if (!org) throw new Error("Unauthorized")
+
+  const supabase = createAdminClient()
+
+  // Get all donor IDs for the org
+  const { data: orgDonors, error: donorError } = await supabase
+    .from("donors")
+    .select("id, display_name")
+    .eq("org_id", org.orgId)
+
+  if (donorError) throw new Error(donorError.message)
+  if (!orgDonors || orgDonors.length === 0) return []
+
+  const donorMap = new Map(orgDonors.map((d) => [d.id, d.display_name]))
+  const donorIds = orgDonors.map((d) => d.id)
+
+  let query = supabase
+    .from("interactions")
+    .select("*")
+    .eq("type", "task")
+    .in("donor_id", donorIds)
+    .order("date", { ascending: false })
+
+  if (status && status !== "all") {
+    query = query.eq("status", status)
+  }
+
+  const { data, error } = await query
+  if (error) throw new Error(error.message)
+
+  return (data ?? []).map((row) => ({
+    ...(row as Interaction),
+    donor_name: donorMap.get(row.donor_id) ?? null,
+  }))
+}

@@ -139,11 +139,20 @@ function isWebGLSupported(): boolean {
   if (typeof window === "undefined") return true
   try {
     const canvas = document.createElement("canvas")
+    // Try webgl2 first, fall back to webgl, then experimental-webgl
     const gl =
-      canvas.getContext("webgl2") ?? canvas.getContext("webgl")
+      canvas.getContext("webgl2") ??
+      canvas.getContext("webgl") ??
+      canvas.getContext("experimental-webgl")
+    // Clean up context to free resources
+    if (gl && typeof (gl as WebGLRenderingContext).getExtension === "function") {
+      (gl as WebGLRenderingContext).getExtension("WEBGL_lose_context")?.loseContext()
+    }
     return !!gl
   } catch {
-    return false
+    // If canvas check fails, don't block — let Mapbox try anyway.
+    // The MapErrorBoundary will catch actual failures.
+    return true
   }
 }
 
@@ -217,10 +226,20 @@ export function DonorMapView() {
       : selectedByDraw.slice(0, INITIAL_DONORS_SHOWN)
   const hasMoreDonors = selectedByDraw.length > INITIAL_DONORS_SHOWN
 
-  pointsRef.current = points
-  circleModeRef.current = drawMode === "circle"
+  useEffect(() => { pointsRef.current = points }, [points])
+  useEffect(() => { circleModeRef.current = drawMode === "circle" }, [drawMode])
+
+  const [mapReady, setMapReady] = useState(false)
+
   useEffect(() => {
-    setWebglOk(isWebGLSupported())
+    // Check immediately, but if it fails, retry after a short delay —
+    // some browsers (Arc, Brave) lazy-init the GPU process.
+    if (isWebGLSupported()) {
+      setWebglOk(true)
+    } else {
+      const t = setTimeout(() => setWebglOk(isWebGLSupported()), 500)
+      return () => clearTimeout(t)
+    }
   }, [])
 
   const [colorRanges, setColorRanges] = useState<ColorRangeInput[]>(DEFAULT_COLOR_RANGES)
@@ -455,20 +474,47 @@ export function DonorMapView() {
     requestAnimationFrame(() => {
       map.resize()
     })
-    const draw = new MapboxDraw({
-      displayControlsDefault: false,
-      controls: { polygon: false, trash: false },
-    })
-    ;(map as { addControl: (c: unknown, pos?: string) => void }).addControl(draw, "top-left")
+    setMapReady(true)
+  }, [])
+
+  // Manage MapboxDraw lifecycle separately so it survives reuseMaps re-navigation
+  useEffect(() => {
+    if (!mapReady) return
+    const map = mapRef.current?.getMap()
+    if (!map) return
+
+    // With reuseMaps, the draw control may already exist on the underlying map.
+    // Store the instance on the map object to detect this case.
+    const mapAny = map as unknown as Record<string, unknown>
+    let draw = mapAny._vantageDraw as MapboxDraw | undefined
+    if (!draw) {
+      draw = new MapboxDraw({
+        displayControlsDefault: false,
+        controls: { polygon: false, trash: false },
+      })
+      ;(map as { addControl: (c: unknown, pos?: string) => void }).addControl(draw, "top-left")
+      mapAny._vantageDraw = draw
+    }
     drawRef.current = draw
-    map.on("draw.create", handleDrawCreate)
-    map.on("draw.update", handleDrawUpdate)
-    map.on("click", (e: { lngLat: { lng: number; lat: number } }) => {
+
+    const onDrawCreate = (e: unknown) => handleDrawCreate(e as { features?: Array<{ geometry?: { type?: string; coordinates?: number[][][] } }> })
+    const onDrawUpdate = () => handleDrawUpdate()
+    const onClick = (e: { lngLat: { lng: number; lat: number } }) => {
       if (circleModeRef.current) {
         setCircleCenter([e.lngLat.lng, e.lngLat.lat])
       }
-    })
-  }, [handleDrawCreate, handleDrawUpdate])
+    }
+
+    map.on("draw.create", onDrawCreate)
+    map.on("draw.update", onDrawUpdate)
+    map.on("click", onClick)
+
+    return () => {
+      map.off("draw.create", onDrawCreate)
+      map.off("draw.update", onDrawUpdate)
+      map.off("click", onClick)
+    }
+  }, [mapReady, handleDrawCreate, handleDrawUpdate])
 
   const activatePolygonMode = useCallback(() => {
     setDrawMode("polygon")
@@ -666,6 +712,11 @@ export function DonorMapView() {
             Clear
           </Button>
         )}
+        {drawMode === "polygon" && selectedByDraw.length === 0 && (
+          <span className="text-xs text-muted-foreground ml-2">
+            Click points to draw, double-click to finish
+          </span>
+        )}
         {drawMode === "circle" && (
           <div className="ml-2 flex items-center gap-2 border-l pl-2">
             {circleCenter ? (
@@ -759,6 +810,19 @@ export function DonorMapView() {
                     </button>
                   </Marker>
                 ))}
+
+                {/* Circle center marker */}
+                {circleCenter && drawMode === "circle" && (
+                  <Marker
+                    latitude={circleCenter[1]}
+                    longitude={circleCenter[0]}
+                    anchor="center"
+                  >
+                    <div className="flex items-center justify-center">
+                      <div className="size-4 rounded-full border-2 border-primary bg-primary/30 shadow" />
+                    </div>
+                  </Marker>
+                )}
 
                 {/* Map Legend & Settings: bottom-left */}
                 <div className="absolute bottom-3 left-3 z-10 flex flex-col items-start gap-2">

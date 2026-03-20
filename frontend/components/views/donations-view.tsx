@@ -3,10 +3,10 @@
 import * as React from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { Banknote, ChevronLeft, ChevronRight, DollarSign } from "lucide-react"
+import { Banknote, Check, ChevronLeft, ChevronRight, DollarSign, Minus } from "lucide-react"
 import { toast } from "sonner"
 
-import { bulkUpdateDonations, getOrgDonationOptions, type OrgDonationOptionRow } from "@/app/actions/donations"
+import { bulkUpdateDonations, markDonationsAcknowledged, clearDonationAcknowledgment, getOrgDonationOptions, type OrgDonationOptionRow } from "@/app/actions/donations"
 import type { PaymentMethod } from "@/types/database"
 import { formatCurrency } from "@/lib/format"
 import { Button } from "@/components/ui/button"
@@ -18,6 +18,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { Input } from "@/components/ui/input"
 import {
   Table,
   TableBody,
@@ -44,6 +51,7 @@ type DonationListItem = {
   campaign_name: string | null
   fund_name: string | null
   acknowledgment_sent_at: string | null
+  acknowledgment_sent_by: string | null
 }
 
 const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
@@ -88,9 +96,11 @@ export function DonationsView() {
   const [categoryFilter, setCategoryFilter] = React.useState<string>("")
   const [campaignFilter, setCampaignFilter] = React.useState<string>("")
   const [fundFilter, setFundFilter] = React.useState<string>("")
+  const [acknowledgedFilter, setAcknowledgedFilter] = React.useState<string>("")
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set())
   const [bulkSaving, setBulkSaving] = React.useState(false)
-  const [bulkDialog, setBulkDialog] = React.useState<"payment" | "category" | "campaign" | "fund" | null>(null)
+  const [bulkDialog, setBulkDialog] = React.useState<"payment" | "category" | "campaign" | "fund" | "thanked" | null>(null)
+  const [thankSentBy, setThankSentBy] = React.useState("")
 
   const [categories, setCategories] = React.useState<OrgDonationOptionRow[]>([])
   const [campaigns, setCampaigns] = React.useState<OrgDonationOptionRow[]>([])
@@ -116,6 +126,7 @@ export function DonationsView() {
       if (categoryFilter) params.set("category_id", categoryFilter)
       if (campaignFilter) params.set("campaign_id", campaignFilter)
       if (fundFilter) params.set("fund_id", fundFilter)
+      if (acknowledgedFilter) params.set("acknowledged", acknowledgedFilter)
       if (dateRange.from) params.set("from", dateRange.from)
       if (dateRange.to) params.set("to", dateRange.to)
       const res = await fetch(`/api/donations?${params}`)
@@ -130,7 +141,7 @@ export function DonationsView() {
     } finally {
       setLoading(false)
     }
-  }, [page, pageSize, paymentMethodFilter, categoryFilter, campaignFilter, fundFilter, dateRange.from, dateRange.to])
+  }, [page, pageSize, paymentMethodFilter, categoryFilter, campaignFilter, fundFilter, acknowledgedFilter, dateRange.from, dateRange.to])
 
   React.useEffect(() => {
     setPage(0)
@@ -179,6 +190,41 @@ export function DonationsView() {
       loadDonations()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Bulk update failed")
+    } finally {
+      setBulkSaving(false)
+    }
+  }
+
+  const handleMarkThanked = async () => {
+    if (selectedIds.size === 0) return
+    setBulkSaving(true)
+    try {
+      const count = await markDonationsAcknowledged({
+        donationIds: [...selectedIds],
+        sentBy: thankSentBy.trim() || null,
+      })
+      toast.success(`Marked ${count} donation${count === 1 ? "" : "s"} as thanked`)
+      setSelectedIds(new Set())
+      setBulkDialog(null)
+      setThankSentBy("")
+      loadDonations()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to mark as thanked")
+    } finally {
+      setBulkSaving(false)
+    }
+  }
+
+  const handleClearThanked = async () => {
+    if (selectedIds.size === 0) return
+    setBulkSaving(true)
+    try {
+      const count = await clearDonationAcknowledgment([...selectedIds])
+      toast.success(`Cleared acknowledgment from ${count} donation${count === 1 ? "" : "s"}`)
+      setSelectedIds(new Set())
+      loadDonations()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to clear acknowledgment")
     } finally {
       setBulkSaving(false)
     }
@@ -258,6 +304,16 @@ export function DonationsView() {
             ))}
           </SelectContent>
         </Select>
+        <Select value={acknowledgedFilter || "__all__"} onValueChange={(v) => setAcknowledgedFilter(v === "__all__" ? "" : v)}>
+          <SelectTrigger className="w-[140px]">
+            <SelectValue placeholder="Thanked" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">All</SelectItem>
+            <SelectItem value="yes">Thanked</SelectItem>
+            <SelectItem value="no">Not thanked</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {selectedIds.size > 0 && (
@@ -295,10 +351,43 @@ export function DonationsView() {
           >
             Change Fund
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setBulkDialog("thanked")}
+            disabled={bulkSaving}
+          >
+            Mark Thanked
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleClearThanked}
+            disabled={bulkSaving}
+          >
+            Clear Thanked
+          </Button>
           <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
             Clear
           </Button>
 
+          {bulkDialog === "thanked" && (
+            <div className="flex items-center gap-2 ml-2">
+              <Input
+                placeholder="Sent by (optional)"
+                value={thankSentBy}
+                onChange={(e) => setThankSentBy(e.target.value)}
+                className="w-[160px] h-8"
+                onKeyDown={(e) => { if (e.key === "Enter") handleMarkThanked() }}
+              />
+              <Button size="sm" onClick={handleMarkThanked} disabled={bulkSaving}>
+                Confirm
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => { setBulkDialog(null); setThankSentBy("") }}>
+                Cancel
+              </Button>
+            </div>
+          )}
           {bulkDialog === "payment" && (
             <div className="flex items-center gap-2 ml-2">
               <Select
@@ -434,6 +523,7 @@ export function DonationsView() {
                   <TableHead>Campaign</TableHead>
                   <TableHead>Fund</TableHead>
                   <TableHead className="max-w-[200px]">Memo</TableHead>
+                  <TableHead className="text-center">Thanked</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -463,6 +553,25 @@ export function DonationsView() {
                     <TableCell className="text-muted-foreground">{d.fund_name ?? "—"}</TableCell>
                     <TableCell className="max-w-[200px] truncate text-muted-foreground">
                       {d.memo && !/^qb_sales_receipt_id:/i.test(d.memo) ? d.memo : "—"}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {d.acknowledgment_sent_at ? (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="inline-flex items-center justify-center size-6 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
+                                <Check className="size-3.5" strokeWidth={2} />
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Thanked {formatDate(d.acknowledgment_sent_at.split("T")[0])}</p>
+                              {d.acknowledgment_sent_by && <p className="text-muted-foreground">by {d.acknowledgment_sent_by}</p>}
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      ) : (
+                        <Minus className="size-4 text-muted-foreground/40 mx-auto" strokeWidth={1.5} />
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

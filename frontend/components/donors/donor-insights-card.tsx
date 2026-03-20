@@ -43,7 +43,7 @@ export function DonorInsightsCard({ donorId }: { donorId: string }) {
   }
 
   return (
-    <div className="rounded-xl bg-gradient-to-r from-[#14b8a6] to-[#06b6d4] p-[1px]">
+    <div className="rounded-xl bg-gradient-to-r from-[#007A3F] to-[#21E0D6] p-[1px]">
     <Card className="border-0">
       <CardHeader>
         <div className="flex items-center justify-between">
@@ -55,7 +55,7 @@ export function DonorInsightsCard({ donorId }: { donorId: string }) {
           </div>
           <Button
             size="sm"
-            className="bg-gradient-to-r from-[#14b8a6] to-[#06b6d4] text-white shadow-sm hover:opacity-90 border-0"
+            className="bg-gradient-to-r from-[#007A3F] to-[#21E0D6] text-white shadow-sm hover:opacity-90 border-0"
             onClick={generate}
             disabled={loading}
           >

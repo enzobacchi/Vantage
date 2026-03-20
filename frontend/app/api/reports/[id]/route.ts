@@ -24,6 +24,10 @@ type DonorRow = {
   city: string | null;
   state: string | null;
   zip: string | null;
+  mailing_address: string | null;
+  mailing_city: string | null;
+  mailing_state: string | null;
+  mailing_zip: string | null;
   total_lifetime_value: number | string | null;
   last_donation_amount: number | string | null;
   last_donation_date: string | null;
@@ -39,6 +43,10 @@ const COLUMN_LABELS: Record<string, string> = {
   city: "City",
   state: "State",
   zip: "Zip",
+  mailing_street: "Mailing Street",
+  mailing_city: "Mailing City",
+  mailing_state: "Mailing State",
+  mailing_zip: "Mailing Zip",
   lifetime_value: "Lifetime Value",
   last_gift_date: "Last Gift Date",
   last_gift_amount: "Last Gift Amount",
@@ -75,6 +83,14 @@ function getDonorCellValue(d: DonorRow, columnId: string): string | number | nul
       return d.state ?? "";
     case "zip":
       return d.zip ?? "";
+    case "mailing_street":
+      return d.mailing_address ?? "";
+    case "mailing_city":
+      return d.mailing_city ?? "";
+    case "mailing_state":
+      return d.mailing_state ?? "";
+    case "mailing_zip":
+      return d.mailing_zip ?? "";
     case "lifetime_value":
       return d.total_lifetime_value != null ? String(d.total_lifetime_value) : "";
     case "last_gift_date":
@@ -97,7 +113,7 @@ async function generateCrmReportContent(
 
   let query = supabase
     .from("donors")
-    .select("id,first_name,last_name,display_name,email,phone,billing_address,city,state,zip,total_lifetime_value,last_donation_amount,last_donation_date")
+    .select("id,first_name,last_name,display_name,email,phone,billing_address,city,state,zip,mailing_address,mailing_city,mailing_state,mailing_zip,total_lifetime_value,last_donation_amount,last_donation_date")
     .eq("org_id", orgId)
     .order("total_lifetime_value", { ascending: false, nullsFirst: false });
 

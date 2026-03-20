@@ -4,7 +4,7 @@ import { Resend } from "resend"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { requireUserOrg } from "@/lib/auth"
 
-const FROM_EMAIL = "Vantage <onboarding@resend.dev>"
+const FROM_EMAIL = "Vantage <notifications@vantagedonorai.com>"
 
 /**
  * Submit feedback via server action. For reliable email delivery, prefer using

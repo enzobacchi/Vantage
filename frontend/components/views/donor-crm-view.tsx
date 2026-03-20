@@ -4,7 +4,7 @@ import * as React from "react"
 import { IconChevronDown, IconSearch, IconUsers } from "@tabler/icons-react"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { toast } from "sonner"
-import { Calendar, CheckSquare, FileText, Mail, MapPin, Phone, Sparkles } from "lucide-react"
+import { Calendar, CheckSquare, ExternalLink, FileText, Mail, MapPin, Phone, Sparkles } from "lucide-react"
 
 import { getDonorProfile, getDonorActivityNotes, type DonorProfileDonor, type DonorProfileDonation, type DonorNoteRow } from "@/app/donors/[id]/actions"
 import { getDonorInteractions, logInteraction, toggleTaskStatus } from "@/app/actions/crm"
@@ -788,9 +788,25 @@ export function DonorCRMView() {
         >
           {/* Header */}
           <SheetHeader className="shrink-0 border-b bg-muted/30 px-6 py-4 text-left">
-            <SheetTitle className="text-xl font-bold tracking-tight truncate">
-              {sheetProfile?.donor?.display_name ?? "Donor"}
-            </SheetTitle>
+            <div className="flex items-center justify-between gap-3">
+              <SheetTitle className="text-xl font-bold tracking-tight truncate">
+                {sheetProfile?.donor?.display_name ?? "Donor"}
+              </SheetTitle>
+              {sheetDonorId && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 text-xs"
+                  onClick={() => {
+                    closeSheet()
+                    router.push(`/dashboard/donors/${sheetDonorId}`)
+                  }}
+                >
+                  <ExternalLink className="size-3 mr-1.5" />
+                  Full Profile
+                </Button>
+              )}
+            </div>
           </SheetHeader>
 
           {/* Scrollable body */}

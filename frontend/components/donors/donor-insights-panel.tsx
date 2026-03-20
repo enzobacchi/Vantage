@@ -42,13 +42,13 @@ export function DonorInsightsPanel({ donorId }: { donorId: string }) {
 
   if (!data && !loading && !error) {
     return (
-      <div className="rounded-xl bg-gradient-to-r from-[#14b8a6] to-[#06b6d4] p-[1px]">
+      <div className="rounded-xl bg-gradient-to-r from-[#007A3F] to-[#21E0D6] p-[1px]">
         <div className="rounded-[11px] bg-card flex items-center justify-between py-3 px-4">
           <div className="flex items-center gap-2">
             <Sparkles className="size-4 text-[#0ea5b8] shrink-0" strokeWidth={1.5} />
             <span className="text-xs text-muted-foreground">AI Insights</span>
           </div>
-          <Button size="sm" className="h-6 text-xs px-2 bg-gradient-to-r from-[#14b8a6] to-[#06b6d4] text-white hover:opacity-90 border-0" onClick={generate}>
+          <Button size="sm" className="h-6 text-xs px-2 bg-gradient-to-r from-[#007A3F] to-[#21E0D6] text-white hover:opacity-90 border-0" onClick={generate}>
             Generate
           </Button>
         </div>
@@ -66,7 +66,7 @@ export function DonorInsightsPanel({ donorId }: { donorId: string }) {
           </div>
           <Button
             size="sm"
-            className="h-6 text-xs px-2 bg-gradient-to-r from-[#14b8a6] to-[#06b6d4] text-white hover:opacity-90 border-0"
+            className="h-6 text-xs px-2 bg-gradient-to-r from-[#007A3F] to-[#21E0D6] text-white hover:opacity-90 border-0"
             onClick={generate}
             disabled={loading}
           >

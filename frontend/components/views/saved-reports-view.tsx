@@ -86,12 +86,21 @@ const COLUMN_GROUPS = [
     ],
   },
   {
-    title: "Location",
+    title: "Physical Address",
     columns: [
       { id: "street_address", label: "Street" },
       { id: "city", label: "City" },
       { id: "state", label: "State" },
       { id: "zip", label: "Zip" },
+    ],
+  },
+  {
+    title: "Mailing Address",
+    columns: [
+      { id: "mailing_street", label: "Mailing Street" },
+      { id: "mailing_city", label: "Mailing City" },
+      { id: "mailing_state", label: "Mailing State" },
+      { id: "mailing_zip", label: "Mailing Zip" },
     ],
   },
   {
@@ -198,6 +207,7 @@ export function SavedReportsView() {
   const [columnOrder, setColumnOrder] = React.useState<number[]>([])
   const [tableScrollWidth, setTableScrollWidth] = React.useState(0)
   const tableScrollRef = React.useRef<HTMLDivElement>(null)
+  const topScrollRef = React.useRef<HTMLDivElement>(null)
   const bottomScrollRef = React.useRef<HTMLDivElement>(null)
   const isSyncingScroll = React.useRef(false)
   const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
@@ -387,16 +397,29 @@ export function SavedReportsView() {
   }, [previewTableRows, previewReportId])
 
   const syncScrollFromTable = React.useCallback(() => {
-    if (isSyncingScroll.current || !bottomScrollRef.current || !tableScrollRef.current) return
+    if (isSyncingScroll.current || !tableScrollRef.current) return
     isSyncingScroll.current = true
-    bottomScrollRef.current.scrollLeft = tableScrollRef.current.scrollLeft
+    const sl = tableScrollRef.current.scrollLeft
+    if (bottomScrollRef.current) bottomScrollRef.current.scrollLeft = sl
+    if (topScrollRef.current) topScrollRef.current.scrollLeft = sl
     setTimeout(() => { isSyncingScroll.current = false }, 0)
   }, [])
 
   const syncScrollFromBottom = React.useCallback(() => {
     if (isSyncingScroll.current || !tableScrollRef.current || !bottomScrollRef.current) return
     isSyncingScroll.current = true
-    tableScrollRef.current.scrollLeft = bottomScrollRef.current.scrollLeft
+    const sl = bottomScrollRef.current.scrollLeft
+    tableScrollRef.current.scrollLeft = sl
+    if (topScrollRef.current) topScrollRef.current.scrollLeft = sl
+    setTimeout(() => { isSyncingScroll.current = false }, 0)
+  }, [])
+
+  const syncScrollFromTop = React.useCallback(() => {
+    if (isSyncingScroll.current || !tableScrollRef.current || !topScrollRef.current) return
+    isSyncingScroll.current = true
+    const sl = topScrollRef.current.scrollLeft
+    tableScrollRef.current.scrollLeft = sl
+    if (bottomScrollRef.current) bottomScrollRef.current.scrollLeft = sl
     setTimeout(() => { isSyncingScroll.current = false }, 0)
   }, [])
 
@@ -1130,6 +1153,16 @@ export function SavedReportsView() {
             </DialogDescription>
           </DialogHeader>
           <div className="flex-1 flex flex-col min-h-0 min-w-0">
+            {previewTableRows && previewTableRows.length > 0 && tableScrollWidth > 0 && (
+              <div
+                ref={topScrollRef}
+                className="flex-shrink-0 h-3 overflow-x-auto overflow-y-hidden border-b bg-muted/30"
+                onScroll={syncScrollFromTop}
+                aria-hidden
+              >
+                <div style={{ width: tableScrollWidth, minWidth: "100%", height: 1 }} />
+              </div>
+            )}
             <div
               ref={tableScrollRef}
               className="flex-1 overflow-y-auto overflow-x-auto min-h-0 p-6 pt-2"
@@ -1165,8 +1198,8 @@ export function SavedReportsView() {
                     <DndContext sensors={dndSensors} onDragEnd={handleColumnDragEnd}>
                       <SortableContext items={orderedIndices.map((i) => `col-${i}`)} strategy={horizontalListSortingStrategy}>
                         <Table className="w-full min-w-max">
-                          <TableHeader>
-                            <TableRow className="bg-muted/50">
+                          <TableHeader className="sticky top-0 z-10">
+                            <TableRow className="bg-card [&>th]:bg-card">
                               {orderedIndices.map((colIdx) => (
                                 <SortableTableHead key={colIdx} id={`col-${colIdx}`}>
                                   {stripSqlArtifacts(headers[colIdx] ?? "")}

@@ -20,6 +20,7 @@ export type DonationListItem = {
   campaign_name: string | null;
   fund_name: string | null;
   acknowledgment_sent_at: string | null;
+  acknowledgment_sent_by: string | null;
 };
 
 const VALID_PAYMENT_METHODS = new Set([
@@ -42,6 +43,7 @@ export async function GET(request: Request) {
   const categoryId = searchParams.get("category_id")?.trim();
   const campaignId = searchParams.get("campaign_id")?.trim();
   const fundId = searchParams.get("fund_id")?.trim();
+  const acknowledged = searchParams.get("acknowledged")?.trim();
   const from = searchParams.get("from")?.trim();
   const to = searchParams.get("to")?.trim();
   const page = Math.max(0, parseInt(searchParams.get("page") ?? "0", 10));
@@ -51,7 +53,7 @@ export async function GET(request: Request) {
 
   let query = supabase
     .from("donations")
-    .select("id,donor_id,amount,date,memo,payment_method,category_id,campaign_id,fund_id,acknowledgment_sent_at,donors(display_name)", {
+    .select("id,donor_id,amount,date,memo,payment_method,category_id,campaign_id,fund_id,acknowledgment_sent_at,acknowledgment_sent_by,donors(display_name)", {
       count: "exact",
     })
     .eq("org_id", auth.orgId)
@@ -63,6 +65,11 @@ export async function GET(request: Request) {
   if (categoryId) query = query.eq("category_id", categoryId);
   if (campaignId) query = query.eq("campaign_id", campaignId);
   if (fundId) query = query.eq("fund_id", fundId);
+  if (acknowledged === "yes") {
+    query = query.not("acknowledgment_sent_at", "is", null);
+  } else if (acknowledged === "no") {
+    query = query.is("acknowledgment_sent_at", null);
+  }
   if (from && /^\d{4}-\d{2}-\d{2}$/.test(from)) {
     query = query.gte("date", from);
   }
@@ -75,7 +82,7 @@ export async function GET(request: Request) {
 
   if (error) {
     return NextResponse.json(
-      { error: "Failed to load donations.", details: error.message },
+      { error: "Failed to load donations." },
       { status: 500 }
     );
   }
@@ -91,6 +98,7 @@ export async function GET(request: Request) {
     campaign_id: string | null;
     fund_id: string | null;
     acknowledgment_sent_at: string | null;
+    acknowledgment_sent_by: string | null;
     donors?: { display_name?: string | null } | null;
   }>;
 
@@ -130,6 +138,7 @@ export async function GET(request: Request) {
     campaign_name: r.campaign_id ? optionNames[r.campaign_id] ?? null : null,
     fund_name: r.fund_id ? optionNames[r.fund_id] ?? null : null,
     acknowledgment_sent_at: r.acknowledgment_sent_at ?? null,
+    acknowledgment_sent_by: r.acknowledgment_sent_by ?? null,
   }));
 
   return NextResponse.json({

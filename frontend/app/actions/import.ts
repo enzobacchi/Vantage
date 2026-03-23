@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { getCurrentUserOrg } from "@/lib/auth";
 import { geocodeAddress } from "@/lib/geocode";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getOrgSubscription, PLANS } from "@/lib/subscription";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -82,6 +83,14 @@ export async function importDonorsFromCSV(
       existingMap.set(key, d.id);
     }
   }
+
+  // Enforce donor limit — calculate how many new donors can still be created
+  const sub = await getOrgSubscription(orgId);
+  const plan = PLANS[sub.planId];
+  const currentDonorCount = existingDonors?.length ?? 0;
+  const donorSlotsRemaining =
+    plan.maxDonors === 0 ? Infinity : Math.max(0, plan.maxDonors - currentDonorCount);
+  let newDonorsCreated = 0;
 
   const geocodeCache = new Map<string, { lat: number; lng: number } | null>();
   const donorIdsWithDonations: string[] = [];
@@ -163,6 +172,15 @@ export async function importDonorsFromCSV(
       donorId = existingDonorId;
       result.donorsUpdated++;
     } else {
+      // Enforce donor limit before creating
+      if (newDonorsCreated >= donorSlotsRemaining) {
+        result.errors.push({
+          row: i + 1,
+          message: "Donor limit reached. Upgrade your plan to import more donors.",
+        });
+        continue;
+      }
+
       // Create new donor
       const { data: newDonor, error } = await supabase
         .from("donors")
@@ -180,6 +198,7 @@ export async function importDonorsFromCSV(
       donorId = (newDonor as { id: string }).id;
       existingMap.set(matchKey, donorId);
       result.donorsCreated++;
+      newDonorsCreated++;
     }
 
     // Create donation if amount and date are present

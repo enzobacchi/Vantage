@@ -3,6 +3,7 @@ import { z } from "zod"
 
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getDonorLifecycleStatus } from "@/lib/donor-lifecycle"
+import { isLimitExceeded } from "@/lib/subscription"
 
 export function buildTools(orgId: string) {
   const supabase = createAdminClient()
@@ -429,6 +430,14 @@ export function buildTools(orgId: string) {
             warning: "Possible duplicate donors found",
             existing_donors: existing.map((d) => ({ id: d.id, display_name: d.display_name })),
             message: "A donor with a similar name already exists. Please confirm if you want to create a new donor or use the existing one.",
+          }
+        }
+
+        // Enforce donor limit
+        if (await isLimitExceeded(orgId, "donors")) {
+          return {
+            error: "Donor limit reached",
+            message: "You've reached your donor limit. Please upgrade your plan to add more donors.",
           }
         }
 

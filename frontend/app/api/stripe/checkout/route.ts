@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
 
   const stripe = getStripe()
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
-  const priceId = getStripePriceId(plan as Exclude<SubscriptionPlan, "trial">)
+  const priceId = getStripePriceId(plan as Exclude<SubscriptionPlan, "trial" | "enterprise">)
 
   const session = await stripe.checkout.sessions.create({
     customer: customerId,

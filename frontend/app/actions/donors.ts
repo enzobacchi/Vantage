@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUserOrg } from "@/lib/auth"
 import { logAuditEvent } from "@/app/actions/audit"
+import { isLimitExceeded } from "@/lib/subscription"
 
 export type CreateDonorInput = {
   display_name: string
@@ -26,6 +27,11 @@ export async function createDonor(input: CreateDonorInput): Promise<{ id: string
 
   const displayName = input.display_name?.trim()
   if (!displayName) throw new Error("Display name is required")
+
+  // Enforce donor limit based on subscription plan
+  if (await isLimitExceeded(org.orgId, "donors")) {
+    throw new Error("You've reached your donor limit. Please upgrade your plan to add more donors.")
+  }
 
   const supabase = createAdminClient()
   const donorType = input.donor_type && ["individual", "corporate", "school", "church"].includes(input.donor_type)

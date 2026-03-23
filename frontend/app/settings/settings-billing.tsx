@@ -3,9 +3,10 @@
 import * as React from "react"
 import { useSearchParams } from "next/navigation"
 import {
-  Check,
+  Building2,
   CreditCard,
   ExternalLink,
+  Mail,
   Sparkles,
   Database,
   Crown,
@@ -64,7 +65,7 @@ const STATUS_LABELS: Record<string, { label: string; variant: "default" | "secon
   unpaid: { label: "Unpaid", variant: "destructive" },
 }
 
-const PLAN_ORDER: SubscriptionPlan[] = ["trial", "essentials", "growth", "pro"]
+const PLAN_ORDER: SubscriptionPlan[] = ["trial", "essentials", "growth", "pro", "enterprise"]
 
 export function SettingsBilling() {
   const [data, setData] = React.useState<SubStatus | null>(null)
@@ -263,7 +264,7 @@ export function SettingsBilling() {
               )}
               <div className="flex-1">
                 <span>{alert.message}</span>
-                {sub.planId !== "pro" && (
+                {sub.planId !== "pro" && sub.planId !== "enterprise" && (
                   <button
                     onClick={() => {
                       const el = document.getElementById("plan-comparison")
@@ -333,15 +334,29 @@ export function SettingsBilling() {
                     <span className="text-sm text-muted-foreground">/month</span>
                   </div>
                 </CardHeader>
-                <CardContent className="flex-1">
-                  <ul className="space-y-2">
-                    {plan.features.map((feature) => (
-                      <li key={feature} className="flex items-start gap-2 text-sm">
-                        <Check className="mt-0.5 size-4 shrink-0 text-emerald-500" strokeWidth={1.5} />
-                        <span>{feature}</span>
-                      </li>
-                    ))}
-                  </ul>
+                <CardContent className="flex-1 space-y-4">
+                  {/* Plan limits — the key differentiators */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <Database className="size-4 shrink-0 text-emerald-500" strokeWidth={1.5} />
+                      <span>
+                        {plan.maxDonors === 0
+                          ? "Unlimited donors"
+                          : `Up to ${plan.maxDonors.toLocaleString()} donors`}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <Sparkles className="size-4 shrink-0 text-emerald-500" strokeWidth={1.5} />
+                      <span>
+                        {plan.maxAiInsightsPerMonth === 0
+                          ? "Unlimited AI insights"
+                          : `${plan.maxAiInsightsPerMonth} AI insights / month`}
+                      </span>
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    All features included — QuickBooks sync, fundraising pipeline, interaction tracking, batch receipts, map view, AI chat &amp; insights, and more.
+                  </p>
                 </CardContent>
                 <CardFooter>
                   {isCurrent ? (
@@ -378,6 +393,33 @@ export function SettingsBilling() {
             )
           })}
         </div>
+
+        {/* Enterprise banner */}
+        <Card className="mt-4">
+          <div className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-4">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted">
+                <Building2 className="size-5" strokeWidth={1.5} />
+              </div>
+              <div>
+                <h4 className="text-base font-semibold">Enterprise</h4>
+                <p className="text-sm text-muted-foreground">
+                  Unlimited donors &amp; AI insights. Custom pricing for large-scale organizations.
+                </p>
+              </div>
+            </div>
+            {sub.planId === "enterprise" && !isCanceled ? (
+              <Badge variant="secondary" className="shrink-0">Current plan</Badge>
+            ) : (
+              <Button variant="outline" className="shrink-0 gap-2" asChild>
+                <a href="mailto:sales@vantagedonorai.com?subject=Enterprise%20Plan%20Inquiry">
+                  <Mail className="size-4" strokeWidth={1.5} />
+                  Contact us
+                </a>
+              </Button>
+            )}
+          </div>
+        </Card>
       </div>
     </div>
   )

@@ -11,6 +11,19 @@ export type PlanLimits = {
   features: string[]
 }
 
+/** Features included in every plan — no tier-gating. */
+const SHARED_FEATURES = [
+  "Unlimited team members",
+  "QuickBooks sync",
+  "CSV import/export",
+  "Email receipts & year-end batch receipts",
+  "Donor map view",
+  "Fundraising pipeline",
+  "Interaction tracking",
+  "AI donor insights",
+  "AI chat assistant",
+]
+
 export const PLANS: Record<SubscriptionPlan, { name: string; description: string } & PlanLimits> = {
   trial: {
     name: "Free Trial",
@@ -18,14 +31,7 @@ export const PLANS: Record<SubscriptionPlan, { name: string; description: string
     maxDonors: 500,
     maxAiInsightsPerMonth: 30,
     monthlyPrice: 0,
-    features: [
-      "Up to 500 donors",
-      "Unlimited team members",
-      "30 AI insights per month",
-      "QuickBooks sync",
-      "CSV import/export",
-      "Email receipts",
-    ],
+    features: ["Up to 500 donors", "30 AI insights per month", ...SHARED_FEATURES],
   },
   essentials: {
     name: "Starter",
@@ -33,15 +39,7 @@ export const PLANS: Record<SubscriptionPlan, { name: string; description: string
     maxDonors: 500,
     maxAiInsightsPerMonth: 30,
     monthlyPrice: 29,
-    features: [
-      "Up to 500 donors",
-      "Unlimited team members",
-      "30 AI insights per month",
-      "QuickBooks sync",
-      "CSV import/export",
-      "Email receipts",
-      "Donor map view",
-    ],
+    features: ["Up to 500 donors", "30 AI insights per month", ...SHARED_FEATURES],
   },
   growth: {
     name: "Growth",
@@ -49,16 +47,7 @@ export const PLANS: Record<SubscriptionPlan, { name: string; description: string
     maxDonors: 2_500,
     maxAiInsightsPerMonth: 100,
     monthlyPrice: 59,
-    features: [
-      "Up to 2,500 donors",
-      "Unlimited team members",
-      "100 AI insights per month",
-      "QuickBooks sync",
-      "CSV import/export",
-      "Email receipts",
-      "Donor map view",
-      "Fundraising pipeline",
-    ],
+    features: ["Up to 2,500 donors", "100 AI insights per month", ...SHARED_FEATURES],
   },
   pro: {
     name: "Pro",
@@ -66,23 +55,21 @@ export const PLANS: Record<SubscriptionPlan, { name: string; description: string
     maxDonors: 10_000,
     maxAiInsightsPerMonth: 0,
     monthlyPrice: 99,
-    features: [
-      "Up to 10,000 donors",
-      "Unlimited team members",
-      "Unlimited AI insights",
-      "QuickBooks sync",
-      "CSV import/export",
-      "Email receipts",
-      "Donor map view",
-      "Fundraising pipeline",
-      "Priority support",
-    ],
+    features: ["Up to 10,000 donors", "Unlimited AI insights", ...SHARED_FEATURES],
+  },
+  enterprise: {
+    name: "Enterprise",
+    description: "For large-scale organizations",
+    maxDonors: 0,
+    maxAiInsightsPerMonth: 0,
+    monthlyPrice: 0,
+    features: ["Unlimited donors", "Unlimited AI insights", ...SHARED_FEATURES],
   },
 }
 
 // Stripe Price IDs — set these in env vars once created in Stripe dashboard.
 // Format: STRIPE_PRICE_<PLAN>_MONTHLY
-export function getStripePriceId(plan: Exclude<SubscriptionPlan, "trial">): string {
+export function getStripePriceId(plan: Exclude<SubscriptionPlan, "trial" | "enterprise">): string {
   const envKey = `STRIPE_PRICE_${plan.toUpperCase()}_MONTHLY`
   const priceId = process.env[envKey]
   if (!priceId) {

@@ -114,6 +114,9 @@ export function SettingsView() {
             : "Sync completed"
         toast.success(msg)
       }
+      if (typeof d?.donorsSkippedLimit === "number" && d.donorsSkippedLimit > 0) {
+        toast.warning(`${d.donorsSkippedLimit} donor${d.donorsSkippedLimit === 1 ? " was" : "s were"} skipped — you've reached your plan's donor limit. Upgrade to sync all donors.`)
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Sync failed."
       setSyncState({ status: "error", message: msg })

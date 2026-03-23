@@ -14,6 +14,7 @@ import {
 import { createQBOAuthClient, getQBApiBaseUrl } from "@/lib/quickbooks/client";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { geocodeAddress } from "@/lib/geocode";
+import { getOrgSubscription, PLANS } from "@/lib/subscription";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -28,6 +29,7 @@ export type SyncResult = {
   salesReceiptsFetched: number;
   invoicesFetched: number;
   donorsUpserted: number;
+  donorsSkippedLimit: number;
   donationsUpserted: number;
   geocodedAttempted: number;
   geocodedSucceeded: number;
@@ -624,11 +626,35 @@ export async function runSyncForOrg(
       donorsToUpsert.push(payload);
     }
 
+    // --- Enforce donor limit before upserting ---
+    // Split into updates (existing QB donors) and net-new inserts
+    const existingUpdates = donorsToUpsert.filter(
+      (d) => coordsByQbCustomerId.has(d.qb_customer_id as string)
+    );
+    const netNewDonors = donorsToUpsert.filter(
+      (d) => !coordsByQbCustomerId.has(d.qb_customer_id as string)
+    );
+
+    const sub = await getOrgSubscription(orgId);
+    const plan = PLANS[sub.planId];
+    const { count: currentDonorCount } = await supabase
+      .from("donors")
+      .select("id", { count: "exact", head: true })
+      .eq("org_id", orgId);
+    const slotsRemaining =
+      plan.maxDonors === 0
+        ? Infinity
+        : Math.max(0, plan.maxDonors - (currentDonorCount ?? 0));
+    const allowedNew = netNewDonors.slice(0, Math.min(netNewDonors.length, slotsRemaining));
+    const skippedCount = netNewDonors.length - allowedNew.length;
+
+    const finalUpsertBatch = [...existingUpdates, ...allowedNew];
+
     // --- Upsert donors ---
-    if (donorsToUpsert.length) {
+    if (finalUpsertBatch.length) {
       const { error: upsertError } = await supabase
         .from("donors")
-        .upsert(donorsToUpsert, { onConflict: "org_id,qb_customer_id" });
+        .upsert(finalUpsertBatch, { onConflict: "org_id,qb_customer_id" });
 
       if (upsertError) {
         return { error: "Failed to upsert donors.", status: 500 };
@@ -819,7 +845,8 @@ export async function runSyncForOrg(
       customersFetched: customers.length,
       salesReceiptsFetched: receipts.length,
       invoicesFetched: invoices.length,
-      donorsUpserted: donorsToUpsert.length,
+      donorsUpserted: finalUpsertBatch.length,
+      donorsSkippedLimit: skippedCount,
       donationsUpserted: donationsUpsertedCount,
       geocodedAttempted,
       geocodedSucceeded,

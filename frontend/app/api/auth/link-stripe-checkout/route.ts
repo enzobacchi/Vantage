@@ -236,13 +236,15 @@ function resolvePlanId(
     if (priceId === process.env.STRIPE_PRICE_ESSENTIALS_ANNUAL) return "essentials"
     if (priceId === process.env.STRIPE_PRICE_GROWTH_ANNUAL) return "growth"
     if (priceId === process.env.STRIPE_PRICE_PRO_ANNUAL) return "pro"
+    if (priceId === process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY) return "enterprise"
+    if (priceId === process.env.STRIPE_PRICE_ENTERPRISE_ANNUAL) return "enterprise"
   }
 
   // Default to essentials if we can't determine
   return "essentials"
 }
 
-const VALID_PLANS: SubscriptionPlan[] = ["trial", "essentials", "growth", "pro"]
+const VALID_PLANS: SubscriptionPlan[] = ["trial", "essentials", "growth", "pro", "enterprise"]
 function isValidPlan(plan: string): plan is SubscriptionPlan {
   return VALID_PLANS.includes(plan as SubscriptionPlan)
 }

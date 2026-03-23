@@ -618,7 +618,7 @@ export type DonorType = "individual" | "corporate" | "school" | "church"
 
 export type ReceiptTemplateCategory = "standard" | "daf" | "institutional"
 
-export type SubscriptionPlan = "trial" | "essentials" | "growth" | "pro"
+export type SubscriptionPlan = "trial" | "essentials" | "growth" | "pro" | "enterprise"
 export type SubscriptionStatus = "trialing" | "active" | "past_due" | "canceled" | "unpaid"
 export type UsageMetric = "ai_insights" | "email_sends" | "donors"
 

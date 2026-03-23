@@ -84,6 +84,11 @@ async function fetchDonorExtras(
   return { firstByDonor, tagsByDonor };
 }
 
+export type DonorListResponse = {
+  donors: DonorListItem[];
+  total: number;
+};
+
 export async function GET(request: Request) {
   const auth = await requireUserOrg();
   if (!auth.ok) return auth.response;
@@ -101,6 +106,12 @@ export async function GET(request: Request) {
     /^\d{4}-\d{2}-\d{2}$/.test(fromParam) &&
     /^\d{4}-\d{2}-\d{2}$/.test(toParam) &&
     fromParam <= toParam;
+
+  const pageParam = parseInt(searchParams.get("page") ?? "0", 10);
+  const limitParam = parseInt(searchParams.get("limit") ?? "50", 10);
+  const page = Number.isFinite(pageParam) && pageParam >= 0 ? pageParam : 0;
+  const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 200) : 50;
+  const searchQuery = searchParams.get("search")?.trim() ?? "";
 
   const supabase = createAdminClient();
 
@@ -144,7 +155,7 @@ export async function GET(request: Request) {
     }
 
     if (donorIdsInRange.length === 0) {
-      return NextResponse.json([] as DonorListItem[]);
+      return NextResponse.json({ donors: [] as DonorListItem[], total: 0 } satisfies DonorListResponse);
     }
 
     // Step 2: Fetch donor details and extras in parallel
@@ -164,11 +175,18 @@ export async function GET(request: Request) {
       );
     }
 
-    const list = (donorsRes.data ?? []).sort((a, b) => {
+    let sorted = (donorsRes.data ?? []).sort((a, b) => {
       const va = totalByDonorInRange[a.id] ?? 0;
       const vb = totalByDonorInRange[b.id] ?? 0;
       return vb - va;
     });
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      sorted = sorted.filter((d) => (d.display_name ?? "").toLowerCase().includes(q));
+    }
+
+    const total = sorted.length;
+    const list = sorted.slice(page * limit, page * limit + limit);
 
     const result: DonorListItem[] = list.map((d) => {
       const lastInRange = lastDonationInRange[d.id];
@@ -183,28 +201,43 @@ export async function GET(request: Request) {
       };
     });
 
-    return NextResponse.json(result);
+    return NextResponse.json({ donors: result, total } satisfies DonorListResponse);
   }
 
   // --- Non-date-filtered path ---
 
-  let query = supabase
-    .from("donors")
-    .select("id, display_name, total_lifetime_value, last_donation_amount, last_donation_date, billing_address, state, notes")
-    .eq("org_id", auth.orgId)
-    .order("total_lifetime_value", { ascending: false, nullsFirst: false });
-
+  let tagFilteredIds: string[] | null = null;
   if (filterTagIds?.length) {
     const { data: donorIdsWithTag } = await supabase
       .from("donor_tags")
       .select("donor_id")
       .in("tag_id", filterTagIds);
-    const ids = [...new Set((donorIdsWithTag ?? []).map((r) => r.donor_id))];
-    if (ids.length === 0) {
-      return NextResponse.json([] as DonorListItem[]);
+    tagFilteredIds = [...new Set((donorIdsWithTag ?? []).map((r) => r.donor_id))];
+    if (tagFilteredIds.length === 0) {
+      return NextResponse.json({ donors: [] as DonorListItem[], total: 0 } satisfies DonorListResponse);
     }
-    query = query.in("id", ids);
   }
+
+  // Count query (exact total for pagination)
+  let countQuery = supabase
+    .from("donors")
+    .select("id", { count: "exact", head: true })
+    .eq("org_id", auth.orgId);
+  if (tagFilteredIds) countQuery = countQuery.in("id", tagFilteredIds);
+  if (searchQuery) countQuery = countQuery.ilike("display_name", `%${searchQuery}%`);
+  const { count: totalCount } = await countQuery;
+  const total = totalCount ?? 0;
+
+  // Data query with offset pagination
+  let query = supabase
+    .from("donors")
+    .select("id, display_name, total_lifetime_value, last_donation_amount, last_donation_date, billing_address, state, notes")
+    .eq("org_id", auth.orgId)
+    .order("total_lifetime_value", { ascending: false, nullsFirst: false })
+    .range(page * limit, page * limit + limit - 1);
+
+  if (tagFilteredIds) query = query.in("id", tagFilteredIds);
+  if (searchQuery) query = query.ilike("display_name", `%${searchQuery}%`);
 
   const { data: donors, error } = await query;
 
@@ -217,12 +250,11 @@ export async function GET(request: Request) {
 
   const list = (donors ?? []) as Omit<DonorListItem, "first_donation_date" | "tags">[];
   if (list.length === 0) {
-    return NextResponse.json([] as DonorListItem[]);
+    return NextResponse.json({ donors: [] as DonorListItem[], total } satisfies DonorListResponse);
   }
 
   const donorIds = list.map((d) => d.id);
 
-  // Fetch first_donation_date and tags in parallel (was sequential before)
   const extras = await fetchDonorExtras(supabase, donorIds);
 
   const result: DonorListItem[] = list.map((d) => ({
@@ -232,5 +264,5 @@ export async function GET(request: Request) {
     last_donation_amount: d.last_donation_amount ?? demoLastGift(d.id),
   }));
 
-  return NextResponse.json(result);
+  return NextResponse.json({ donors: result, total } satisfies DonorListResponse);
 }

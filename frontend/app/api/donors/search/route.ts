@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { requireUserOrg } from "@/lib/auth";
+import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -14,6 +15,10 @@ export type DonorSearchItem = {
 export async function GET(request: Request) {
   const auth = await requireUserOrg();
   if (!auth.ok) return auth.response;
+
+  // Rate limit: 60 searches per org per minute
+  const rl = checkRateLimit(`search:${auth.orgId}`, 60, 60_000);
+  if (rl.limited) return rateLimitResponse(rl.retryAfterMs);
 
   const { searchParams } = new URL(request.url);
   const q = (searchParams.get("q") ?? "").trim();
@@ -44,8 +49,9 @@ export async function GET(request: Request) {
   ]);
 
   if (nameRes.error) {
+    console.error("[donors/search] Search failed:", nameRes.error.message);
     return NextResponse.json(
-      { error: "Search failed", details: nameRes.error.message },
+      { error: "Search failed" },
       { status: 500 }
     );
   }

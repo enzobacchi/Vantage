@@ -3,7 +3,9 @@ import { NextRequest, NextResponse } from "next/server"
 
 import { requireUserOrg } from "@/lib/auth"
 import { redactPII, unredactPII, type PIIValues } from "@/lib/pii-redaction"
+import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { isLimitExceeded, incrementUsage, getOrgSubscription, PLANS } from "@/lib/subscription"
 
 export async function GET(
   _req: NextRequest,
@@ -14,6 +16,26 @@ export async function GET(
 
   const { orgId } = auth
   const { id: donorId } = await params
+
+  // Rate limit: 20 insight requests per org per minute
+  const rl = checkRateLimit(`insights:${orgId}`, 20, 60_000)
+  if (rl.limited) return rateLimitResponse(rl.retryAfterMs)
+
+  // Check AI usage limit before proceeding
+  const limitHit = await isLimitExceeded(orgId, "ai_insights")
+  if (limitHit) {
+    const sub = await getOrgSubscription(orgId)
+    const plan = PLANS[sub.planId]
+    return NextResponse.json(
+      {
+        error: "AI insight limit reached",
+        message: `You've used all ${plan.maxAiInsightsPerMonth} AI insights for this month. Upgrade your plan for more.`,
+        limitReached: true,
+      },
+      { status: 429 }
+    )
+  }
+
   const supabase = createAdminClient()
 
   try {
@@ -162,12 +184,35 @@ Rules:
     ),
   }
 
-  return NextResponse.json(result)
+  // Track usage
+  await incrementUsage(orgId, "ai_insights")
+
+  // Return result with current usage info
+  const sub = await getOrgSubscription(orgId)
+  const plan = PLANS[sub.planId]
+  const now = new Date()
+  const periodStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+  const { data: usageRow } = await supabase
+    .from("subscription_usage")
+    .select("count")
+    .eq("org_id", orgId)
+    .eq("metric", "ai_insights")
+    .gte("period_start", periodStart)
+    .single()
+
+  return NextResponse.json({
+    ...result,
+    usage: {
+      used: usageRow?.count ?? 0,
+      limit: plan.maxAiInsightsPerMonth,
+    },
+  })
 
   } catch (err) {
     console.error("[donor-insights] Failed to generate insights:", err)
-    const message =
-      err instanceof Error ? err.message : "Failed to generate insights"
-    return NextResponse.json({ error: message }, { status: 500 })
+    return NextResponse.json(
+      { error: "Failed to generate insights. Please try again later." },
+      { status: 500 }
+    )
   }
 }

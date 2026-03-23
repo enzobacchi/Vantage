@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUserOrg } from "@/lib/auth"
+import { notifyNewDonation, checkAndNotifyMilestones } from "@/lib/notifications"
 import type { PaymentMethod } from "@/types/database"
 
 export type OrgDonationOptionRow = {
@@ -186,12 +187,15 @@ export async function createDonation(input: CreateDonationInput): Promise<string
 
   const { data: donor } = await supabase
     .from("donors")
-    .select("id")
+    .select("id, display_name, total_lifetime_value")
     .eq("id", input.donor_id)
     .eq("org_id", org.orgId)
     .maybeSingle()
 
   if (!donor) throw new Error("Donor not found")
+
+  const previousTotal = Number(donor.total_lifetime_value ?? 0)
+  const donorName = (donor.display_name as string) || "Unknown Donor"
 
   const { data: donation, error } = await supabase
     .from("donations")
@@ -214,6 +218,11 @@ export async function createDonation(input: CreateDonationInput): Promise<string
   if (!donation?.id) throw new Error("Failed to create donation")
 
   await recalcDonorTotals(supabase, input.donor_id)
+
+  // Fire-and-forget notification emails
+  const newTotal = previousTotal + amount
+  void notifyNewDonation(org.orgId, donorName, amount, input.donor_id).catch(console.error)
+  void checkAndNotifyMilestones(org.orgId, input.donor_id, donorName, previousTotal, newTotal).catch(console.error)
 
   revalidatePath("/dashboard")
   revalidatePath("/dashboard/donations")

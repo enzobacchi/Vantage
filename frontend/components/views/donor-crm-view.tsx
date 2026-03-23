@@ -4,13 +4,16 @@ import * as React from "react"
 import { IconChevronDown, IconSearch, IconUsers } from "@tabler/icons-react"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { toast } from "sonner"
-import { Calendar, CheckSquare, ExternalLink, FileText, Mail, MapPin, Phone, Sparkles } from "lucide-react"
+import { Calendar, CheckSquare, Download, ExternalLink, FileText, GitMerge, Mail, MapPin, Phone, Sparkles, Trash2 } from "lucide-react"
 
 import { getDonorProfile, getDonorActivityNotes, type DonorProfileDonor, type DonorProfileDonation, type DonorNoteRow } from "@/app/donors/[id]/actions"
+import { listReceiptTemplates, type ReceiptTemplate } from "@/app/actions/receipt-templates"
+import { applyEmailTemplate } from "@/app/settings/settings-email-templates"
 import { getDonorInteractions, logInteraction, toggleTaskStatus } from "@/app/actions/crm"
 import { DEFAULT_LIFECYCLE_CONFIG } from "@/lib/donor-lifecycle"
 import type { Interaction } from "@/types/database"
 import { bulkAssignTag, bulkRemoveTag, getOrganizationTags } from "@/app/actions/tags"
+import { bulkDeleteDonors, mergeDonors } from "@/app/actions/donors"
 import { DonorTagFilter, type TagForFilter } from "@/components/donors/donor-filters"
 import { DateRangeFilter, getDateRangeFromSearchParams } from "@/components/date-range-filter"
 import { format } from "date-fns"
@@ -63,6 +66,16 @@ import {
 } from "@/components/ui/table"
 import { DataTable, type DataTableRef } from "@/components/ui/data-table"
 import { createDonorColumns, type Donor } from "@/components/views/donor-crm/columns"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import {
   Popover,
   PopoverContent,
@@ -208,12 +221,14 @@ function InteractionTimeline({
 function LogActivityDialog({
   donorId,
   donorEmail,
+  donorName,
   defaultTab = "call",
   onLogged,
   onClose,
 }: {
   donorId: string
   donorEmail: string | null
+  donorName?: string | null
   defaultTab?: "call" | "email" | "task"
   onLogged: () => void
   onClose: () => void
@@ -223,10 +238,26 @@ function LogActivityDialog({
   const [content, setContent] = React.useState("")
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [templates, setTemplates] = React.useState<ReceiptTemplate[]>([])
 
   React.useEffect(() => {
     setActiveTab(defaultTab)
   }, [defaultTab])
+
+  React.useEffect(() => {
+    if (activeTab === "email") {
+      listReceiptTemplates().then(setTemplates).catch(() => {})
+    }
+  }, [activeTab])
+
+  function applyTemplate(template: ReceiptTemplate) {
+    const { subject: s, body: b } = applyEmailTemplate(template, {
+      donor_name: donorName ?? undefined,
+      date: new Date().toLocaleDateString(),
+    })
+    setSubject(s)
+    setContent(b)
+  }
 
   const reset = () => {
     setSubject("")
@@ -346,6 +377,28 @@ function LogActivityDialog({
             </div>
           </TabsContent>
           <TabsContent value="email" className="mt-0 space-y-4">
+            {templates.length > 0 && (
+              <div>
+                <Label>Use a template</Label>
+                <Select
+                  onValueChange={(id) => {
+                    const tpl = templates.find((t) => t.id === id)
+                    if (tpl) applyTemplate(tpl)
+                  }}
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="Select a template…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {templates.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div>
               <Label htmlFor="email-subject">Subject</Label>
               <Input
@@ -410,18 +463,27 @@ function LogActivityDialog({
   )
 }
 
+const PAGE_SIZE = 50
+
 export function DonorCRMView() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const pathname = usePathname()
   const { selectedDonorId, clearSelectedDonor } = useNav()
   const [donors, setDonors] = React.useState<Donor[]>([])
+  const [total, setTotal] = React.useState(0)
+  const [page, setPage] = React.useState(0)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [sortBy, setSortBy] = React.useState<SortOption>("recent")
   const [selectedDonors, setSelectedDonors] = React.useState<Donor[]>([])
   const [bulkTagOpen, setBulkTagOpen] = React.useState<"add" | "remove" | null>(null)
   const [bulkTagSaving, setBulkTagSaving] = React.useState(false)
+  const [bulkDeleteOpen, setBulkDeleteOpen] = React.useState(false)
+  const [bulkDeleting, setBulkDeleting] = React.useState(false)
+  const [mergeOpen, setMergeOpen] = React.useState(false)
+  const [merging, setMerging] = React.useState(false)
+  const [mergePrimaryId, setMergePrimaryId] = React.useState<string | null>(null)
   const dataTableRef = React.useRef<DataTableRef<Donor> | null>(null)
   const [searchQuery, setSearchQuery] = React.useState("")
 
@@ -464,7 +526,12 @@ export function DonorCRMView() {
   const [logActivityDefaultTab, setLogActivityDefaultTab] = React.useState<"call" | "email" | "task">("call")
   const [historyOpen, setHistoryOpen] = React.useState(false)
 
-  const loadDonors = React.useCallback(async (tagIds?: Set<string>, dateRange?: { from?: string; to?: string }) => {
+  const loadDonors = React.useCallback(async (
+    tagIds?: Set<string>,
+    dateRange?: { from?: string; to?: string },
+    currentPage?: number,
+    search?: string,
+  ) => {
     try {
       setLoading(true)
       setError(null)
@@ -472,16 +539,24 @@ export function DonorCRMView() {
       if (tagIds && tagIds.size > 0) params.set("tagIds", [...tagIds].join(","))
       if (dateRange?.from) params.set("from", dateRange.from)
       if (dateRange?.to) params.set("to", dateRange.to)
-      const q = params.toString()
-      const url = q ? `/api/donors?${q}` : "/api/donors"
-      const res = await fetch(url)
+      if (search?.trim()) params.set("search", search.trim())
+      params.set("page", String(currentPage ?? 0))
+      params.set("limit", String(PAGE_SIZE))
+      const res = await fetch(`/api/donors?${params.toString()}`)
       const data = (await res.json()) as unknown
       if (!res.ok) {
         const msg =
           typeof data === "object" && data && "error" in data ? String((data as any).error) : ""
         throw new Error(msg || `Failed to load donors (HTTP ${res.status}).`)
       }
-      setDonors(Array.isArray(data) ? (data as Donor[]) : [])
+      if (typeof data === "object" && data && "donors" in data) {
+        const r = data as { donors: Donor[]; total: number }
+        setDonors(r.donors)
+        setTotal(r.total)
+      } else {
+        setDonors([])
+        setTotal(0)
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load donors.")
     } finally {
@@ -492,26 +567,33 @@ export function DonorCRMView() {
   const dateRange = React.useMemo(() => getDateRangeFromSearchParams(searchParams), [searchParams])
 
   React.useEffect(() => {
-    loadDonors(selectedTagIds, dateRange)
-  }, [selectedTagIds, dateRange.from, dateRange.to, loadDonors])
+    loadDonors(selectedTagIds, dateRange, page, searchQuery)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTagIds, dateRange.from, dateRange.to, page, loadDonors])
+
+  // When search query changes, reset to page 0 and reload
+  const searchTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  React.useEffect(() => {
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
+    searchTimeoutRef.current = setTimeout(() => {
+      setPage(0)
+      loadDonors(selectedTagIds, dateRange, 0, searchQuery)
+    }, 300)
+    return () => {
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery])
 
   const handleTagFilterChange = React.useCallback(
     (next: Set<string>) => {
+      setPage(0)
       setSelectedTagIds(next)
     },
     []
   )
 
-  const sortedDonors = React.useMemo(() => {
-    let list = sortDonors(donors, sortBy)
-    const q = searchQuery.trim().toLowerCase()
-    if (q) {
-      list = list.filter((d) =>
-        (d.display_name ?? "").toLowerCase().includes(q)
-      )
-    }
-    return list
-  }, [donors, sortBy, searchQuery])
+  const sortedDonors = React.useMemo(() => sortDonors(donors, sortBy), [donors, sortBy])
 
   const openDonorSheet = React.useCallback((donorId: string) => {
     setSheetDonorId(donorId)
@@ -535,14 +617,14 @@ export function DonorCRMView() {
         toast.success(`Tag added to ${count} donor${count === 1 ? "" : "s"}`)
         setBulkTagOpen(null)
         dataTableRef.current?.clearSelection()
-        loadDonors(selectedTagIds, dateRange)
+        loadDonors(selectedTagIds, dateRange, page, searchQuery)
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Failed to add tag")
       } finally {
         setBulkTagSaving(false)
       }
     },
-    [selectedDonors, selectedTagIds, dateRange, loadDonors]
+    [selectedDonors, selectedTagIds, dateRange, page, searchQuery, loadDonors]
   )
 
   const handleBulkRemoveTag = React.useCallback(
@@ -557,15 +639,80 @@ export function DonorCRMView() {
         toast.success(`Tag removed from ${count} donor${count === 1 ? "" : "s"}`)
         setBulkTagOpen(null)
         dataTableRef.current?.clearSelection()
-        loadDonors(selectedTagIds, dateRange)
+        loadDonors(selectedTagIds, dateRange, page, searchQuery)
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Failed to remove tag")
       } finally {
         setBulkTagSaving(false)
       }
     },
-    [selectedDonors, selectedTagIds, dateRange, loadDonors]
+    [selectedDonors, selectedTagIds, dateRange, page, searchQuery, loadDonors]
   )
+
+  const handleBulkDelete = React.useCallback(async () => {
+    if (selectedDonors.length === 0) return
+    setBulkDeleting(true)
+    try {
+      const count = await bulkDeleteDonors(selectedDonors.map((d) => d.id))
+      toast.success(`Deleted ${count} donor${count === 1 ? "" : "s"}`)
+      setBulkDeleteOpen(false)
+      dataTableRef.current?.clearSelection()
+      loadDonors(selectedTagIds, dateRange, page, searchQuery)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to delete donors")
+    } finally {
+      setBulkDeleting(false)
+    }
+  }, [selectedDonors, selectedTagIds, dateRange, page, searchQuery, loadDonors])
+
+  const handleBulkExport = React.useCallback(() => {
+    if (selectedDonors.length === 0) return
+    const headers = ["Name", "State", "Total Giving", "Last Gift Date", "Last Gift Amount"]
+    const rows = selectedDonors.map((d) => [
+      d.display_name ?? "",
+      d.state ?? "",
+      String(d.total_lifetime_value ?? ""),
+      d.last_donation_date ?? "",
+      String(d.last_donation_amount ?? ""),
+    ])
+    const escape = (val: string) => {
+      if (val.includes(",") || val.includes('"') || val.includes("\n")) {
+        return `"${val.replace(/"/g, '""')}"`
+      }
+      return val
+    }
+    const csv = [headers.join(","), ...rows.map((r) => r.map(escape).join(","))].join("\n")
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `vantage-donors-${new Date().toISOString().slice(0, 10)}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+    toast.success(`Exported ${selectedDonors.length} donor${selectedDonors.length === 1 ? "" : "s"}`)
+  }, [selectedDonors])
+
+  const handleMerge = React.useCallback(async () => {
+    if (selectedDonors.length !== 2 || !mergePrimaryId) return
+    setMerging(true)
+    const secondaryId = selectedDonors.find((d) => d.id !== mergePrimaryId)?.id
+    if (!secondaryId) return
+    try {
+      const result = await mergeDonors(mergePrimaryId, secondaryId)
+      const primary = selectedDonors.find((d) => d.id === mergePrimaryId)
+      toast.success(
+        `Merged successfully. Moved ${result.donations_moved} donation${result.donations_moved === 1 ? "" : "s"} to ${primary?.display_name ?? "donor"}.`
+      )
+      setMergeOpen(false)
+      setMergePrimaryId(null)
+      dataTableRef.current?.clearSelection()
+      loadDonors(selectedTagIds, dateRange, page, searchQuery)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to merge donors")
+    } finally {
+      setMerging(false)
+    }
+  }, [selectedDonors, mergePrimaryId, selectedTagIds, dateRange, page, searchQuery, loadDonors])
 
   React.useEffect(() => {
     if (!sheetOpen || !sheetDonorId) {
@@ -615,6 +762,10 @@ export function DonorCRMView() {
       ? "No donors have the selected tags."
       : "No donors found."
 
+  const totalPages = Math.ceil(total / PAGE_SIZE)
+  const showingFrom = total === 0 ? 0 : page * PAGE_SIZE + 1
+  const showingTo = Math.min(page * PAGE_SIZE + donors.length, total)
+
   return (
     <div className="flex flex-col gap-4 py-4 md:py-6">
       <div className="flex items-center gap-2 px-4 lg:px-6">
@@ -647,7 +798,8 @@ export function DonorCRMView() {
                   range?.from && range?.to
                     ? { from: format(range.from, "yyyy-MM-dd"), to: format(range.to, "yyyy-MM-dd") }
                     : {}
-                loadDonors(selectedTagIds, next)
+                setPage(0)
+                loadDonors(selectedTagIds, next, 0, searchQuery)
               }}
             />
             <DonorTagFilter
@@ -757,6 +909,38 @@ export function DonorCRMView() {
                 </PopoverContent>
               </Popover>
               <Button
+                variant="outline"
+                size="sm"
+                onClick={handleBulkExport}
+                className="gap-1.5"
+              >
+                <Download className="size-3.5" strokeWidth={1.5} />
+                Export
+              </Button>
+              {selectedDonors.length === 2 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setMergePrimaryId(selectedDonors[0].id)
+                    setMergeOpen(true)
+                  }}
+                  className="gap-1.5"
+                >
+                  <GitMerge className="size-3.5" strokeWidth={1.5} />
+                  Merge
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setBulkDeleteOpen(true)}
+                className="gap-1.5 text-destructive hover:text-destructive"
+              >
+                <Trash2 className="size-3.5" strokeWidth={1.5} />
+                Delete
+              </Button>
+              <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => dataTableRef.current?.clearSelection()}
@@ -765,6 +949,85 @@ export function DonorCRMView() {
               </Button>
             </div>
           )}
+
+          {/* Bulk Delete Confirmation */}
+          <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete {selectedDonors.length} donor{selectedDonors.length === 1 ? "" : "s"}?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete the selected donor{selectedDonors.length === 1 ? "" : "s"} and all their donations, interactions, notes, and tags. This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={bulkDeleting}>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={handleBulkDelete}
+                  disabled={bulkDeleting}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  {bulkDeleting ? "Deleting..." : `Delete ${selectedDonors.length} donor${selectedDonors.length === 1 ? "" : "s"}`}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          {/* Merge Dialog */}
+          <Dialog open={mergeOpen} onOpenChange={(open) => { if (!open) { setMergeOpen(false); setMergePrimaryId(null) } }}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Merge Donors</DialogTitle>
+              </DialogHeader>
+              <p className="text-sm text-muted-foreground">
+                Select the primary donor to keep. All donations, interactions, notes, and tags from the other donor will be moved to the primary donor, and the secondary donor will be deleted.
+              </p>
+              <div className="space-y-2 pt-2">
+                {selectedDonors.length === 2 && selectedDonors.map((d) => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => setMergePrimaryId(d.id)}
+                    className={`w-full text-left rounded-lg border px-4 py-3 transition-colors ${
+                      mergePrimaryId === d.id
+                        ? "border-primary bg-primary/5 ring-1 ring-primary"
+                        : "border-border hover:bg-accent"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium text-sm">{d.display_name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {d.state ?? "No state"} | Total: {d.total_lifetime_value ?? "$0"}
+                        </p>
+                      </div>
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${
+                        mergePrimaryId === d.id
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-muted-foreground"
+                      }`}>
+                        {mergePrimaryId === d.id ? "Keep" : "Merge into other"}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => { setMergeOpen(false); setMergePrimaryId(null) }}
+                  disabled={merging}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleMerge}
+                  disabled={merging || !mergePrimaryId}
+                >
+                  {merging ? "Merging..." : "Merge Donors"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           <DataTable<Donor, unknown>
             columns={donorColumns}
@@ -779,6 +1042,36 @@ export function DonorCRMView() {
               row.id === sheetDonorId ? "bg-primary/10 hover:bg-primary/10" : undefined
             }
           />
+
+          {/* Pagination */}
+          {!loading && !error && total > 0 && (
+            <div className="flex items-center justify-between pt-2">
+              <p className="text-sm text-muted-foreground">
+                Showing {showingFrom}–{showingTo} of {total} donor{total === 1 ? "" : "s"}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page === 0}
+                  onClick={() => setPage((p) => p - 1)}
+                >
+                  Previous
+                </Button>
+                <span className="text-sm text-muted-foreground px-1">
+                  Page {page + 1} of {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page >= totalPages - 1}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -931,6 +1224,7 @@ export function DonorCRMView() {
                     <LogActivityDialog
                       donorId={sheetDonorId}
                       donorEmail={sheetProfile?.donor?.email ?? null}
+                      donorName={sheetProfile?.donor?.display_name ?? null}
                       defaultTab={logActivityDefaultTab}
                       onLogged={() => {
                         getDonorInteractions(sheetDonorId).then(setSheetInteractions)

@@ -28,9 +28,9 @@ import { ChatDonorCard } from "@/components/chat/chat-donor-card"
 
 /* ───────── Markdown-lite renderer ───────── */
 
-function RichText({ text, onDonorClick }: { text: string; onDonorClick: (id: string) => void }) {
+function RichText({ text, onDonorClick, isStreaming }: { text: string; onDonorClick: (id: string) => void; isStreaming?: boolean }) {
   const trailingIncomplete = /(?:\[[^\]]*(?:\](?:\([^)]*)?)?|\*\*[^*]*)$/
-  const cleanText = text.replace(trailingIncomplete, "")
+  const cleanText = isStreaming ? text.replace(trailingIncomplete, "") : text
 
   const parts: React.ReactNode[] = []
   const regex = /\[([^\]]+)\]\(donor:([^)]+)\)|\*\*([^*]+)\*\*/g
@@ -157,12 +157,14 @@ function MessageBubble({
   activeDonorId,
   onCloseDonorCard,
   onNavigateDonor,
+  isStreaming,
 }: {
   message: UIMessage
   onDonorClick: (id: string) => void
   activeDonorId: string | null
   onCloseDonorCard: () => void
   onNavigateDonor: () => void
+  isStreaming?: boolean
 }) {
   const isUser = message.role === "user"
   const textContent = message.parts
@@ -210,7 +212,7 @@ function MessageBubble({
             const text = (part as { type: "text"; text: string }).text
             return (
               <div key={i} className="text-sm leading-relaxed text-foreground whitespace-pre-wrap break-words">
-                <RichText text={text} onDonorClick={onDonorClick} />
+                <RichText text={text} onDonorClick={onDonorClick} isStreaming={isStreaming} />
               </div>
             )
           }
@@ -488,7 +490,7 @@ export function ChatOverlay() {
           /* Message list */
           <div className="flex-1 overflow-y-auto min-h-0">
             <div className="space-y-6 px-5 py-5">
-              {messages.map((message) => (
+              {messages.map((message, idx) => (
                 <MessageBubble
                   key={message.id}
                   message={message}
@@ -496,6 +498,7 @@ export function ChatOverlay() {
                   activeDonorId={activeDonorId}
                   onCloseDonorCard={closeDonorCard}
                   onNavigateDonor={handleNavigateDonor}
+                  isStreaming={status === "streaming" && idx === messages.length - 1 && message.role === "assistant"}
                 />
               ))}
               {isLoading && messages[messages.length - 1]?.role !== "assistant" && (

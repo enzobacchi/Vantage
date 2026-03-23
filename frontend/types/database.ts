@@ -22,6 +22,8 @@ export interface Database {
           logo_url: string | null
           last_synced_at: string | null
           updated_at: string | null
+          stripe_customer_id: string | null
+          onboarding_completed_at: string | null
         }
         Insert: {
           id?: string
@@ -35,6 +37,8 @@ export interface Database {
           logo_url?: string | null
           last_synced_at?: string | null
           updated_at?: string | null
+          stripe_customer_id?: string | null
+          onboarding_completed_at?: string | null
         }
         Update: {
           id?: string
@@ -48,6 +52,8 @@ export interface Database {
           logo_url?: string | null
           last_synced_at?: string | null
           updated_at?: string | null
+          stripe_customer_id?: string | null
+          onboarding_completed_at?: string | null
         }
       }
       donors: {
@@ -389,6 +395,202 @@ export interface Database {
           created_at?: string
         }
       }
+      subscriptions: {
+        Row: {
+          id: string
+          org_id: string
+          stripe_subscription_id: string | null
+          plan_id: SubscriptionPlan
+          status: SubscriptionStatus
+          current_period_start: string | null
+          current_period_end: string | null
+          cancel_at_period_end: boolean
+          trial_ends_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          stripe_subscription_id?: string | null
+          plan_id?: SubscriptionPlan
+          status?: SubscriptionStatus
+          current_period_start?: string | null
+          current_period_end?: string | null
+          cancel_at_period_end?: boolean
+          trial_ends_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          stripe_subscription_id?: string | null
+          plan_id?: SubscriptionPlan
+          status?: SubscriptionStatus
+          current_period_start?: string | null
+          current_period_end?: string | null
+          cancel_at_period_end?: boolean
+          trial_ends_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      subscription_usage: {
+        Row: {
+          id: string
+          org_id: string
+          metric: UsageMetric
+          count: number
+          period_start: string
+          period_end: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          metric: UsageMetric
+          count?: number
+          period_start: string
+          period_end: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          metric?: UsageMetric
+          count?: number
+          period_start?: string
+          period_end?: string
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      audit_logs: {
+        Row: {
+          id: string
+          org_id: string
+          user_id: string
+          action: string
+          entity_type: string
+          entity_id: string | null
+          summary: string
+          details: Json
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          user_id: string
+          action: string
+          entity_type: string
+          entity_id?: string | null
+          summary: string
+          details?: Json
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          user_id?: string
+          action?: string
+          entity_type?: string
+          entity_id?: string | null
+          summary?: string
+          details?: Json
+          created_at?: string
+        }
+      }
+      notification_preferences: {
+        Row: {
+          id: string
+          org_id: string
+          user_id: string
+          email_new_donation: boolean
+          email_donor_milestone: boolean
+          email_weekly_digest: boolean
+          email_team_activity: boolean
+          email_system_alerts: boolean
+          inapp_new_donation: boolean
+          inapp_task_reminders: boolean
+          inapp_donor_lapsed: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          user_id: string
+          email_new_donation?: boolean
+          email_donor_milestone?: boolean
+          email_weekly_digest?: boolean
+          email_team_activity?: boolean
+          email_system_alerts?: boolean
+          inapp_new_donation?: boolean
+          inapp_task_reminders?: boolean
+          inapp_donor_lapsed?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          user_id?: string
+          email_new_donation?: boolean
+          email_donor_milestone?: boolean
+          email_weekly_digest?: boolean
+          email_team_activity?: boolean
+          email_system_alerts?: boolean
+          inapp_new_donation?: boolean
+          inapp_task_reminders?: boolean
+          inapp_donor_lapsed?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      donor_merge_history: {
+        Row: {
+          id: string
+          org_id: string
+          user_id: string
+          kept_donor_id: string
+          merged_donor_id: string
+          merged_donor_snapshot: Json
+          donations_moved: number
+          interactions_moved: number
+          notes_moved: number
+          tags_moved: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          user_id: string
+          kept_donor_id: string
+          merged_donor_id: string
+          merged_donor_snapshot?: Json
+          donations_moved?: number
+          interactions_moved?: number
+          notes_moved?: number
+          tags_moved?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          user_id?: string
+          kept_donor_id?: string
+          merged_donor_id?: string
+          merged_donor_snapshot?: Json
+          donations_moved?: number
+          interactions_moved?: number
+          notes_moved?: number
+          tags_moved?: number
+          created_at?: string
+        }
+      }
     }
   }
 }
@@ -415,3 +617,14 @@ export type PaymentMethod =
 export type DonorType = "individual" | "corporate" | "school" | "church"
 
 export type ReceiptTemplateCategory = "standard" | "daf" | "institutional"
+
+export type SubscriptionPlan = "trial" | "essentials" | "growth" | "pro"
+export type SubscriptionStatus = "trialing" | "active" | "past_due" | "canceled" | "unpaid"
+export type UsageMetric = "ai_insights" | "email_sends" | "donors"
+
+export type Subscription = Database["public"]["Tables"]["subscriptions"]["Row"]
+export type SubscriptionUsage = Database["public"]["Tables"]["subscription_usage"]["Row"]
+
+export type AuditLog = Database["public"]["Tables"]["audit_logs"]["Row"]
+export type NotificationPreferences = Database["public"]["Tables"]["notification_preferences"]["Row"]
+export type DonorMergeHistory = Database["public"]["Tables"]["donor_merge_history"]["Row"]

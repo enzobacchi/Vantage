@@ -2,9 +2,11 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { AlertTriangle, Link2 } from "lucide-react"
+import { useSearchParams } from "next/navigation"
+import { AlertCircle, AlertTriangle, FileSpreadsheet, Link2 } from "lucide-react"
 import { toast } from "sonner"
 
+import { CSVImportWizard } from "@/components/import/csv-import-wizard"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -25,6 +27,8 @@ type SyncState =
 export function SettingsIntegrations() {
   const [qbStatus, setQbStatus] = React.useState<QBStatus>({ connected: false })
   const [syncState, setSyncState] = React.useState<SyncState>({ status: "idle" })
+  const searchParams = useSearchParams()
+  const qbError = searchParams.get("qb_error")
 
   const fetchStatus = React.useCallback(async () => {
     try {
@@ -112,6 +116,18 @@ export function SettingsIntegrations() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {qbError && (
+            <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm dark:border-destructive/40 dark:bg-destructive/10">
+              <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" strokeWidth={1.5} />
+              <div className="flex-1 text-destructive">
+                <p className="font-medium">QuickBooks connection failed</p>
+                <p className="mt-0.5 text-xs opacity-80">{qbError}</p>
+                <p className="mt-1.5 text-xs opacity-70">
+                  Ensure that <code className="rounded bg-destructive/10 px-1">{typeof window !== "undefined" ? window.location.origin : ""}/api/quickbooks/callback</code> is registered as a Redirect URI in your Intuit Developer Console.
+                </p>
+              </div>
+            </div>
+          )}
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="flex size-10 items-center justify-center rounded-lg bg-muted font-semibold text-sm">
@@ -199,6 +215,21 @@ export function SettingsIntegrations() {
               </pre>
             </details>
           )}
+        </CardContent>
+      </Card>
+
+      <Card className="max-w-2xl">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileSpreadsheet className="size-5" strokeWidth={1.5} />
+            CSV Import
+          </CardTitle>
+          <CardDescription>
+            Upload a CSV file to import donors and donations into your CRM.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <CSVImportWizard />
         </CardContent>
       </Card>
     </div>

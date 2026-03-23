@@ -30,6 +30,41 @@ htmlcov/
 .DS_Store
 *.tsbuildinfo
 next-env.d.ts
+.vscode/
+.cursor/
+.claude/
+.mcp.json
+
+# AI agent / IDE extension directories
+.adal/
+.agent/
+.agents/
+.augment/
+.codebuddy/
+.commandcode/
+.continue/
+.cortex/
+.crush/
+.factory/
+.goose/
+.iflow/
+.junie/
+.kilocode/
+.kiro/
+.kode/
+.mcpjam/
+.mux/
+.neovate/
+.openhands/
+.pi/
+.pochi/
+.qoder/
+.qwen/
+.roo/
+.trae/
+.vibe/
+.windsurf/
+.zencoder/
 
 # Debug
 *.log

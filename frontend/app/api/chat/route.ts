@@ -4,6 +4,7 @@ import { convertToModelMessages, stepCountIs, streamText } from "ai"
 import { requireUserOrg } from "@/lib/auth"
 import { buildSystemPrompt } from "@/lib/chat/system-prompt"
 import { buildTools } from "@/lib/chat/tools"
+import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit"
 import { createAdminClient } from "@/lib/supabase/admin"
 
 export const runtime = "nodejs"
@@ -13,6 +14,10 @@ export async function POST(request: Request) {
   const auth = await requireUserOrg()
   if (!auth.ok) return auth.response
 
+  // Rate limit: 30 chat messages per org per minute
+  const rl = checkRateLimit(`chat:${auth.orgId}`, 30, 60_000)
+  if (rl.limited) return rateLimitResponse(rl.retryAfterMs)
+
   const { messages } = await request.json()
 
   const result = streamText({
@@ -20,6 +25,7 @@ export async function POST(request: Request) {
     system: buildSystemPrompt(auth.orgId),
     messages: await convertToModelMessages(messages),
     tools: buildTools(auth.orgId),
+    maxOutputTokens: 8192,
     maxRetries: 2,
     stopWhen: stepCountIs(8),
     onFinish: async ({ text }) => {

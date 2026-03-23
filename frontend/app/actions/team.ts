@@ -3,6 +3,7 @@
 import { Resend } from "resend"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUserOrg, getCurrentUserOrgWithRole } from "@/lib/auth"
+import { notifyTeamActivity } from "@/lib/notifications"
 
 const INVITE_FROM_EMAIL = "Vantage <invites@vantagedonorai.com>"
 
@@ -159,6 +160,11 @@ export async function sendInviteEmail(
   })
 
   if (error) return { error: error.message }
+
+  // Fire-and-forget team activity notification
+  const actorName = safeInviterName ?? "A team member"
+  void notifyTeamActivity(ctx.orgId, actorName, "invited a new team member", toEmail).catch(console.error)
+
   return {}
 }
 

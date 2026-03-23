@@ -50,7 +50,7 @@ export function buildTools(orgId: string) {
         let q = supabase
           .from("donors")
           .select(
-            "id,display_name,email,donor_type,total_lifetime_value,last_donation_date,city,state"
+            "id,display_name,donor_type,total_lifetime_value,last_donation_date,city,state"
           )
           .eq("org_id", orgId)
           .order("total_lifetime_value", {
@@ -83,7 +83,6 @@ export function buildTools(orgId: string) {
           return {
             id: d.id,
             display_name: d.display_name,
-            email: d.email,
             donor_type: d.donor_type,
             total_lifetime_value: d.total_lifetime_value,
             last_donation_date: d.last_donation_date,
@@ -156,8 +155,6 @@ export function buildTools(orgId: string) {
         return {
           profile: {
             display_name: donor.display_name,
-            email: donor.email,
-            phone: donor.phone,
             donor_type: donor.donor_type,
             city: donor.city,
             state: donor.state,
@@ -165,12 +162,10 @@ export function buildTools(orgId: string) {
             last_donation_date: donor.last_donation_date,
             lifecycle_status: lc.status,
             is_major_donor: lc.isMajor,
-            notes: donor.notes,
           },
           recent_donations: (donationsRes.data ?? []).map((d) => ({
             amount: d.amount,
             date: d.date,
-            memo: d.memo,
             payment_method: d.payment_method,
           })),
           recent_interactions: (interactionsRes.data ?? []).map((i) => ({
@@ -368,7 +363,6 @@ export function buildTools(orgId: string) {
             amount: Number(r.amount) || 0,
             date: r.date as string | null,
             payment_method: (r.payment_method as string) || "other",
-            memo: r.memo as string | null,
             campaign_name: r.campaign_id
               ? optionNames[r.campaign_id as string] ?? null
               : null,

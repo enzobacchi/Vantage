@@ -1,6 +1,6 @@
 "use client"
 
-import React, { Suspense } from "react"
+import React from "react"
 
 import { AppHeader } from "@/components/app-header"
 import { AppSidebar } from "@/components/app-sidebar"
@@ -13,6 +13,10 @@ import {
 } from "@/components/command-menu"
 import { DonorPopupProvider } from "@/components/donors/donor-popup"
 import { NavProvider } from "@/components/nav-context"
+import { OnboardingWizard } from "@/components/onboarding-wizard"
+import { TosAcceptanceDialog } from "@/components/tos-acceptance-dialog"
+import { StripeCheckoutLinker } from "@/components/stripe-checkout-linker"
+import { UsageAlertBanner } from "@/components/usage-alert-banner"
 import {
   SidebarInset,
   SidebarProvider,
@@ -26,18 +30,20 @@ function AutoSyncTrigger() {
 
 export default function DashboardShell({
   children,
+  tosAccepted = true,
+  onboardingDone = true,
 }: {
   children: React.ReactNode
+  tosAccepted?: boolean
+  onboardingDone?: boolean
 }) {
   return (
-    <Suspense
-      fallback={
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center text-muted-foreground">
-          Loading…
-        </div>
-      }
-    >
+    <>
       <AutoSyncTrigger />
+      <StripeCheckoutLinker />
+      <TosAcceptanceDialog open={!tosAccepted} />
+      {/* Show onboarding only after TOS is accepted */}
+      {tosAccepted && <OnboardingWizard open={!onboardingDone} />}
       <NavProvider>
         <SidebarProvider
           defaultOpen={true}
@@ -54,6 +60,7 @@ export default function DashboardShell({
           <AppSidebar />
           <SidebarInset>
             <AppHeader />
+            <UsageAlertBanner />
             <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-background">
               {children}
             </div>
@@ -66,6 +73,6 @@ export default function DashboardShell({
         </CommandMenuProvider>
       </SidebarProvider>
     </NavProvider>
-    </Suspense>
+    </>
   )
 }

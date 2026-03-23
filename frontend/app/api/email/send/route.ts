@@ -28,6 +28,14 @@ export async function POST(request: Request) {
       { status: 400 }
     )
   }
+  // Validate email format (RFC 5322 simplified)
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  if (!emailRegex.test(donorEmail.trim())) {
+    return NextResponse.json(
+      { error: "Invalid email address format" },
+      { status: 400 }
+    )
+  }
   if (!subject || typeof subject !== "string" || !subject.trim()) {
     return NextResponse.json(
       { error: "subject is required" },
@@ -103,8 +111,9 @@ export async function POST(request: Request) {
   })
 
   if (sendError) {
+    console.error("[email/send] Resend API error:", sendError.message)
     return NextResponse.json(
-      { error: "Failed to send email", details: sendError.message },
+      { error: "Failed to send email. Please try again later." },
       { status: 502 }
     )
   }
@@ -127,8 +136,9 @@ export async function POST(request: Request) {
   })
 
   if (insertError) {
+    console.error("[email/send] Failed to log interaction:", insertError.message)
     return NextResponse.json(
-      { error: "Email sent but failed to log to timeline", details: insertError.message },
+      { error: "Email sent but failed to log to timeline." },
       { status: 500 }
     )
   }

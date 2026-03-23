@@ -10,6 +10,9 @@ export function getQBRedirectUri(): string {
 
 /** Build redirect URI from request origin so cookie and callback share the same host. */
 export function getQBRedirectUriFromRequest(request: Request): string {
+  // If explicit env var is set, always prefer it for consistency with Intuit console
+  if (process.env.QB_REDIRECT_URI) return process.env.QB_REDIRECT_URI;
+
   const forwardedHost = request.headers.get("x-forwarded-host");
   const host = request.headers.get("host");
   const forwardedProto = request.headers.get("x-forwarded-proto");

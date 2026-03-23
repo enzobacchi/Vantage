@@ -42,6 +42,7 @@ export async function GET(request: Request) {
 
   try {
     const redirectUri = getQBRedirectUriFromRequest(request);
+    console.log("[QB callback] redirectUri:", redirectUri);
     const oauthClient = createQBOAuthClient(redirectUri);
     const authResponse = await oauthClient.createToken(request.url);
     const tokenJson = authResponse.getJson();
@@ -143,7 +144,23 @@ export async function GET(request: Request) {
     return res;
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unknown error";
-    console.error("QuickBooks callback error:", message);
+    console.error("[QB callback] error:", message);
+
+    // Try to redirect to settings with error info instead of raw JSON
+    const forwardedHost = request.headers.get("x-forwarded-host");
+    const host = forwardedHost ?? request.headers.get("host");
+    if (host) {
+      const forwardedProto = request.headers.get("x-forwarded-proto");
+      const isLocal = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(host);
+      const proto = isLocal ? "http" : (forwardedProto ?? "https");
+      const settingsUrl = new URL("/dashboard", `${proto}://${host}`);
+      settingsUrl.searchParams.set("view", "settings");
+      settingsUrl.searchParams.set("qb_error", message.slice(0, 200));
+      const res = NextResponse.redirect(settingsUrl.toString());
+      res.cookies.delete("qb_oauth_state");
+      return res;
+    }
+
     const res = NextResponse.json(
       { error: "QuickBooks callback failed.", details: message },
       { status: 400 }

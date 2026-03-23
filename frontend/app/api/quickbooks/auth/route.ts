@@ -20,6 +20,7 @@ export async function GET(request: NextRequest) {
   try {
     try {
       const redirectUri = getQBRedirectUriFromRequest(request);
+      console.log("[QB auth] redirectUri:", redirectUri, "| host:", request.headers.get("host"), "| x-forwarded-host:", request.headers.get("x-forwarded-host"));
       const oauthClient = createQBOAuthClient(redirectUri);
       const state = crypto.randomUUID();
 

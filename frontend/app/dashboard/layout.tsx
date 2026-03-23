@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation"
 import { getCurrentUserOrg } from "@/lib/auth"
+import { hasAcceptedTerms } from "@/app/actions/legal"
+import { hasCompletedOnboarding } from "@/app/actions/onboarding"
 import DashboardShell from "./dashboard-shell"
 
 export default async function DashboardLayout({
@@ -11,5 +13,13 @@ export default async function DashboardLayout({
   if (!userOrg) {
     redirect("/login?next=/dashboard")
   }
-  return <DashboardShell>{children}</DashboardShell>
+  const [tosAccepted, onboardingDone] = await Promise.all([
+    hasAcceptedTerms(),
+    hasCompletedOnboarding(),
+  ])
+  return (
+    <DashboardShell tosAccepted={tosAccepted} onboardingDone={onboardingDone}>
+      {children}
+    </DashboardShell>
+  )
 }

@@ -24,6 +24,8 @@ export function SignupForm({ ...props }: React.ComponentProps<typeof Card>) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const next = searchParams.get("next") ?? "/dashboard"
+  // Payment Link flow: checkout_session_id is passed from the Stripe success URL
+  const checkoutSessionId = searchParams.get("checkout_session_id")
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -83,6 +85,15 @@ export function SignupForm({ ...props }: React.ComponentProps<typeof Card>) {
           method: "POST",
           credentials: "include",
         })
+        // Payment Link flow: link the Stripe checkout session to this new account
+        if (checkoutSessionId) {
+          await fetch("/api/auth/link-stripe-checkout", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ checkout_session_id: checkoutSessionId }),
+          })
+        }
         router.push(next)
         router.refresh()
         return
@@ -91,6 +102,10 @@ export function SignupForm({ ...props }: React.ComponentProps<typeof Card>) {
       // Store it in a cookie so the auth callback can redirect back to /join?token=xxx
       if (next && next !== "/dashboard" && typeof document !== "undefined") {
         document.cookie = `auth_next_redirect=${encodeURIComponent(next)}; path=/; max-age=3600; SameSite=Lax`
+      }
+      // Preserve checkout_session_id through email confirmation flow
+      if (checkoutSessionId && typeof document !== "undefined") {
+        document.cookie = `stripe_checkout_session_id=${encodeURIComponent(checkoutSessionId)}; path=/; max-age=3600; SameSite=Lax`
       }
       setEmailConfirmRequired(true)
     } finally {
@@ -191,6 +206,17 @@ export function SignupForm({ ...props }: React.ComponentProps<typeof Card>) {
             )}
             <FieldGroup>
               <Field>
+                <p className="text-xs text-muted-foreground text-center">
+                  By creating an account, you agree to our{" "}
+                  <Link href="/terms" target="_blank" className="underline hover:text-foreground">
+                    Terms of Service
+                  </Link>{" "}
+                  and{" "}
+                  <Link href="/privacy" target="_blank" className="underline hover:text-foreground">
+                    Privacy Policy
+                  </Link>
+                  .
+                </p>
                 <Button type="submit" className="w-full" disabled={loading}>
                   {loading ? "Creating account…" : "Create Account"}
                 </Button>

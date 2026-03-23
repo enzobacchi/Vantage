@@ -7,17 +7,11 @@ import { cn } from "@/lib/utils"
 import { createBrowserSupabaseClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import {
   Field,
   FieldDescription,
   FieldGroup,
   FieldLabel,
+  FieldSeparator,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -91,73 +85,63 @@ export function LoginForm({
           </AlertDescription>
         </Alert>
       )}
-      <Card>
-        <CardHeader>
-          <CardTitle>Login to your account</CardTitle>
-          <CardDescription>
-            Enter your email below to login to your account
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit}>
-            <FieldGroup>
-              <Field>
-                <FieldLabel htmlFor="email">Email</FieldLabel>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="m@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  autoComplete="email"
-                />
-              </Field>
-              <Field>
-                <div className="flex items-center">
-                  <FieldLabel htmlFor="password">Password</FieldLabel>
-                  <Link
-                    href="/forgot-password"
-                    className="ml-auto inline-block text-sm underline-offset-4 hover:underline"
-                  >
-                    Forgot your password?
-                  </Link>
-                </div>
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  autoComplete="current-password"
-                />
-              </Field>
-              {error && (
-                <p className="text-sm text-destructive" role="alert">
-                  {error}
-                </p>
-              )}
-              <Field>
-                <Button type="submit" className="w-full" disabled={loading}>
-                  {loading ? "Signing in…" : "Login"}
-                </Button>
-                <Button variant="outline" className="w-full" type="button" asChild>
-                  <a href="/api/quickbooks/auth">Sign in with QuickBooks</a>
-                </Button>
-                <FieldDescription className="text-center">
-                  Don&apos;t have an account?{" "}
-                  <Link
-                    href={next ? `/signup?next=${encodeURIComponent(next)}` : "/signup"}
-                    className="underline hover:text-foreground"
-                  >
-                    Sign up
-                  </Link>
-                </FieldDescription>
-              </Field>
-            </FieldGroup>
-          </form>
-        </CardContent>
-      </Card>
+      <form onSubmit={handleSubmit}>
+        <FieldGroup>
+          <div className="flex flex-col items-center gap-1 text-center">
+            <h1 className="text-2xl font-bold">Welcome back</h1>
+            <p className="text-sm text-balance text-muted-foreground">
+              Sign in to your Vantage account
+            </p>
+          </div>
+          <Field>
+            <FieldLabel htmlFor="email">Email</FieldLabel>
+            <Input
+              id="email"
+              type="email"
+              placeholder="m@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              autoComplete="email"
+            />
+          </Field>
+          <Field>
+            <div className="flex items-center">
+              <FieldLabel htmlFor="password">Password</FieldLabel>
+              <Link
+                href="/forgot-password"
+                className="ml-auto inline-block text-sm underline-offset-4 hover:underline"
+              >
+                Forgot your password?
+              </Link>
+            </div>
+            <Input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              autoComplete="current-password"
+            />
+          </Field>
+          {error && (
+            <p className="text-sm text-destructive" role="alert">
+              {error}
+            </p>
+          )}
+          <Field>
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? "Signing in…" : "Sign in"}
+            </Button>
+          </Field>
+          <FieldSeparator>Or continue with</FieldSeparator>
+          <Field>
+            <Button variant="outline" className="w-full" type="button" asChild>
+              <a href="/api/quickbooks/auth">Sign in with QuickBooks</a>
+            </Button>
+          </Field>
+        </FieldGroup>
+      </form>
     </div>
   )
 }

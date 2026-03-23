@@ -6,13 +6,6 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { createBrowserSupabaseClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import {
   Field,
   FieldDescription,
   FieldGroup,
@@ -20,7 +13,10 @@ import {
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 
-export function SignupForm({ ...props }: React.ComponentProps<typeof Card>) {
+export function SignupForm({
+  className,
+  ...props
+}: React.ComponentProps<"div">) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const next = searchParams.get("next") ?? "/dashboard"
@@ -115,125 +111,117 @@ export function SignupForm({ ...props }: React.ComponentProps<typeof Card>) {
 
   if (emailConfirmRequired) {
     return (
-      <Card {...props}>
-        <CardHeader>
-          <CardTitle>Check your email</CardTitle>
-          <CardDescription>
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-col items-center gap-1 text-center">
+          <h1 className="text-2xl font-bold">Check your email</h1>
+          <p className="text-sm text-balance text-muted-foreground">
             We sent a confirmation link to <strong>{email}</strong>. Click it to
             activate your account, then sign in.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button asChild className="w-full">
-            <Link href={next ? `/login?next=${encodeURIComponent(next)}` : "/login"}>
-              Go to sign in
-            </Link>
-          </Button>
-        </CardContent>
-      </Card>
+          </p>
+        </div>
+        <Button asChild className="w-full">
+          <Link href={next ? `/login?next=${encodeURIComponent(next)}` : "/login"}>
+            Go to sign in
+          </Link>
+        </Button>
+      </div>
     )
   }
 
   return (
-    <Card {...props}>
-      <CardHeader>
-        <CardTitle>Create an account</CardTitle>
-        <CardDescription>
-          {next && next.includes("/join") ? "Create your account to join the team." : "Enter your information below to create your account"}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit}>
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="name">Full Name</FieldLabel>
-              <Input
-                id="name"
-                type="text"
-                placeholder="John Doe"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                autoComplete="name"
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="email">Email</FieldLabel>
-              <Input
-                id="email"
-                type="email"
-                placeholder="m@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                autoComplete="email"
-              />
-              <FieldDescription>
-                We&apos;ll use this to contact you. We will not share your email
-                with anyone else.
-              </FieldDescription>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="password">Password</FieldLabel>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={8}
-                autoComplete="new-password"
-              />
-              <FieldDescription>
-                Must be at least 8 characters long.
-              </FieldDescription>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="confirm-password">Confirm Password</FieldLabel>
-              <Input
-                id="confirm-password"
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                required
-                minLength={8}
-                autoComplete="new-password"
-              />
-            </Field>
-            {error && (
-              <p className="text-sm text-destructive" role="alert">
-                {error}
-              </p>
-            )}
-            <FieldGroup>
-              <Field>
-                <p className="text-xs text-muted-foreground text-center">
-                  By creating an account, you agree to our{" "}
-                  <Link href="/terms" target="_blank" className="underline hover:text-foreground">
-                    Terms of Service
-                  </Link>{" "}
-                  and{" "}
-                  <Link href="/privacy" target="_blank" className="underline hover:text-foreground">
-                    Privacy Policy
-                  </Link>
-                  .
-                </p>
-                <Button type="submit" className="w-full" disabled={loading}>
-                  {loading ? "Creating account…" : "Create Account"}
-                </Button>
-                <FieldDescription className="text-center">
-                  Already have an account?{" "}
-                  <Link
-                    href={next ? `/login?next=${encodeURIComponent(next)}` : "/login"}
-                    className="underline hover:text-foreground"
-                  >
-                    Sign in
-                  </Link>
-                </FieldDescription>
-              </Field>
-            </FieldGroup>
-          </FieldGroup>
-        </form>
-      </CardContent>
-    </Card>
+    <div className={className} {...props}>
+      <form onSubmit={handleSubmit}>
+        <FieldGroup>
+          <div className="flex flex-col items-center gap-1 text-center">
+            <h1 className="text-2xl font-bold">Create your account</h1>
+            <p className="text-sm text-balance text-muted-foreground">
+              {next && next.includes("/join")
+                ? "Create your account to join the team."
+                : "Get started with Vantage"}
+            </p>
+          </div>
+          <Field>
+            <FieldLabel htmlFor="name">Full Name</FieldLabel>
+            <Input
+              id="name"
+              type="text"
+              placeholder="John Doe"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoComplete="name"
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="email">Email</FieldLabel>
+            <Input
+              id="email"
+              type="email"
+              placeholder="m@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              autoComplete="email"
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="password">Password</FieldLabel>
+            <Input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              minLength={8}
+              autoComplete="new-password"
+            />
+            <FieldDescription>
+              Must be at least 8 characters long.
+            </FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="confirm-password">Confirm Password</FieldLabel>
+            <Input
+              id="confirm-password"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              minLength={8}
+              autoComplete="new-password"
+            />
+          </Field>
+          {error && (
+            <p className="text-sm text-destructive" role="alert">
+              {error}
+            </p>
+          )}
+          <Field>
+            <p className="text-xs text-muted-foreground text-center">
+              By creating an account, you agree to our{" "}
+              <Link href="/terms" target="_blank" className="underline hover:text-foreground">
+                Terms of Service
+              </Link>{" "}
+              and{" "}
+              <Link href="/privacy" target="_blank" className="underline hover:text-foreground">
+                Privacy Policy
+              </Link>
+              .
+            </p>
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? "Creating account…" : "Create Account"}
+            </Button>
+            <FieldDescription className="text-center">
+              Already have an account?{" "}
+              <Link
+                href={next ? `/login?next=${encodeURIComponent(next)}` : "/login"}
+                className="underline hover:text-foreground"
+              >
+                Sign in
+              </Link>
+            </FieldDescription>
+          </Field>
+        </FieldGroup>
+      </form>
+    </div>
   )
 }

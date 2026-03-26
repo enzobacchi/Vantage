@@ -98,50 +98,15 @@ function formatDateTime(value: string | null | undefined) {
   return d.toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })
 }
 
-type SortOption = "recent" | "highest" | "lowest"
+type SortOption = "recent" | "highest" | "lowest" | "lifetime_highest" | "lifetime_lowest"
 
 const SORT_OPTIONS: { value: SortOption; label: string }[] = [
   { value: "recent", label: "Most recent" },
-  { value: "highest", label: "Highest given" },
-  { value: "lowest", label: "Lowest given" },
+  { value: "highest", label: "Highest last gift" },
+  { value: "lowest", label: "Lowest last gift" },
+  { value: "lifetime_highest", label: "Highest lifetime" },
+  { value: "lifetime_lowest", label: "Lowest lifetime" },
 ]
-
-function sortDonors(donors: Donor[], sort: SortOption): Donor[] {
-  const arr = [...donors]
-  if (sort === "recent") {
-    arr.sort((a, b) => {
-      const da = a.last_donation_date ?? ""
-      const db = b.last_donation_date ?? ""
-      return db.localeCompare(da) // newest first
-    })
-  } else if (sort === "highest") {
-    arr.sort((a, b) => {
-      const na = toNumber(a.last_donation_amount)
-      const nb = toNumber(b.last_donation_amount)
-      if (na == null && nb == null) return 0
-      if (na == null) return 1
-      if (nb == null) return -1
-      return nb - na // highest first
-    })
-  } else {
-    // lowest
-    arr.sort((a, b) => {
-      const na = toNumber(a.last_donation_amount)
-      const nb = toNumber(b.last_donation_amount)
-      if (na == null && nb == null) return 0
-      if (na == null) return 1
-      if (nb == null) return -1
-      return na - nb // lowest first
-    })
-  }
-  return arr
-}
-
-function toNumber(value: number | string | null | undefined): number | null {
-  if (value == null) return null
-  const n = typeof value === "number" ? value : Number(value)
-  return Number.isFinite(n) ? n : null
-}
 
 function interactionIcon(type: Interaction["type"]) {
   switch (type) {
@@ -531,6 +496,7 @@ export function DonorCRMView() {
     dateRange?: { from?: string; to?: string },
     currentPage?: number,
     search?: string,
+    sort?: SortOption,
   ) => {
     try {
       setLoading(true)
@@ -540,6 +506,7 @@ export function DonorCRMView() {
       if (dateRange?.from) params.set("from", dateRange.from)
       if (dateRange?.to) params.set("to", dateRange.to)
       if (search?.trim()) params.set("search", search.trim())
+      if (sort) params.set("sort", sort)
       params.set("page", String(currentPage ?? 0))
       params.set("limit", String(PAGE_SIZE))
       const res = await fetch(`/api/donors?${params.toString()}`)
@@ -567,9 +534,9 @@ export function DonorCRMView() {
   const dateRange = React.useMemo(() => getDateRangeFromSearchParams(searchParams), [searchParams])
 
   React.useEffect(() => {
-    loadDonors(selectedTagIds, dateRange, page, searchQuery)
+    loadDonors(selectedTagIds, dateRange, page, searchQuery, sortBy)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTagIds, dateRange.from, dateRange.to, page, loadDonors])
+  }, [selectedTagIds, dateRange.from, dateRange.to, page, sortBy, loadDonors])
 
   // When search query changes, reset to page 0 and reload
   const searchTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -577,7 +544,7 @@ export function DonorCRMView() {
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
     searchTimeoutRef.current = setTimeout(() => {
       setPage(0)
-      loadDonors(selectedTagIds, dateRange, 0, searchQuery)
+      loadDonors(selectedTagIds, dateRange, 0, searchQuery, sortBy)
     }, 300)
     return () => {
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
@@ -593,7 +560,7 @@ export function DonorCRMView() {
     []
   )
 
-  const sortedDonors = React.useMemo(() => sortDonors(donors, sortBy), [donors, sortBy])
+  // Sorting is now handled server-side via the sort query param
 
   const openDonorSheet = React.useCallback((donorId: string) => {
     setSheetDonorId(donorId)
@@ -617,14 +584,14 @@ export function DonorCRMView() {
         toast.success(`Tag added to ${count} donor${count === 1 ? "" : "s"}`)
         setBulkTagOpen(null)
         dataTableRef.current?.clearSelection()
-        loadDonors(selectedTagIds, dateRange, page, searchQuery)
+        loadDonors(selectedTagIds, dateRange, page, searchQuery, sortBy)
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Failed to add tag")
       } finally {
         setBulkTagSaving(false)
       }
     },
-    [selectedDonors, selectedTagIds, dateRange, page, searchQuery, loadDonors]
+    [selectedDonors, selectedTagIds, dateRange, page, searchQuery, sortBy, loadDonors]
   )
 
   const handleBulkRemoveTag = React.useCallback(
@@ -639,14 +606,14 @@ export function DonorCRMView() {
         toast.success(`Tag removed from ${count} donor${count === 1 ? "" : "s"}`)
         setBulkTagOpen(null)
         dataTableRef.current?.clearSelection()
-        loadDonors(selectedTagIds, dateRange, page, searchQuery)
+        loadDonors(selectedTagIds, dateRange, page, searchQuery, sortBy)
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Failed to remove tag")
       } finally {
         setBulkTagSaving(false)
       }
     },
-    [selectedDonors, selectedTagIds, dateRange, page, searchQuery, loadDonors]
+    [selectedDonors, selectedTagIds, dateRange, page, searchQuery, sortBy, loadDonors]
   )
 
   const handleBulkDelete = React.useCallback(async () => {
@@ -657,13 +624,13 @@ export function DonorCRMView() {
       toast.success(`Deleted ${count} donor${count === 1 ? "" : "s"}`)
       setBulkDeleteOpen(false)
       dataTableRef.current?.clearSelection()
-      loadDonors(selectedTagIds, dateRange, page, searchQuery)
+      loadDonors(selectedTagIds, dateRange, page, searchQuery, sortBy)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to delete donors")
     } finally {
       setBulkDeleting(false)
     }
-  }, [selectedDonors, selectedTagIds, dateRange, page, searchQuery, loadDonors])
+  }, [selectedDonors, selectedTagIds, dateRange, page, searchQuery, sortBy, loadDonors])
 
   const handleBulkExport = React.useCallback(() => {
     if (selectedDonors.length === 0) return
@@ -706,13 +673,13 @@ export function DonorCRMView() {
       setMergeOpen(false)
       setMergePrimaryId(null)
       dataTableRef.current?.clearSelection()
-      loadDonors(selectedTagIds, dateRange, page, searchQuery)
+      loadDonors(selectedTagIds, dateRange, page, searchQuery, sortBy)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to merge donors")
     } finally {
       setMerging(false)
     }
-  }, [selectedDonors, mergePrimaryId, selectedTagIds, dateRange, page, searchQuery, loadDonors])
+  }, [selectedDonors, mergePrimaryId, selectedTagIds, dateRange, page, searchQuery, sortBy, loadDonors])
 
   React.useEffect(() => {
     if (!sheetOpen || !sheetDonorId) {
@@ -799,7 +766,7 @@ export function DonorCRMView() {
                     ? { from: format(range.from, "yyyy-MM-dd"), to: format(range.to, "yyyy-MM-dd") }
                     : {}
                 setPage(0)
-                loadDonors(selectedTagIds, next, 0, searchQuery)
+                loadDonors(selectedTagIds, next, 0, searchQuery, sortBy)
               }}
             />
             <DonorTagFilter
@@ -824,7 +791,7 @@ export function DonorCRMView() {
               </Label>
               <Select
                 value={sortBy}
-                onValueChange={(value) => setSortBy(value as SortOption)}
+                onValueChange={(value) => { setSortBy(value as SortOption); setPage(0) }}
               >
                 <SelectTrigger id="donor-sort" className="w-[180px]">
                   <SelectValue />
@@ -1031,7 +998,7 @@ export function DonorCRMView() {
 
           <DataTable<Donor, unknown>
             columns={donorColumns}
-            data={sortedDonors}
+            data={donors}
             loading={loading}
             error={error}
             emptyMessage={emptyMessage}

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireUserOrg } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isLimitExceeded } from "@/lib/subscription";
 
 export const runtime = "nodejs";
 
@@ -20,15 +21,8 @@ export type DonorListItem = {
   tags: DonorTag[];
 };
 
-/** Deterministic "random" amount for demo — seeded by donor id so it's stable across refreshes. */
-function demoLastGift(donorId: string): number {
-  let hash = 0;
-  for (let i = 0; i < donorId.length; i++) {
-    hash = (hash * 31 + donorId.charCodeAt(i)) >>> 0;
-  }
-  const buckets = [25, 50, 100, 250, 500, 1000, 2500, 5000];
-  return buckets[hash % buckets.length];
-}
+/** Valid sort options accepted via ?sort= query param. */
+type SortOption = "recent" | "highest" | "lowest" | "lifetime_highest" | "lifetime_lowest";
 
 /** Fetch first_donation_date, donor_tags, and tag metadata for a list of donor IDs in parallel. */
 async function fetchDonorExtras(
@@ -112,6 +106,7 @@ export async function GET(request: Request) {
   const page = Number.isFinite(pageParam) && pageParam >= 0 ? pageParam : 0;
   const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 200) : 50;
   const searchQuery = searchParams.get("search")?.trim() ?? "";
+  const sortParam = (searchParams.get("sort")?.trim() ?? "lifetime_highest") as SortOption;
 
   const supabase = createAdminClient();
 
@@ -176,6 +171,33 @@ export async function GET(request: Request) {
     }
 
     let sorted = (donorsRes.data ?? []).sort((a, b) => {
+      if (sortParam === "recent") {
+        const da = lastDonationInRange[a.id]?.date ?? "";
+        const db = lastDonationInRange[b.id]?.date ?? "";
+        return db.localeCompare(da);
+      }
+      if (sortParam === "lowest") {
+        const va = lastDonationInRange[a.id]?.amount ?? null;
+        const vb = lastDonationInRange[b.id]?.amount ?? null;
+        if (va == null && vb == null) return 0;
+        if (va == null) return 1;
+        if (vb == null) return -1;
+        return va - vb;
+      }
+      if (sortParam === "highest") {
+        const va = lastDonationInRange[a.id]?.amount ?? null;
+        const vb = lastDonationInRange[b.id]?.amount ?? null;
+        if (va == null && vb == null) return 0;
+        if (va == null) return 1;
+        if (vb == null) return -1;
+        return vb - va;
+      }
+      if (sortParam === "lifetime_lowest") {
+        const va = totalByDonorInRange[a.id] ?? 0;
+        const vb = totalByDonorInRange[b.id] ?? 0;
+        return va - vb;
+      }
+      // default: lifetime_highest
       const va = totalByDonorInRange[a.id] ?? 0;
       const vb = totalByDonorInRange[b.id] ?? 0;
       return vb - va;
@@ -197,7 +219,7 @@ export async function GET(request: Request) {
         tags: extras.tagsByDonor[d.id] ?? [],
         total_lifetime_value: totalByDonorInRange[d.id] ?? 0,
         last_donation_date: lastInRange?.date ?? null,
-        last_donation_amount: rawAmount ?? demoLastGift(d.id),
+        last_donation_amount: rawAmount ?? null,
       };
     });
 
@@ -228,12 +250,30 @@ export async function GET(request: Request) {
   const { count: totalCount } = await countQuery;
   const total = totalCount ?? 0;
 
+  // Determine server-side sort column and direction
+  let orderColumn = "total_lifetime_value";
+  let ascending = false;
+  if (sortParam === "recent") {
+    orderColumn = "last_donation_date";
+    ascending = false;
+  } else if (sortParam === "highest") {
+    orderColumn = "last_donation_amount";
+    ascending = false;
+  } else if (sortParam === "lowest") {
+    orderColumn = "last_donation_amount";
+    ascending = true;
+  } else if (sortParam === "lifetime_lowest") {
+    orderColumn = "total_lifetime_value";
+    ascending = true;
+  }
+  // default (lifetime_highest): total_lifetime_value desc
+
   // Data query with offset pagination
   let query = supabase
     .from("donors")
     .select("id, display_name, total_lifetime_value, last_donation_amount, last_donation_date, billing_address, state, notes")
     .eq("org_id", auth.orgId)
-    .order("total_lifetime_value", { ascending: false, nullsFirst: false })
+    .order(orderColumn, { ascending, nullsFirst: false })
     .range(page * limit, page * limit + limit - 1);
 
   if (tagFilteredIds) query = query.in("id", tagFilteredIds);
@@ -261,8 +301,56 @@ export async function GET(request: Request) {
     ...d,
     first_donation_date: extras.firstByDonor[d.id] ?? null,
     tags: extras.tagsByDonor[d.id] ?? [],
-    last_donation_amount: d.last_donation_amount ?? demoLastGift(d.id),
+    last_donation_amount: d.last_donation_amount ?? null,
   }));
 
   return NextResponse.json({ donors: result, total } satisfies DonorListResponse);
+}
+
+const VALID_DONOR_TYPES = ["individual", "corporate", "school", "church"] as const;
+
+export async function POST(request: Request) {
+  const auth = await requireUserOrg();
+  if (!auth.ok) return auth.response;
+
+  const body = await request.json();
+  const displayName = typeof body.display_name === "string" ? body.display_name.trim() : "";
+  if (!displayName) {
+    return NextResponse.json({ error: "display_name is required" }, { status: 400 });
+  }
+
+  if (await isLimitExceeded(auth.orgId, "donors")) {
+    return NextResponse.json(
+      { error: "Donor limit reached. Please upgrade your plan." },
+      { status: 429 }
+    );
+  }
+
+  const donorType = VALID_DONOR_TYPES.includes(body.donor_type) ? body.donor_type : "individual";
+
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("donors")
+    .insert({
+      org_id: auth.orgId,
+      display_name: displayName,
+      email: body.email?.trim() || null,
+      phone: body.phone?.trim() || null,
+      billing_address: body.billing_address?.trim() || null,
+      city: body.city?.trim() || null,
+      state: body.state?.trim() || null,
+      zip: body.zip?.trim() || null,
+      donor_type: donorType,
+      total_lifetime_value: 0,
+      last_donation_date: null,
+      last_donation_amount: null,
+    })
+    .select("id")
+    .single();
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ id: data.id }, { status: 201 });
 }

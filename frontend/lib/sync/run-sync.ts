@@ -81,6 +81,7 @@ type QBSalesReceipt = {
   TxnDate?: string;
   TotalAmt?: number;
   CustomerRef?: { value?: string; name?: string };
+  PaymentMethodRef?: { value?: string; name?: string };
   PrivateNote?: string;
   DocNumber?: string;
 };
@@ -240,7 +241,7 @@ async function fetchQBSalesReceipts({
     const remaining = maxToFetch - receipts.length;
     const take = Math.min(pageSize, remaining);
 
-    const query = `select Id, TxnDate, TotalAmt, CustomerRef, PrivateNote, DocNumber from SalesReceipt${whereClause}${orderClause} startposition ${startPosition} maxresults ${take}`;
+    const query = `select Id, TxnDate, TotalAmt, CustomerRef, PaymentMethodRef, PrivateNote, DocNumber from SalesReceipt${whereClause}${orderClause} startposition ${startPosition} maxresults ${take}`;
     const endpoint = new URL(
       `${base}/v3/company/${encodeURIComponent(realmId)}/query`
     );
@@ -291,7 +292,7 @@ async function fetchQBSalesReceiptsAllForLTV(
   const maxPages = 1000;
 
   for (let page = 0; page < maxPages; page++) {
-    const query = `select Id, TxnDate, TotalAmt, CustomerRef, PrivateNote, DocNumber from SalesReceipt startposition ${startPosition} maxresults ${pageSize}`;
+    const query = `select Id, TxnDate, TotalAmt, CustomerRef, PaymentMethodRef, PrivateNote, DocNumber from SalesReceipt startposition ${startPosition} maxresults ${pageSize}`;
     const endpoint = new URL(
       `${base}/v3/company/${encodeURIComponent(realmId)}/query`
     );
@@ -710,11 +711,14 @@ export async function runSyncForOrg(
         if (amount == null || !date) continue;
 
         const receiptId = r.Id ?? "";
-        const note = r.PrivateNote?.trim();
-        const doc = r.DocNumber?.trim();
-        const memo = `qb_sales_receipt_id:${receiptId}${
-          note ? ` ${note}` : doc ? ` SalesReceipt #${doc}` : ""
-        }`;
+        // Use only the QB receipt ID as the dedup key — PrivateNote and
+        // DocNumber are mutable fields whose changes would create duplicate
+        // donation rows on re-sync.
+        const memo = `qb_sales_receipt_id:${receiptId}`;
+
+        // Use the actual payment method from QB (e.g. "Credit Card", "Check",
+        // "Cash", "Zelle", "PayPal", etc.) instead of just "quickbooks".
+        const qbPaymentMethod = r.PaymentMethodRef?.name?.trim() || null;
 
         donationsToUpsert.push({
           org_id: orgId,
@@ -722,7 +726,7 @@ export async function runSyncForOrg(
           amount,
           date,
           memo,
-          payment_method: "quickbooks",
+          payment_method: qbPaymentMethod ?? "quickbooks",
           source: "quickbooks",
         });
       }

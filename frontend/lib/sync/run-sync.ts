@@ -241,7 +241,7 @@ async function fetchQBSalesReceipts({
     const remaining = maxToFetch - receipts.length;
     const take = Math.min(pageSize, remaining);
 
-    const query = `select Id, TxnDate, TotalAmt, CustomerRef, PaymentMethodRef, PrivateNote, DocNumber from SalesReceipt${whereClause}${orderClause} startposition ${startPosition} maxresults ${take}`;
+    const query = `select * from SalesReceipt${whereClause}${orderClause} startposition ${startPosition} maxresults ${take}`;
     const endpoint = new URL(
       `${base}/v3/company/${encodeURIComponent(realmId)}/query`
     );
@@ -292,7 +292,7 @@ async function fetchQBSalesReceiptsAllForLTV(
   const maxPages = 1000;
 
   for (let page = 0; page < maxPages; page++) {
-    const query = `select Id, TxnDate, TotalAmt, CustomerRef, PaymentMethodRef, PrivateNote, DocNumber from SalesReceipt startposition ${startPosition} maxresults ${pageSize}`;
+    const query = `select * from SalesReceipt startposition ${startPosition} maxresults ${pageSize}`;
     const endpoint = new URL(
       `${base}/v3/company/${encodeURIComponent(realmId)}/query`
     );

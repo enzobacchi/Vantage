@@ -203,10 +203,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   }
 
   const handleNotificationsClick = () => {
-    setActiveView("settings")
-    if (pathname !== "/dashboard") {
-      router.push("/dashboard?view=settings")
-    }
+    router.push("/settings?tab=notifications")
   }
 
   const isActive = (view: string | null, url?: string) => {

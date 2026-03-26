@@ -47,6 +47,22 @@ export function SettingsIntegrations() {
     fetchStatus()
   }, [fetchStatus])
 
+  // Handle QB OAuth callback params: show toast and auto-trigger full sync
+  const autoSyncTriggered = React.useRef(false)
+  React.useEffect(() => {
+    const qb = searchParams.get("qb")
+    const realmId = searchParams.get("realmId")
+    if (qb === "connected" && realmId && !autoSyncTriggered.current) {
+      autoSyncTriggered.current = true
+      toast.success("Connected to QuickBooks", {
+        description: "Starting initial data sync...",
+      })
+      setQbStatus((prev) => ({ ...prev, connected: true, realmId }))
+      // Auto-trigger a full sync so the user sees their data immediately
+      runSync({ full: true })
+    }
+  }, [searchParams]) // eslint-disable-line react-hooks/exhaustive-deps
+
   async function runSync(opts?: { full?: boolean }) {
     try {
       setSyncState({ status: "loading" })

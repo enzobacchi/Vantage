@@ -70,53 +70,116 @@ export async function GET(request: Request) {
     }
 
     const admin = createAdminClient();
-    const { data: orgRow, error } = await admin
-      .from("organizations")
-      .upsert(
-        {
-          name: "Default Organization",
-          qb_realm_id: realmId,
-          qb_access_token: accessToken,
-          qb_refresh_token: refreshToken,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "qb_realm_id" }
-      )
-      .select("id")
-      .single();
-
-    if (error) {
-      console.error("[QB callback] Failed to save tokens:", error.message);
-      return NextResponse.json(
-        { error: "Failed to save tokens to Supabase." },
-        { status: 500 }
-      );
-    }
-
-    // Link current user to this org.
-    // First person to connect this QB company becomes the owner; subsequent users are members.
     const serverSupabase = await createServerSupabaseClient();
     const {
       data: { user },
     } = await serverSupabase.auth.getUser();
-    if (user?.id && orgRow?.id) {
-      const { data: existing } = await admin
+
+    let orgId: string | null = null;
+
+    if (user?.id) {
+      // Authenticated user: update their EXISTING org with QB tokens
+      // instead of creating a second org via upsert-on-realm-id.
+      const { data: membership } = await admin
         .from("organization_members")
-        .select("id")
+        .select("organization_id")
         .eq("user_id", user.id)
-        .eq("organization_id", orgRow.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
         .maybeSingle();
-      if (!existing) {
-        const { count } = await admin
-          .from("organization_members")
-          .select("id", { count: "exact", head: true })
-          .eq("organization_id", orgRow.id);
+
+      if (membership?.organization_id) {
+        // Clear QB tokens from any other org that has this realm ID
+        // to avoid unique constraint violation on qb_realm_id.
+        const { data: existingQbOrg } = await admin
+          .from("organizations")
+          .select("id")
+          .eq("qb_realm_id", realmId)
+          .neq("id", membership.organization_id)
+          .maybeSingle();
+
+        if (existingQbOrg) {
+          await admin
+            .from("organizations")
+            .update({ qb_realm_id: null, qb_access_token: null, qb_refresh_token: null })
+            .eq("id", existingQbOrg.id);
+        }
+
+        const { error: updateError } = await admin
+          .from("organizations")
+          .update({
+            qb_realm_id: realmId,
+            qb_access_token: accessToken,
+            qb_refresh_token: refreshToken,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", membership.organization_id);
+
+        if (updateError) {
+          console.error("[QB callback] Failed to update org with tokens:", updateError.message);
+          return NextResponse.json(
+            { error: "Failed to save tokens to Supabase." },
+            { status: 500 }
+          );
+        }
+
+        orgId = membership.organization_id;
+      } else {
+        // User has no org yet (rare) — create one
+        const { data: newOrg, error: createError } = await admin
+          .from("organizations")
+          .insert({
+            name: "Default Organization",
+            qb_realm_id: realmId,
+            qb_access_token: accessToken,
+            qb_refresh_token: refreshToken,
+            updated_at: new Date().toISOString(),
+          })
+          .select("id")
+          .single();
+
+        if (createError || !newOrg?.id) {
+          console.error("[QB callback] Failed to create org:", createError?.message);
+          return NextResponse.json(
+            { error: "Failed to save tokens to Supabase." },
+            { status: 500 }
+          );
+        }
+
+        orgId = newOrg.id;
+
         await admin.from("organization_members").insert({
           user_id: user.id,
-          organization_id: orgRow.id,
-          role: count === 0 ? "owner" : "member",
+          organization_id: orgId,
+          role: "owner",
         });
       }
+    } else {
+      // Not authenticated: upsert org by realm ID (pending org cookie flow)
+      const { data: orgRow, error } = await admin
+        .from("organizations")
+        .upsert(
+          {
+            name: "Default Organization",
+            qb_realm_id: realmId,
+            qb_access_token: accessToken,
+            qb_refresh_token: refreshToken,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "qb_realm_id" }
+        )
+        .select("id")
+        .single();
+
+      if (error) {
+        console.error("[QB callback] Failed to save tokens:", error.message);
+        return NextResponse.json(
+          { error: "Failed to save tokens to Supabase." },
+          { status: 500 }
+        );
+      }
+
+      orgId = orgRow?.id ?? null;
     }
 
     // Build a safe redirect origin:
@@ -134,8 +197,8 @@ export async function GET(request: Request) {
     const redirectTo =
       user?.id
         ? (() => {
-            const u = new URL("/dashboard", origin);
-            u.searchParams.set("view", "settings");
+            const u = new URL("/settings", origin);
+            u.searchParams.set("tab", "integrations");
             u.searchParams.set("qb", "connected");
             u.searchParams.set("realmId", realmId);
             return u;
@@ -144,8 +207,8 @@ export async function GET(request: Request) {
     const res = NextResponse.redirect(redirectTo);
 
     res.cookies.delete("qb_oauth_state");
-    if (!user?.id && orgRow?.id) {
-      res.cookies.set("qb_pending_org_id", orgRow.id, {
+    if (!user?.id && orgId) {
+      res.cookies.set("qb_pending_org_id", orgId, {
         httpOnly: true,
         sameSite: "lax",
         secure: process.env.NODE_ENV === "production",
@@ -165,8 +228,8 @@ export async function GET(request: Request) {
       const forwardedProto = request.headers.get("x-forwarded-proto");
       const isLocal = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(host);
       const proto = isLocal ? "http" : (forwardedProto ?? "https");
-      const settingsUrl = new URL("/dashboard", `${proto}://${host}`);
-      settingsUrl.searchParams.set("view", "settings");
+      const settingsUrl = new URL("/settings", `${proto}://${host}`);
+      settingsUrl.searchParams.set("tab", "integrations");
       settingsUrl.searchParams.set("qb_error", message.slice(0, 200));
       const res = NextResponse.redirect(settingsUrl.toString());
       res.cookies.delete("qb_oauth_state");

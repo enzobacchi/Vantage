@@ -1,5 +1,7 @@
 "use client"
 
+import { useSearchParams, useRouter } from "next/navigation"
+
 import {
   Bell,
   Building2,
@@ -25,9 +27,28 @@ import { SettingsProfile } from "@/app/settings/settings-profile"
 import { SettingsTeam } from "@/app/settings/settings-team"
 import { SettingsYearEndReceipts } from "@/app/settings/settings-year-end-receipts"
 
+const VALID_TABS = ["profile", "organization", "team", "integrations", "donation-options", "email-templates", "year-end", "notifications", "audit-log", "billing"] as const
+
 export default function SettingsPage() {
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const tabParam = searchParams.get("tab")
+  const activeTab = tabParam && (VALID_TABS as readonly string[]).includes(tabParam) ? tabParam : "profile"
+
+  const handleTabChange = (value: string) => {
+    const params = new URLSearchParams(searchParams.toString())
+    params.set("tab", value)
+    // Clear QB callback params when switching away from integrations
+    if (value !== "integrations") {
+      params.delete("qb")
+      params.delete("realmId")
+      params.delete("qb_error")
+    }
+    router.replace(`/settings?${params.toString()}`, { scroll: false })
+  }
+
   return (
-    <Tabs defaultValue="profile" className="flex flex-col gap-6">
+    <Tabs value={activeTab} onValueChange={handleTabChange} className="flex flex-col gap-6">
       <TabsList className="inline-flex h-9 w-full justify-start gap-0.5 rounded-lg border border-border bg-muted p-1 overflow-x-auto">
         <TabsTrigger value="profile" className="gap-2 px-4">
           <User className="size-4 shrink-0" strokeWidth={1.5} />

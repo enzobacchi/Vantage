@@ -776,10 +776,13 @@ export async function runSyncForOrg(
 
       donationsUpsertedCount = donationsToUpsert.length;
 
-      if (donationsToUpsert.length) {
+      // Chunk donation upserts to avoid large payloads
+      const DONATION_UPSERT_CHUNK = 200;
+      for (let i = 0; i < donationsToUpsert.length; i += DONATION_UPSERT_CHUNK) {
+        const batch = donationsToUpsert.slice(i, i + DONATION_UPSERT_CHUNK);
         const { error: donationsError } = await supabase
           .from("donations")
-          .upsert(donationsToUpsert, { onConflict: "donor_id,memo" });
+          .upsert(batch, { onConflict: "donor_id,memo" });
 
         if (donationsError) {
           console.error("[Sync] donations upsert error:", donationsError.message, donationsError.details);
@@ -801,52 +804,75 @@ export async function runSyncForOrg(
         .filter((id): id is string => !!id);
 
       if (affectedDonorIds.length > 0) {
-        const { data: allDonations } = await supabase
-          .from("donations")
-          .select("donor_id,amount,date")
-          .in("donor_id", affectedDonorIds);
-
+        // Chunk donor IDs to keep PostgREST URL size manageable and
+        // paginate within each chunk to avoid the 1000-row default limit.
+        const DONOR_CHUNK = 100;
+        const DONATION_PAGE = 1000;
         const totalByDonorId = new Map<string, number>();
         const lastGiftByDonorId = new Map<
           string,
           { date: string; amount: number }
         >();
-        for (const row of (allDonations ?? []) as {
-          donor_id: string;
-          amount: number;
-          date: string;
-        }[]) {
-          const id = row.donor_id;
-          totalByDonorId.set(
-            id,
-            (totalByDonorId.get(id) ?? 0) + Number(row.amount)
-          );
-          const last = lastGiftByDonorId.get(id);
-          if (!last || row.date > last.date) {
-            lastGiftByDonorId.set(id, {
-              date: row.date,
-              amount: Number(row.amount),
-            });
+
+        for (let ci = 0; ci < affectedDonorIds.length; ci += DONOR_CHUNK) {
+          const chunk = affectedDonorIds.slice(ci, ci + DONOR_CHUNK);
+          let offset = 0;
+
+          while (true) {
+            const { data: donationPage } = await supabase
+              .from("donations")
+              .select("donor_id,amount,date")
+              .in("donor_id", chunk)
+              .range(offset, offset + DONATION_PAGE - 1);
+
+            const rows = (donationPage ?? []) as {
+              donor_id: string;
+              amount: number;
+              date: string;
+            }[];
+
+            for (const row of rows) {
+              const id = row.donor_id;
+              totalByDonorId.set(
+                id,
+                (totalByDonorId.get(id) ?? 0) + Number(row.amount)
+              );
+              const last = lastGiftByDonorId.get(id);
+              if (!last || row.date > last.date) {
+                lastGiftByDonorId.set(id, {
+                  date: row.date,
+                  amount: Number(row.amount),
+                });
+              }
+            }
+
+            if (rows.length < DONATION_PAGE) break;
+            offset += DONATION_PAGE;
           }
         }
 
-        const donorUpdates = affectedDonorIds.map((donorId) => {
-          const total = totalByDonorId.get(donorId) ?? 0;
-          const last = lastGiftByDonorId.get(donorId);
-          return {
-            id: donorId,
-            total_lifetime_value: total,
-            last_donation_date: last?.date ?? null,
-            last_donation_amount: last?.amount ?? null,
-          };
-        });
+        // Chunk the donor total updates too
+        const DONOR_UPDATE_CHUNK = 100;
+        for (let i = 0; i < affectedDonorIds.length; i += DONOR_UPDATE_CHUNK) {
+          const batch = affectedDonorIds.slice(i, i + DONOR_UPDATE_CHUNK);
+          const donorUpdates = batch.map((donorId) => {
+            const total = totalByDonorId.get(donorId) ?? 0;
+            const last = lastGiftByDonorId.get(donorId);
+            return {
+              id: donorId,
+              total_lifetime_value: total,
+              last_donation_date: last?.date ?? null,
+              last_donation_amount: last?.amount ?? null,
+            };
+          });
 
-        const { error: updateError } = await supabase
-          .from("donors")
-          .upsert(donorUpdates, { onConflict: "id" });
+          const { error: updateError } = await supabase
+            .from("donors")
+            .upsert(donorUpdates, { onConflict: "id" });
 
-        if (updateError) {
-          return { error: "Failed to update donor totals.", status: 500 };
+          if (updateError) {
+            return { error: "Failed to update donor totals.", status: 500 };
+          }
         }
       }
     }

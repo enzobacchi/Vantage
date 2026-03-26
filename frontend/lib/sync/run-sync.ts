@@ -153,6 +153,25 @@ function parseAmount(val: unknown): number | null {
   return isNaN(n) ? null : n;
 }
 
+/** Map QB PaymentMethodRef.name to our payment_method enum values. */
+function normalizePaymentMethod(qbMethod: string | null | undefined): string {
+  if (!qbMethod) return "quickbooks";
+  const lower = qbMethod.toLowerCase().trim();
+  if (lower.includes("credit") || lower.includes("visa") || lower.includes("mastercard") || lower.includes("amex") || lower.includes("discover")) return "credit_card";
+  if (lower.includes("debit")) return "debit_card";
+  if (lower === "check" || lower.includes("cheque")) return "check";
+  if (lower === "cash") return "cash";
+  if (lower.includes("zelle")) return "zelle";
+  if (lower.includes("venmo")) return "venmo";
+  if (lower.includes("paypal")) return "paypal";
+  if (lower.includes("wire")) return "wire";
+  if (lower.includes("ach") || lower.includes("direct deposit") || lower.includes("eft")) return "ach";
+  if (lower.includes("bank") || lower.includes("transfer")) return "bank_transfer";
+  if (lower.includes("online") || lower.includes("stripe")) return "online";
+  if (lower.includes("daf") || lower.includes("donor advised")) return "daf";
+  return "other";
+}
+
 // ---------------------------------------------------------------------------
 // QB API fetch helpers
 // ---------------------------------------------------------------------------
@@ -658,7 +677,8 @@ export async function runSyncForOrg(
         .upsert(finalUpsertBatch, { onConflict: "org_id,qb_customer_id" });
 
       if (upsertError) {
-        return { error: "Failed to upsert donors.", status: 500 };
+        console.error("[Sync] donors upsert error:", upsertError.message, upsertError.details);
+        return { error: `Failed to upsert donors: ${upsertError.message}`, status: 500 };
       }
     }
 
@@ -716,17 +736,13 @@ export async function runSyncForOrg(
         // donation rows on re-sync.
         const memo = `qb_sales_receipt_id:${receiptId}`;
 
-        // Use the actual payment method from QB (e.g. "Credit Card", "Check",
-        // "Cash", "Zelle", "PayPal", etc.) instead of just "quickbooks".
-        const qbPaymentMethod = r.PaymentMethodRef?.name?.trim() || null;
-
         donationsToUpsert.push({
           org_id: orgId,
           donor_id: donorId,
           amount,
           date,
           memo,
-          payment_method: qbPaymentMethod ?? "quickbooks",
+          payment_method: normalizePaymentMethod(r.PaymentMethodRef?.name),
           source: "quickbooks",
         });
       }
@@ -766,7 +782,8 @@ export async function runSyncForOrg(
           .upsert(donationsToUpsert, { onConflict: "donor_id,memo" });
 
         if (donationsError) {
-          return { error: "Failed to upsert donations.", status: 500 };
+          console.error("[Sync] donations upsert error:", donationsError.message, donationsError.details);
+          return { error: `Failed to upsert donations: ${donationsError.message}`, status: 500 };
         }
       }
 

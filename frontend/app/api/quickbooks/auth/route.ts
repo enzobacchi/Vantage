@@ -29,7 +29,17 @@ export async function GET(request: NextRequest) {
         state,
       });
 
-      const res = NextResponse.redirect(authUri);
+      // Render an intermediate page that sets the cookie before redirecting.
+      // Some browsers (Safari ITP, Brave, strict privacy settings) silently
+      // drop Set-Cookie headers on 3xx redirect responses.  By returning a
+      // 200 HTML page the cookie is guaranteed to be persisted before the
+      // browser navigates away to Intuit.
+      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connecting to QuickBooks…</title><meta http-equiv="refresh" content="1;url=${authUri}"><style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#fafafa}p{font-size:1.125rem;color:#444}</style></head><body><p>Redirecting to QuickBooks…</p><script>setTimeout(function(){window.location.href=${JSON.stringify(authUri)}},500)</script></body></html>`;
+
+      const res = new NextResponse(html, {
+        status: 200,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
       res.cookies.set({
         name: "qb_oauth_state",
         value: state,
@@ -37,7 +47,7 @@ export async function GET(request: NextRequest) {
         sameSite: "lax",
         secure: process.env.NODE_ENV === "production",
         path: "/",
-        maxAge: 60 * 10, // 10 minutes
+        maxAge: 60 * 30, // 30 minutes
       });
       return res;
     } catch (e) {

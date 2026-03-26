@@ -26,6 +26,7 @@ export function LoginForm({
   const fromQb = searchParams.get("qb") === "1"
   const qbError = searchParams.get("error")
   const qbNotConfigured = qbError === "qb_not_configured"
+  const qbStateError = qbError === "qb_state"
   const qbOtherError = qbError === "qb_error"
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -75,6 +76,15 @@ export function LoginForm({
             and <strong>QB_ENVIRONMENT</strong> (sandbox or production) in your
             deployment environment variables (e.g. Vercel → Project → Settings →
             Environment Variables).
+          </AlertDescription>
+        </Alert>
+      )}
+      {qbStateError && (
+        <Alert variant="destructive">
+          <AlertDescription>
+            QuickBooks connection expired. Please try again — if the issue
+            persists, check that your browser allows cookies and disable any
+            ad blockers.
           </AlertDescription>
         </Alert>
       )}

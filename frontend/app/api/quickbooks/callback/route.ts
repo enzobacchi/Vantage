@@ -37,7 +37,19 @@ export async function GET(request: Request) {
   }
 
   if (!state || !expectedState || state !== expectedState) {
-    return NextResponse.json({ error: "Invalid QuickBooks OAuth state." }, { status: 400 });
+    console.error(
+      "[QB callback] State mismatch — state:", state ? "present" : "MISSING",
+      "| expectedState (cookie):", expectedState ? "present" : "MISSING"
+    );
+
+    // Redirect to a user-friendly page instead of showing raw JSON
+    const forwardedHost = request.headers.get("x-forwarded-host");
+    const host = forwardedHost ?? request.headers.get("host") ?? url.host;
+    const forwardedProto = request.headers.get("x-forwarded-proto");
+    const proto = isLocalhostHost(host) ? "http" : (forwardedProto ?? "https");
+    const loginUrl = new URL("/login", `${proto}://${host}`);
+    loginUrl.searchParams.set("error", "qb_state");
+    return NextResponse.redirect(loginUrl.toString());
   }
 
   try {

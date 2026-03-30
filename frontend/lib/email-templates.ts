@@ -35,6 +35,26 @@ function formatUSD(amount: number): string {
 }
 
 // ---------------------------------------------------------------------------
+// Auth emails
+// ---------------------------------------------------------------------------
+
+export function passwordResetEmailHtml(resetLink: string): string {
+  return wrapEmailTemplate("Reset Your Password", `
+    ${p("We received a request to reset your password. Click the button below to set a new one.")}
+    <div style="margin: 24px 0;">
+      ${linkButton(resetLink, "Reset Password")}
+    </div>
+    <p style="color: #71717a; font-size: 13px; line-height: 1.6; margin: 0 0 16px 0;">
+      Or copy and paste this link into your browser:<br>
+      <span style="color: #007A3F; word-break: break-all;">${esc(resetLink)}</span>
+    </p>
+    <p style="color: #a1a1aa; font-size: 12px; margin: 16px 0 0 0;">
+      This link expires in 24 hours. If you didn't request this, you can safely ignore this email.
+    </p>
+  `)
+}
+
+// ---------------------------------------------------------------------------
 // Notification emails
 // ---------------------------------------------------------------------------
 

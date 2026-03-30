@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { createBrowserSupabaseClient } from "@/lib/supabase/client"
+import { sendPasswordResetEmail } from "@/app/actions/auth"
 import { Button } from "@/components/ui/button"
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
@@ -18,19 +18,9 @@ export default function ForgotPasswordPage() {
     setError(null)
     setLoading(true)
     try {
-      const supabase = createBrowserSupabaseClient()
-      const origin =
-        (typeof window !== "undefined" ? window.location.origin : null) ||
-        process.env.NEXT_PUBLIC_APP_URL ||
-        ""
-      const { error: resetError } = await supabase.auth.resetPasswordForEmail(
-        email,
-        {
-          redirectTo: `${origin}/auth/callback?next=/reset-password`,
-        }
-      )
-      if (resetError) {
-        setError(resetError.message)
+      const result = await sendPasswordResetEmail(email)
+      if (result.error) {
+        setError(result.error)
         return
       }
       setSubmitted(true)

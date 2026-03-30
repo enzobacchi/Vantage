@@ -37,7 +37,7 @@ export default function AuthLayout({
         <img
           src="/vantage-icon.png"
           alt=""
-          className="relative mb-8 size-20 opacity-20"
+          className="relative mb-8 size-20 brightness-0 invert opacity-30"
         />
         <h2 className="relative max-w-xs text-center text-2xl font-bold text-white">
           Donor Intelligence for Growing Nonprofits

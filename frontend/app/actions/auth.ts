@@ -15,7 +15,13 @@ export async function sendPasswordResetEmail(
   const apiKey = process.env.RESEND_API_KEY
   if (!apiKey) return { error: "Email is not configured." }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
+  const appUrl =
+    process.env.NEXT_PUBLIC_APP_URL ??
+    (process.env.VERCEL_PROJECT_PRODUCTION_URL
+      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+      : null) ??
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) ??
+    "http://localhost:3000"
   const redirectTo = `${appUrl}/auth/callback?next=/reset-password`
 
   const admin = createAdminClient()

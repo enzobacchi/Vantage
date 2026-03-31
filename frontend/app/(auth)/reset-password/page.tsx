@@ -19,22 +19,40 @@ function ResetPasswordForm() {
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [loading, setLoading] = useState(false)
+  const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [linkExpired, setLinkExpired] = useState(false)
 
+  // Create client once on mount so it processes the #access_token hash fragment
+  const [supabase] = useState(() => createBrowserSupabaseClient())
+
   useEffect(() => {
-    // Check for error from callback route query param
+    // Check for explicit errors first
     if (searchParams.get("error") === "expired") {
       setLinkExpired(true)
       return
     }
-
-    // Check for Supabase error in URL hash fragment (e.g. otp_expired)
     const hash = window.location.hash
     if (hash.includes("error_code=otp_expired") || hash.includes("error=access_denied")) {
       setLinkExpired(true)
+      return
     }
-  }, [searchParams])
+
+    // Listen for PASSWORD_RECOVERY event — fired when Supabase processes
+    // the #access_token=...&type=recovery hash and establishes a session
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") {
+        setReady(true)
+      }
+    })
+
+    // Also check if session was already established (e.g. hash already processed)
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) setReady(true)
+    })
+
+    return () => subscription.unsubscribe()
+  }, [searchParams, supabase])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -51,7 +69,6 @@ function ResetPasswordForm() {
 
     setLoading(true)
     try {
-      const supabase = createBrowserSupabaseClient()
       const { error: updateError } = await supabase.auth.updateUser({
         password,
       })
@@ -139,7 +156,7 @@ function ResetPasswordForm() {
             </p>
           )}
           <Field>
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full" disabled={loading || !ready}>
               {loading ? "Updating…" : "Update password"}
             </Button>
           </Field>

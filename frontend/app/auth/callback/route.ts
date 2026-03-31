@@ -26,6 +26,10 @@ export async function GET(request: Request) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (error) {
       console.error("Auth callback exchange error:", error.message);
+      // For password recovery, redirect to reset page with error so user can retry
+      if (next === "/reset-password") {
+        return NextResponse.redirect(new URL("/reset-password?error=expired", url.origin));
+      }
       return NextResponse.redirect(new URL("/login?error=callback", url.origin));
     }
   }

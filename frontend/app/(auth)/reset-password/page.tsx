@@ -1,7 +1,8 @@
 "use client"
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { Suspense, useEffect, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import Link from "next/link"
 import { createBrowserSupabaseClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import {
@@ -12,12 +13,41 @@ import {
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 
-export default function ResetPasswordPage() {
+function ResetPasswordForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [loading, setLoading] = useState(false)
+  const [checking, setChecking] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [linkExpired, setLinkExpired] = useState(false)
+
+  useEffect(() => {
+    // Check for error from callback route query param
+    if (searchParams.get("error") === "expired") {
+      setLinkExpired(true)
+      setChecking(false)
+      return
+    }
+
+    // Check for Supabase error in URL hash fragment (e.g. otp_expired)
+    const hash = window.location.hash
+    if (hash.includes("error_code=otp_expired") || hash.includes("error=access_denied")) {
+      setLinkExpired(true)
+      setChecking(false)
+      return
+    }
+
+    // Verify the user has a valid recovery session
+    const supabase = createBrowserSupabaseClient()
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) {
+        setLinkExpired(true)
+      }
+      setChecking(false)
+    })
+  }, [searchParams])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -47,6 +77,36 @@ export default function ResetPasswordPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  if (checking) {
+    return (
+      <div className="flex flex-col items-center gap-2 text-center">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+      </div>
+    )
+  }
+
+  if (linkExpired) {
+    return (
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-col items-center gap-2 text-center">
+          <h1 className="text-2xl font-bold">Link expired</h1>
+          <p className="text-sm text-balance text-muted-foreground">
+            This password reset link has expired or has already been used.
+            Please request a new one.
+          </p>
+        </div>
+        <Button asChild className="w-full">
+          <Link href="/forgot-password">Request new reset link</Link>
+        </Button>
+        <p className="text-center text-sm text-muted-foreground">
+          <Link href="/login" className="underline underline-offset-4 hover:text-foreground">
+            Back to login
+          </Link>
+        </p>
+      </div>
+    )
   }
 
   return (
@@ -101,5 +161,13 @@ export default function ResetPasswordPage() {
         </FieldGroup>
       </form>
     </div>
+  )
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense fallback={<div className="h-10 animate-pulse rounded-md bg-muted" />}>
+      <ResetPasswordForm />
+    </Suspense>
   )
 }

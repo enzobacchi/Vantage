@@ -19,7 +19,6 @@ function ResetPasswordForm() {
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [loading, setLoading] = useState(false)
-  const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [linkExpired, setLinkExpired] = useState(false)
 
@@ -38,20 +37,8 @@ function ResetPasswordForm() {
       return
     }
 
-    // Listen for PASSWORD_RECOVERY event — fired when Supabase processes
-    // the #access_token=...&type=recovery hash and establishes a session
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") {
-        setReady(true)
-      }
-    })
-
-    // Also check if session was already established (e.g. hash already processed)
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) setReady(true)
-    })
-
-    return () => subscription.unsubscribe()
+    // Trigger hash fragment processing so the recovery session is established
+    supabase.auth.getSession()
   }, [searchParams, supabase])
 
   async function handleSubmit(e: React.FormEvent) {
@@ -156,7 +143,7 @@ function ResetPasswordForm() {
             </p>
           )}
           <Field>
-            <Button type="submit" className="w-full" disabled={loading || !ready}>
+            <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Updating…" : "Update password"}
             </Button>
           </Field>

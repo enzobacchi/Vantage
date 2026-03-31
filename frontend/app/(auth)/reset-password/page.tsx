@@ -37,8 +37,17 @@ function ResetPasswordForm() {
       return
     }
 
-    // Trigger hash fragment processing so the recovery session is established
-    supabase.auth.getSession()
+    // @supabase/ssr defaults to PKCE flow and only looks for ?code= in query params.
+    // The recovery link uses implicit flow (#access_token=...&type=recovery in hash),
+    // so we manually parse the hash and establish the session.
+    if (hash) {
+      const params = new URLSearchParams(hash.substring(1))
+      const accessToken = params.get("access_token")
+      const refreshToken = params.get("refresh_token")
+      if (accessToken && refreshToken) {
+        supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
+      }
+    }
   }, [searchParams, supabase])
 
   async function handleSubmit(e: React.FormEvent) {

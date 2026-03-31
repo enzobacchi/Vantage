@@ -19,7 +19,6 @@ function ResetPasswordForm() {
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [loading, setLoading] = useState(false)
-  const [checking, setChecking] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [linkExpired, setLinkExpired] = useState(false)
 
@@ -27,7 +26,6 @@ function ResetPasswordForm() {
     // Check for error from callback route query param
     if (searchParams.get("error") === "expired") {
       setLinkExpired(true)
-      setChecking(false)
       return
     }
 
@@ -35,18 +33,7 @@ function ResetPasswordForm() {
     const hash = window.location.hash
     if (hash.includes("error_code=otp_expired") || hash.includes("error=access_denied")) {
       setLinkExpired(true)
-      setChecking(false)
-      return
     }
-
-    // Verify the user has a valid recovery session
-    const supabase = createBrowserSupabaseClient()
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) {
-        setLinkExpired(true)
-      }
-      setChecking(false)
-    })
   }, [searchParams])
 
   async function handleSubmit(e: React.FormEvent) {
@@ -69,6 +56,12 @@ function ResetPasswordForm() {
         password,
       })
       if (updateError) {
+        // If session is missing/expired, show the expired link UI
+        if (updateError.message.toLowerCase().includes("session") ||
+            updateError.status === 401) {
+          setLinkExpired(true)
+          return
+        }
         setError(updateError.message)
         return
       }
@@ -77,14 +70,6 @@ function ResetPasswordForm() {
     } finally {
       setLoading(false)
     }
-  }
-
-  if (checking) {
-    return (
-      <div className="flex flex-col items-center gap-2 text-center">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
-      </div>
-    )
   }
 
   if (linkExpired) {

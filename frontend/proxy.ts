@@ -39,9 +39,11 @@ export async function proxy(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  // --- Plan gating ---
+  // --- Plan gating (skip in development) ---
   const { pathname } = request.nextUrl
+  const isDev = process.env.NODE_ENV === "development"
   if (
+    !isDev &&
     user &&
     !isPublicPath(pathname) &&
     !pathname.startsWith("/api/") &&

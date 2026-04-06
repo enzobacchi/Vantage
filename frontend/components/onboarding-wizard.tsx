@@ -20,7 +20,15 @@ import {
 } from "@/components/ui/dialog"
 import { toast } from "sonner"
 
-const STEPS = [
+type OnboardingStep = {
+  id: string
+  title: string
+  icon: typeof CheckCircle2
+  content: React.ReactNode
+  action?: { label: string; href: string }
+}
+
+const STEPS: OnboardingStep[] = [
   {
     id: "welcome",
     title: "Welcome to Vantage",
@@ -45,20 +53,18 @@ const STEPS = [
     content: (
       <div className="space-y-3">
         <p className="text-sm text-muted-foreground leading-relaxed">
-          You can bring your existing donors into Vantage in two ways:
+          Bring your existing donors into Vantage in seconds:
         </p>
         <ul className="space-y-2 text-sm text-muted-foreground">
           <li className="flex items-start gap-2">
-            <span className="mt-0.5 size-1.5 rounded-full bg-foreground/40 shrink-0 mt-2" />
+            <span className="size-1.5 rounded-full bg-foreground/40 shrink-0 mt-2" />
             <span>
               <strong className="text-foreground">CSV Import</strong> — upload a
-              spreadsheet from any existing system. Head to{" "}
-              <strong className="text-foreground">Settings → Integrations</strong>{" "}
-              to get started.
+              spreadsheet from any existing system.
             </span>
           </li>
           <li className="flex items-start gap-2">
-            <span className="mt-0.5 size-1.5 rounded-full bg-foreground/40 shrink-0 mt-2" />
+            <span className="size-1.5 rounded-full bg-foreground/40 shrink-0 mt-2" />
             <span>
               <strong className="text-foreground">QuickBooks Sync</strong> —
               connect your QuickBooks account to automatically import customers
@@ -68,6 +74,7 @@ const STEPS = [
         </ul>
       </div>
     ),
+    action: { label: "Import Donors", href: "/settings?tab=integrations" },
   },
   {
     id: "connect",
@@ -78,12 +85,7 @@ const STEPS = [
         <p className="text-sm text-muted-foreground leading-relaxed">
           If you use QuickBooks Online, connecting it takes about 30 seconds.
           Vantage will automatically sync your customers as donors and pull in
-          donation history from sales receipts and invoices.
-        </p>
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          Go to{" "}
-          <strong className="text-foreground">Settings → Integrations</strong> and
-          click <strong className="text-foreground">Connect QuickBooks</strong>.
+          donation history — and keep it updated every night.
         </p>
         <p className="text-sm text-muted-foreground leading-relaxed">
           Don&apos;t use QuickBooks? No problem — CSV import works great for
@@ -91,6 +93,7 @@ const STEPS = [
         </p>
       </div>
     ),
+    action: { label: "Connect QuickBooks", href: "/settings?tab=integrations" },
   },
   {
     id: "explore",
@@ -103,19 +106,19 @@ const STEPS = [
         </p>
         <ul className="space-y-2 text-sm text-muted-foreground">
           <li className="flex items-start gap-2">
-            <span className="mt-0.5 size-1.5 rounded-full bg-foreground/40 shrink-0 mt-2" />
+            <span className="size-1.5 rounded-full bg-foreground/40 shrink-0 mt-2" />
             <span>View donor profiles, giving history, and AI-generated insights</span>
           </li>
           <li className="flex items-start gap-2">
-            <span className="mt-0.5 size-1.5 rounded-full bg-foreground/40 shrink-0 mt-2" />
-            <span>Filter and sort donors by lifecycle status, tags, or date range</span>
+            <span className="size-1.5 rounded-full bg-foreground/40 shrink-0 mt-2" />
+            <span>Send emails directly from the donor list or profile page</span>
           </li>
           <li className="flex items-start gap-2">
-            <span className="mt-0.5 size-1.5 rounded-full bg-foreground/40 shrink-0 mt-2" />
-            <span>Use the AI chat (Cmd+J) to ask questions about your donor base</span>
+            <span className="size-1.5 rounded-full bg-foreground/40 shrink-0 mt-2" />
+            <span>Use the AI chat (<strong className="text-foreground">Cmd+J</strong>) to ask questions about your donor base</span>
           </li>
           <li className="flex items-start gap-2">
-            <span className="mt-0.5 size-1.5 rounded-full bg-foreground/40 shrink-0 mt-2" />
+            <span className="size-1.5 rounded-full bg-foreground/40 shrink-0 mt-2" />
             <span>Log calls, emails, and tasks to keep a full activity timeline</span>
           </li>
         </ul>
@@ -133,7 +136,7 @@ export function OnboardingWizard({ open }: { open: boolean }) {
   const current = STEPS[step]
   const Icon = current.icon
 
-  async function handleFinish() {
+  async function handleFinish(redirectTo?: string) {
     setCompleting(true)
     try {
       const result = await completeOnboarding()
@@ -141,6 +144,9 @@ export function OnboardingWizard({ open }: { open: boolean }) {
         toast.error(result.error ?? "Could not save onboarding state")
       }
       router.refresh()
+      if (redirectTo) {
+        router.push(redirectTo)
+      }
     } finally {
       setCompleting(false)
     }
@@ -183,7 +189,7 @@ export function OnboardingWizard({ open }: { open: boolean }) {
           <Button
             variant="ghost"
             size="sm"
-            onClick={handleFinish}
+            onClick={() => handleFinish()}
             disabled={completing}
             className="text-muted-foreground"
           >
@@ -200,14 +206,24 @@ export function OnboardingWizard({ open }: { open: boolean }) {
                 Back
               </Button>
             )}
+            {current.action && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleFinish(current.action!.href)}
+                disabled={completing}
+              >
+                {current.action.label}
+              </Button>
+            )}
             {isLast ? (
               <Button
                 size="sm"
-                onClick={handleFinish}
+                onClick={() => handleFinish()}
                 disabled={completing}
                 className="bg-gradient-to-r from-[#007A3F] to-[#21E0D6] text-white hover:opacity-90 border-0"
               >
-                {completing ? "Saving…" : "Get started"}
+                {completing ? "Saving..." : "Get started"}
               </Button>
             ) : (
               <Button

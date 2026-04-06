@@ -67,6 +67,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useNav } from "@/components/nav-context"
+import { UserPicker } from "@/components/user-picker"
+import { getOrganizationMembers, getCurrentMemberInfo, type OrgMember } from "@/app/actions/team"
 import { Checkbox } from "@/components/ui/checkbox"
 import { DataTable, type DataTableRef } from "@/components/ui/data-table"
 import {
@@ -169,7 +171,10 @@ export function SavedReportsView() {
 
   const [generateDialogOpen, setGenerateDialogOpen] = React.useState(false)
   const [reportName, setReportName] = React.useState("")
-  const [reportVisibility, setReportVisibility] = React.useState<"private" | "shared">("private")
+  const [reportVisibility, setReportVisibility] = React.useState<"private" | "shared" | "specific">("private")
+  const [reportSharedWith, setReportSharedWith] = React.useState<string[]>([])
+  const [orgMembers, setOrgMembers] = React.useState<OrgMember[]>([])
+  const [currentUserId, setCurrentUserId] = React.useState<string | null>(null)
   const [filters, setFilters] = React.useState<FilterRow[]>([])
   const [selectedColumns, setSelectedColumns] = React.useState<string[]>([
     "first_name",
@@ -197,7 +202,8 @@ export function SavedReportsView() {
   const [regenerateFilters, setRegenerateFilters] = React.useState<FilterRow[]>([])
   const [regenerateColumns, setRegenerateColumns] = React.useState<string[]>([])
   const [regenerateTitle, setRegenerateTitle] = React.useState("")
-  const [regenerateVisibility, setRegenerateVisibility] = React.useState<"private" | "shared">("private")
+  const [regenerateVisibility, setRegenerateVisibility] = React.useState<"private" | "shared" | "specific">("private")
+  const [regenerateSharedWith, setRegenerateSharedWith] = React.useState<string[]>([])
   const [isRegenerating, setIsRegenerating] = React.useState(false)
   const [previewLoading, setPreviewLoading] = React.useState(false)
 
@@ -230,6 +236,13 @@ export function SavedReportsView() {
   React.useEffect(() => {
     loadFolders()
   }, [loadFolders])
+
+  React.useEffect(() => {
+    getOrganizationMembers().then(setOrgMembers).catch(() => {})
+    getCurrentMemberInfo().then((info) => {
+      if (info?.userId) setCurrentUserId(info.userId)
+    }).catch(() => {})
+  }, [])
 
   React.useEffect(() => {
     let cancelled = false
@@ -467,7 +480,8 @@ export function SavedReportsView() {
     setRegenerateFilters(previewData.reportParams.filters)
     setRegenerateColumns(previewData.reportParams.selectedColumns)
     setRegenerateTitle(previewData.title)
-    setRegenerateVisibility((previewData.reportParams.visibility === "shared" ? "shared" : "private") as "private" | "shared")
+    const vis = previewData.reportParams.visibility
+    setRegenerateVisibility(vis === "shared" ? "shared" : vis === "specific" ? "specific" : "private")
     setRegenerateOpen(true)
   }
 
@@ -484,6 +498,7 @@ export function SavedReportsView() {
           filters: regenerateFilters,
           selectedColumns: regenerateColumns,
           visibility: regenerateVisibility,
+          ...(regenerateVisibility === "specific" && regenerateSharedWith.length > 0 ? { shared_with_user_ids: regenerateSharedWith } : {}),
         }),
       })
       const data = (await res.json().catch(() => null)) as { error?: string }
@@ -692,7 +707,7 @@ export function SavedReportsView() {
       const res = await fetch("/api/reports/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: name, filters, selectedColumns, visibility: reportVisibility }),
+        body: JSON.stringify({ title: name, filters, selectedColumns, visibility: reportVisibility, ...(reportVisibility === "specific" && reportSharedWith.length > 0 ? { shared_with_user_ids: reportSharedWith } : {}) }),
       })
       const data = (await res.json().catch(() => null)) as { error?: string; title?: string; reportId?: string }
       if (!res.ok) {
@@ -705,6 +720,8 @@ export function SavedReportsView() {
       setGenerateDialogOpen(false)
       setReportName("")
       setFilters([])
+      setReportSharedWith([])
+      setReportVisibility("private")
       await refresh()
     } catch (e) {
       toast.error("Failed to create report", {
@@ -1021,18 +1038,27 @@ export function SavedReportsView() {
             </div>
             <div className="space-y-2">
               <Label>Visibility</Label>
-              <Select value={reportVisibility} onValueChange={(v) => setReportVisibility(v as "private" | "shared")}>
+              <Select value={reportVisibility} onValueChange={(v) => { setReportVisibility(v as "private" | "shared" | "specific"); if (v !== "specific") setReportSharedWith([]) }}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="private">Private (Only Me)</SelectItem>
                   <SelectItem value="shared">Shared (Entire Organization)</SelectItem>
+                  <SelectItem value="specific">Specific People</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                {reportVisibility === "private" ? "Only you can see this report." : "Everyone in your organization can see this report."}
+                {reportVisibility === "private" ? "Only you can see this report." : reportVisibility === "shared" ? "Everyone in your organization can see this report." : "Only selected team members can see this report."}
               </p>
+              {reportVisibility === "specific" && (
+                <UserPicker
+                  members={orgMembers}
+                  selected={reportSharedWith}
+                  onChange={setReportSharedWith}
+                  excludeUserId={currentUserId ?? undefined}
+                />
+              )}
             </div>
             {generateDialogOpen && (
               <ReportFilterBuilder key="create-report-form" filters={filters} onChange={setFilters} />
@@ -1335,15 +1361,24 @@ export function SavedReportsView() {
             </div>
             <div className="space-y-2">
               <Label>Visibility</Label>
-              <Select value={regenerateVisibility} onValueChange={(v) => setRegenerateVisibility(v as "private" | "shared")}>
+              <Select value={regenerateVisibility} onValueChange={(v) => { setRegenerateVisibility(v as "private" | "shared" | "specific"); if (v !== "specific") setRegenerateSharedWith([]) }}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="private">Private (Only Me)</SelectItem>
                   <SelectItem value="shared">Shared (Entire Organization)</SelectItem>
+                  <SelectItem value="specific">Specific People</SelectItem>
                 </SelectContent>
               </Select>
+              {regenerateVisibility === "specific" && (
+                <UserPicker
+                  members={orgMembers}
+                  selected={regenerateSharedWith}
+                  onChange={setRegenerateSharedWith}
+                  excludeUserId={currentUserId ?? undefined}
+                />
+              )}
             </div>
             {regenerateOpen && (
               <ReportFilterBuilder

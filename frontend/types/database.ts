@@ -143,6 +143,26 @@ export interface Database {
           created_by_user_id: string | null
         }
       }
+      report_shares: {
+        Row: {
+          id: string
+          report_id: string
+          user_id: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          report_id: string
+          user_id: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          report_id?: string
+          user_id?: string
+          created_at?: string
+        }
+      }
       donor_notes: {
         Row: {
           id: string
@@ -234,6 +254,7 @@ export interface Database {
           category_id: string | null
           campaign_id: string | null
           fund_id: string | null
+          pledge_id: string | null
           acknowledgment_sent_at: string | null
           acknowledgment_sent_by: string | null
           created_at: string
@@ -250,6 +271,7 @@ export interface Database {
           category_id?: string | null
           campaign_id?: string | null
           fund_id?: string | null
+          pledge_id?: string | null
           acknowledgment_sent_by?: string | null
         }
         Update: {
@@ -264,8 +286,46 @@ export interface Database {
           category_id?: string | null
           campaign_id?: string | null
           fund_id?: string | null
+          pledge_id?: string | null
           acknowledgment_sent_at?: string | null
           acknowledgment_sent_by?: string | null
+        }
+      }
+      pledges: {
+        Row: {
+          id: string
+          org_id: string
+          donor_id: string
+          amount: number
+          frequency: "one_time" | "monthly" | "quarterly" | "annual"
+          start_date: string
+          end_date: string | null
+          status: "active" | "fulfilled" | "cancelled" | "overdue"
+          notes: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          donor_id: string
+          amount: number
+          frequency?: "one_time" | "monthly" | "quarterly" | "annual"
+          start_date: string
+          end_date?: string | null
+          status?: "active" | "fulfilled" | "cancelled" | "overdue"
+          notes?: string | null
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          donor_id?: string
+          amount?: number
+          frequency?: "one_time" | "monthly" | "quarterly" | "annual"
+          start_date?: string
+          end_date?: string | null
+          status?: "active" | "fulfilled" | "cancelled" | "overdue"
+          notes?: string | null
         }
       }
       org_donation_options: {
@@ -546,6 +606,44 @@ export interface Database {
           inapp_new_donation?: boolean
           inapp_task_reminders?: boolean
           inapp_donor_lapsed?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      dashboard_preferences: {
+        Row: {
+          id: string
+          org_id: string
+          user_id: string
+          show_metric_cards: boolean
+          show_smart_actions: boolean
+          show_donations_chart: boolean
+          show_recent_gifts: boolean
+          show_top_donors: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          user_id: string
+          show_metric_cards?: boolean
+          show_smart_actions?: boolean
+          show_donations_chart?: boolean
+          show_recent_gifts?: boolean
+          show_top_donors?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          user_id?: string
+          show_metric_cards?: boolean
+          show_smart_actions?: boolean
+          show_donations_chart?: boolean
+          show_recent_gifts?: boolean
+          show_top_donors?: boolean
           created_at?: string
           updated_at?: string
         }

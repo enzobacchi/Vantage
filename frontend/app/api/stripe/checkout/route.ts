@@ -25,39 +25,45 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const admin = createAdminClient()
+  try {
+    const admin = createAdminClient()
 
-  // Get org name and user email for Stripe customer
-  const { data: org } = await admin
-    .from("organizations")
-    .select("name")
-    .eq("id", auth.orgId)
-    .single()
+    // Get org name and user email for Stripe customer
+    const { data: org } = await admin
+      .from("organizations")
+      .select("name")
+      .eq("id", auth.orgId)
+      .single()
 
-  const { data: userData } = await admin.auth.admin.getUserById(auth.userId)
-  const email = userData?.user?.email ?? ""
+    const { data: userData } = await admin.auth.admin.getUserById(auth.userId)
+    const email = userData?.user?.email ?? ""
 
-  const customerId = await getOrCreateStripeCustomer(
-    auth.orgId,
-    org?.name ?? "Organization",
-    email
-  )
+    const customerId = await getOrCreateStripeCustomer(
+      auth.orgId,
+      org?.name ?? "Organization",
+      email
+    )
 
-  const stripe = getStripe()
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
-  const priceId = getStripePriceId(plan as Exclude<SubscriptionPlan, "trial" | "enterprise">)
+    const stripe = getStripe()
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
+    const priceId = getStripePriceId(plan as Exclude<SubscriptionPlan, "trial" | "enterprise">)
 
-  const session = await stripe.checkout.sessions.create({
-    customer: customerId,
-    mode: "subscription",
-    line_items: [{ price: priceId, quantity: 1 }],
-    success_url: `${appUrl}/settings?tab=billing&session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${appUrl}/settings?tab=billing`,
-    subscription_data: {
+    const session = await stripe.checkout.sessions.create({
+      customer: customerId,
+      mode: "subscription",
+      line_items: [{ price: priceId, quantity: 1 }],
+      success_url: `${appUrl}/settings?tab=billing&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${appUrl}/settings?tab=billing`,
+      subscription_data: {
+        metadata: { org_id: auth.orgId, plan_id: plan },
+      },
       metadata: { org_id: auth.orgId, plan_id: plan },
-    },
-    metadata: { org_id: auth.orgId, plan_id: plan },
-  })
+    })
 
-  return NextResponse.json({ url: session.url })
+    return NextResponse.json({ url: session.url })
+  } catch (err) {
+    console.error("[stripe/checkout] Error creating checkout session:", err)
+    const message = err instanceof Error ? err.message : "Unknown error"
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
 }

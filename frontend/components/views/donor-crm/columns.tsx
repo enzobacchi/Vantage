@@ -1,7 +1,7 @@
 "use client"
 
 import { type ColumnDef } from "@tanstack/react-table"
-import { MoreHorizontal } from "lucide-react"
+import { Mail, MoreHorizontal } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -12,14 +12,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import * as React from "react"
 import { formatCurrency } from "@/lib/format"
 import { DataTableColumnHeader } from "@/components/ui/data-table-column-header"
+import { ScoreBadge } from "@/components/donors/donor-health-score"
 
 export type DonorTag = { id: string; name: string; color: string }
 
 export type Donor = {
   id: string
   display_name: string | null
+  email: string | null
   total_lifetime_value: number | string | null
   last_donation_amount: number | string | null
   last_donation_date: string | null
@@ -41,6 +44,22 @@ function formatDate(value: string | null | undefined) {
   })
 }
 
+function DonorScoreCell({ donorId }: { donorId: string }) {
+  const [score, setScore] = React.useState<{ score: number; label: string } | null>(null)
+
+  React.useEffect(() => {
+    let cancelled = false
+    fetch(`/api/donors/${donorId}/score`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (!cancelled && data) setScore(data) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [donorId])
+
+  if (!score) return <span className="text-muted-foreground text-xs">—</span>
+  return <ScoreBadge score={score.score} label={score.label as any} />
+}
+
 function tagBadgeStyle(color: string) {
   const styles: Record<string, { bg: string; text: string }> = {
     red: { bg: "rgb(254 226 226)", text: "rgb(153 27 27)" },
@@ -53,8 +72,9 @@ function tagBadgeStyle(color: string) {
 
 export function createDonorColumns(options: {
   onOpenDonorSheet: (donorId: string) => void
+  onSendEmail?: (donor: Donor) => void
 }): ColumnDef<Donor>[] {
-  const { onOpenDonorSheet } = options
+  const { onOpenDonorSheet, onSendEmail } = options
 
   return [
     {
@@ -105,6 +125,12 @@ export function createDonorColumns(options: {
           </button>
         )
       },
+    },
+    {
+      id: "health_score",
+      header: "Score",
+      cell: ({ row }) => <DonorScoreCell donorId={row.original.id} />,
+      enableSorting: false,
     },
     {
       accessorKey: "tags",
@@ -230,6 +256,12 @@ export function createDonorColumns(options: {
                 <DropdownMenuItem onClick={() => onOpenDonorSheet(donor.id)}>
                   View profile
                 </DropdownMenuItem>
+                {onSendEmail && (
+                  <DropdownMenuItem onClick={() => onSendEmail(donor)}>
+                    <Mail className="mr-2 size-4" strokeWidth={1.5} />
+                    Send Email
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>

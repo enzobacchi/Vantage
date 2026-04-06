@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 
 import { requireUserOrg } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { notifyNewDonation, checkAndNotifyMilestones } from "@/lib/notifications";
+import type { PaymentMethod } from "@/types/database";
 
 export const runtime = "nodejs";
 
@@ -145,4 +147,92 @@ export async function GET(request: Request) {
     donations,
     total: count ?? donations.length,
   });
+}
+
+const PAYMENT_METHODS: PaymentMethod[] = ["check", "cash", "zelle", "wire", "venmo", "other", "quickbooks"];
+
+export async function POST(request: Request) {
+  const auth = await requireUserOrg();
+  if (!auth.ok) return auth.response;
+
+  const body = await request.json();
+
+  const amount = Number(body.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return NextResponse.json({ error: "Amount must be a positive number" }, { status: 400 });
+  }
+
+  const dateStr = typeof body.date === "string" ? body.date.trim() : "";
+  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return NextResponse.json({ error: "Date must be in YYYY-MM-DD format" }, { status: 400 });
+  }
+
+  if (!PAYMENT_METHODS.includes(body.payment_method)) {
+    return NextResponse.json({ error: "Invalid payment method" }, { status: 400 });
+  }
+
+  const supabase = createAdminClient();
+
+  // Verify donor belongs to org
+  const { data: donor } = await supabase
+    .from("donors")
+    .select("id, display_name, total_lifetime_value")
+    .eq("id", body.donor_id)
+    .eq("org_id", auth.orgId)
+    .maybeSingle();
+
+  if (!donor) {
+    return NextResponse.json({ error: "Donor not found" }, { status: 404 });
+  }
+
+  const previousTotal = Number(donor.total_lifetime_value ?? 0);
+
+  const { data: donation, error } = await supabase
+    .from("donations")
+    .insert({
+      org_id: auth.orgId,
+      donor_id: body.donor_id,
+      amount,
+      date: dateStr,
+      memo: body.memo?.trim() || null,
+      payment_method: body.payment_method,
+      category_id: body.category_id || null,
+      campaign_id: body.campaign_id || null,
+      fund_id: body.fund_id || null,
+      source: "manual",
+    })
+    .select("id")
+    .single();
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  // Recalculate donor totals
+  const { data: allDonations } = await supabase
+    .from("donations")
+    .select("amount,date")
+    .eq("donor_id", body.donor_id)
+    .order("date", { ascending: false });
+
+  const rows = (allDonations ?? []) as { amount: number; date: string }[];
+  const total = rows.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+  const last = rows[0];
+
+  await supabase
+    .from("donors")
+    .update({
+      total_lifetime_value: total,
+      last_donation_date: last?.date ?? null,
+      last_donation_amount: last?.amount ?? null,
+    })
+    .eq("id", body.donor_id);
+
+  // Fire-and-forget notifications
+  const donorName = (donor.display_name as string) || "Unknown Donor";
+  const newTotal = previousTotal + amount;
+  void notifyNewDonation(auth.orgId, donorName, amount, body.donor_id).catch(console.error);
+  void checkAndNotifyMilestones(auth.orgId, body.donor_id, donorName, previousTotal, newTotal).catch(console.error);
+
+  return NextResponse.json({ id: donation.id }, { status: 201 });
 }

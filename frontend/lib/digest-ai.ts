@@ -154,12 +154,12 @@ export async function generateDigestAISummary(
         .select("type")
         .eq("org_id", orgId)
         .gte("created_at", since),
-      // Open opportunities
+      // Open opportunities (uses organization_id, not org_id)
       admin
         .from("opportunities")
-        .select("amount, stage")
-        .eq("org_id", orgId)
-        .not("stage", "in", '("closed_won","closed_lost")'),
+        .select("amount, status")
+        .eq("organization_id", orgId)
+        .not("status", "in", '("closed_won","closed_lost")'),
     ])
 
     // Supabase returns the joined relation as an array; with !inner there's always one element.
@@ -189,7 +189,7 @@ export async function generateDigestAISummary(
       donor_type: string | null
     }>
     const interactions = (interactionsResult.data ?? []) as Array<{ type: string }>
-    const opportunities = (opportunitiesResult.data ?? []) as Array<{ amount: number | null; stage: string }>
+    const opportunities = (opportunitiesResult.data ?? []) as Array<{ amount: number | null; status: string }>
 
     // -----------------------------------------------------------------------
     // Compute lifecycle summary

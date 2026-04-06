@@ -9,7 +9,7 @@ export type DashboardMetrics = {
   totalDonors: number;
   totalRevenue: number;
   averageGift: number;
-  medianGift: number;
+  ytdRevenue: number;
 };
 
 function toNumber(value: unknown): number {
@@ -27,32 +27,34 @@ export async function GET() {
   if (!auth.ok) return auth.response;
 
   const supabase = createAdminClient();
-  const { data, error, count } = await supabase
-    .from("donors")
-    .select("total_lifetime_value", { count: "exact" })
-    .eq("org_id", auth.orgId);
+  const yearStart = `${new Date().getFullYear()}-01-01`;
 
-  if (error) {
+  const [donorsRes, ytdRes] = await Promise.all([
+    supabase
+      .from("donors")
+      .select("total_lifetime_value", { count: "exact" })
+      .eq("org_id", auth.orgId),
+    supabase
+      .from("donations")
+      .select("amount")
+      .eq("org_id", auth.orgId)
+      .gte("date", yearStart),
+  ]);
+
+  if (donorsRes.error) {
     return NextResponse.json(
-      { error: "Failed to load dashboard metrics.", details: error.message },
+      { error: "Failed to load dashboard metrics.", details: donorsRes.error.message },
       { status: 500 }
     );
   }
 
-  const totalDonors = count ?? (data?.length ?? 0);
-  const values = (data ?? []).map((row) => toNumber((row as { total_lifetime_value?: unknown }).total_lifetime_value));
+  const totalDonors = donorsRes.count ?? (donorsRes.data?.length ?? 0);
+  const values = (donorsRes.data ?? []).map((row) => toNumber((row as { total_lifetime_value?: unknown }).total_lifetime_value));
   const totalRevenue = values.reduce((sum, v) => sum + v, 0);
   const averageGift = totalDonors > 0 ? totalRevenue / totalDonors : 0;
+  const ytdRevenue = (ytdRes.data ?? []).reduce((sum, row) => sum + toNumber((row as { amount?: unknown }).amount), 0);
 
-  const sorted = [...values].sort((a, b) => a - b);
-  const medianGift =
-    sorted.length === 0
-      ? 0
-      : sorted.length % 2 === 1
-        ? sorted[Math.floor(sorted.length / 2)]!
-        : (sorted[sorted.length / 2 - 1]! + sorted[sorted.length / 2]!) / 2;
-
-  const metrics: DashboardMetrics = { totalDonors, totalRevenue, averageGift, medianGift };
+  const metrics: DashboardMetrics = { totalDonors, totalRevenue, averageGift, ytdRevenue };
   return NextResponse.json(metrics);
 }
 

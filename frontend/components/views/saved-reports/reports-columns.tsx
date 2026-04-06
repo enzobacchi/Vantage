@@ -3,6 +3,7 @@
 import { type ColumnDef } from "@tanstack/react-table"
 import { MoreHorizontal } from "lucide-react"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -34,6 +35,8 @@ export type SavedReport = {
   records_count?: number | null
   created_at: string
   folder_id?: string | null
+  visibility?: string | null
+  created_by_user_id?: string | null
 }
 
 export function createReportColumns(options: {
@@ -82,6 +85,17 @@ export function createReportColumns(options: {
           {stripSqlArtifacts(row.original.title)}
         </span>
       ),
+    },
+    {
+      accessorKey: "visibility",
+      header: "Sharing",
+      cell: ({ row }) => {
+        const vis = row.original.visibility
+        if (vis === "shared") return <Badge variant="secondary" className="font-normal text-xs">Organization</Badge>
+        if (vis === "specific") return <Badge variant="secondary" className="font-normal text-xs">Specific People</Badge>
+        return <Badge variant="outline" className="font-normal text-xs">Private</Badge>
+      },
+      enableSorting: false,
     },
     {
       accessorKey: "created_at",

@@ -29,8 +29,11 @@ import {
 import { getDonorInteractions, logInteraction, toggleTaskStatus } from "@/app/actions/crm"
 import { updateDonor, type UpdateDonorInput } from "@/app/actions/donors"
 import type { Interaction } from "@/types/database"
+import { EmailComposeDialog } from "@/components/email/email-compose-dialog"
 import { DonorInsightsPanel } from "@/components/donors/donor-insights-panel"
+import { DonorHealthScoreCard } from "@/components/donors/donor-health-score"
 import { DonorNotesCard } from "@/components/donors/donor-notes-card"
+import { DonorPledgesCard } from "@/components/donors/donor-pledges-card"
 import { DonorTagsCard } from "@/components/donors/donor-tags-card"
 import { formatCurrency } from "@/lib/format"
 import { Badge } from "@/components/ui/badge"
@@ -497,6 +500,7 @@ export default function DonorProfilePage() {
   const [editOpen, setEditOpen] = React.useState(false)
   const [logActivityOpen, setLogActivityOpen] = React.useState(false)
   const [logActivityTab, setLogActivityTab] = React.useState<"call" | "email" | "task">("call")
+  const [emailDialogOpen, setEmailDialogOpen] = React.useState(false)
 
   const loadData = React.useCallback(async () => {
     try {
@@ -603,6 +607,14 @@ export default function DonorProfilePage() {
           <Button
             variant="outline"
             size="sm"
+            onClick={() => setEmailDialogOpen(true)}
+          >
+            <Mail className="size-3.5 mr-1.5" />
+            Send Email
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => {
               setLogActivityTab("call")
               setLogActivityOpen(true)
@@ -614,102 +626,100 @@ export default function DonorProfilePage() {
         </div>
       </div>
 
-      {/* Main content: two-column layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 px-4 lg:px-6">
-        {/* Left column — contact, stats, insights */}
-        <div className="space-y-4">
-          {/* Contact Info */}
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-sm">Contact Information</CardTitle>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                onClick={() => setEditOpen(true)}
-              >
-                <Pencil className="size-3.5" />
-              </Button>
-            </CardHeader>
-            <CardContent>
-              <ul className="space-y-3">
-                <li className="flex items-center gap-2.5">
-                  <Mail className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.5} />
-                  {donor.email ? (
-                    <a href={`mailto:${donor.email}`} className="truncate text-sm text-primary hover:underline">
-                      {donor.email}
-                    </a>
-                  ) : (
-                    <span className="text-sm text-muted-foreground">No email</span>
-                  )}
-                </li>
-                <li className="flex items-center gap-2.5">
-                  <Phone className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.5} />
-                  {donor.phone ? (
-                    <a href={`tel:${donor.phone}`} className="text-sm text-primary hover:underline">
-                      {donor.phone}
-                    </a>
-                  ) : (
-                    <span className="text-sm text-muted-foreground">No phone</span>
-                  )}
-                </li>
-                <li className="flex items-start gap-2.5">
-                  <MapPin className="size-4 shrink-0 text-muted-foreground mt-0.5" strokeWidth={1.5} />
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-sm text-muted-foreground">
-                      {fullAddress || "No address"}
+      {/* Hero row: Contact + Giving Summary */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-4 lg:px-6">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-sm">Contact Information</CardTitle>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => setEditOpen(true)}
+            >
+              <Pencil className="size-3.5" />
+            </Button>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-3">
+              <li className="flex items-center gap-2.5">
+                <Mail className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.5} />
+                {donor.email ? (
+                  <a href={`mailto:${donor.email}`} className="truncate text-sm text-primary hover:underline">
+                    {donor.email}
+                  </a>
+                ) : (
+                  <span className="text-sm text-muted-foreground">No email</span>
+                )}
+              </li>
+              <li className="flex items-center gap-2.5">
+                <Phone className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.5} />
+                {donor.phone ? (
+                  <a href={`tel:${donor.phone}`} className="text-sm text-primary hover:underline">
+                    {donor.phone}
+                  </a>
+                ) : (
+                  <span className="text-sm text-muted-foreground">No phone</span>
+                )}
+              </li>
+              <li className="flex items-start gap-2.5">
+                <MapPin className="size-4 shrink-0 text-muted-foreground mt-0.5" strokeWidth={1.5} />
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-sm text-muted-foreground">
+                    {fullAddress || "No address"}
+                  </span>
+                  {fullMailingAddress && fullMailingAddress !== fullAddress && (
+                    <span className="text-xs text-muted-foreground/70">
+                      Mailing: {fullMailingAddress}
                     </span>
-                    {fullMailingAddress && fullMailingAddress !== fullAddress && (
-                      <span className="text-xs text-muted-foreground/70">
-                        Mailing: {fullMailingAddress}
-                      </span>
-                    )}
-                  </div>
-                </li>
-              </ul>
-            </CardContent>
-          </Card>
+                  )}
+                </div>
+              </li>
+            </ul>
+          </CardContent>
+        </Card>
 
-          {/* Giving Stats */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Giving Summary</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-xs text-muted-foreground">Lifetime</p>
-                  <p className="text-lg font-semibold tabular-nums">{formatCurrency(lifetimeSum)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">YTD</p>
-                  <p className="text-lg font-semibold tabular-nums">{formatCurrency(ytdSum)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">This Month</p>
-                  <p className="text-lg font-semibold tabular-nums">{formatCurrency(thisMonthSum)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Avg. Gift</p>
-                  <p className="text-lg font-semibold tabular-nums">{formatCurrency(avgDonation)}</p>
-                </div>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Giving Summary</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-xs text-muted-foreground">Lifetime</p>
+                <p className="text-lg font-semibold tabular-nums">{formatCurrency(lifetimeSum)}</p>
               </div>
-              <p className="text-xs text-muted-foreground mt-3">
-                {donations.length} total gift{donations.length !== 1 ? "s" : ""}
-              </p>
-            </CardContent>
-          </Card>
+              <div>
+                <p className="text-xs text-muted-foreground">YTD</p>
+                <p className="text-lg font-semibold tabular-nums">{formatCurrency(ytdSum)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">This Month</p>
+                <p className="text-lg font-semibold tabular-nums">{formatCurrency(thisMonthSum)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Avg. Gift</p>
+                <p className="text-lg font-semibold tabular-nums">{formatCurrency(avgDonation)}</p>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground mt-3">
+              {donations.length} total gift{donations.length !== 1 ? "s" : ""}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
 
-          {/* AI Insights */}
-          <DonorInsightsPanel donorId={donor.id} />
-
-          {/* Tags */}
+      {/* Balanced two-column grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 px-4 lg:px-6">
+        {/* Left column — health, pledges, tags */}
+        <div className="space-y-4">
+          <DonorHealthScoreCard donorId={donor.id} />
+          <DonorPledgesCard donorId={donor.id} />
           <DonorTagsCard donorId={donor.id} />
         </div>
 
-        {/* Right column — tasks, timeline, notes, giving history */}
-        <div className="lg:col-span-2 space-y-4">
-          {/* Pending Tasks */}
+        {/* Right column — tasks, activity, giving history, AI insights */}
+        <div className="space-y-4">
           {pendingTasks.length > 0 && (
             <Card>
               <CardHeader>
@@ -748,66 +758,74 @@ export default function DonorProfilePage() {
             </Card>
           )}
 
-          {/* Tabbed content: Timeline, Giving History, Notes */}
           <Card>
             <Tabs defaultValue="timeline" className="w-full">
               <CardHeader className="pb-0">
                 <TabsList>
-                  <TabsTrigger value="timeline">Timeline</TabsTrigger>
+                  <TabsTrigger value="timeline">Activity</TabsTrigger>
                   <TabsTrigger value="giving">Giving History</TabsTrigger>
-                  <TabsTrigger value="notes">Notes</TabsTrigger>
                 </TabsList>
               </CardHeader>
 
               <TabsContent value="timeline" className="mt-0">
-                <CardContent className="pt-4">
-                  {interactions.length === 0 ? (
-                    <p className="text-sm text-muted-foreground py-4 text-center">
-                      No interactions yet. Click "Log Activity" to get started.
-                    </p>
-                  ) : (
-                    <ul className="space-y-2">
-                      {interactions.map((i) => (
-                        <li
-                          key={i.id}
-                          className="flex gap-3 rounded-md border bg-muted/30 px-3 py-2 text-sm"
-                        >
-                          <span className="mt-0.5">{interactionIcon(i.type)}</span>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                                {i.type}
-                              </Badge>
-                              <span className="text-xs text-muted-foreground">
-                                {formatDateTime(i.date)}
-                              </span>
-                              {i.type === "task" && (
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    await toggleTaskStatus(i.id)
-                                    const ints = await getDonorInteractions(donorId)
-                                    setInteractions(ints)
-                                  }}
-                                  className={cn(
-                                    "text-xs hover:text-foreground",
-                                    i.status === "completed" ? "text-emerald-600" : "text-muted-foreground"
-                                  )}
-                                >
-                                  {i.status === "completed" ? "Done" : "Mark done"}
-                                </button>
+                <CardContent className="pt-4 space-y-4">
+                  <DonorNotesCard
+                    donorId={donor.id}
+                    initialNotes={donor.notes}
+                    savedNotes={activity}
+                  />
+
+                  {interactions.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Interactions</p>
+                      <ul className="space-y-2">
+                        {interactions.map((i) => (
+                          <li
+                            key={i.id}
+                            className="flex gap-3 rounded-md border bg-muted/30 px-3 py-2 text-sm"
+                          >
+                            <span className="mt-0.5">{interactionIcon(i.type)}</span>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                                  {i.type}
+                                </Badge>
+                                <span className="text-xs text-muted-foreground">
+                                  {formatDateTime(i.date)}
+                                </span>
+                                {i.type === "task" && (
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      await toggleTaskStatus(i.id)
+                                      const ints = await getDonorInteractions(donorId)
+                                      setInteractions(ints)
+                                    }}
+                                    className={cn(
+                                      "text-xs hover:text-foreground",
+                                      i.status === "completed" ? "text-emerald-600" : "text-muted-foreground"
+                                    )}
+                                  >
+                                    {i.status === "completed" ? "Done" : "Mark done"}
+                                  </button>
+                                )}
+                              </div>
+                              {i.subject && (
+                                <p className="font-medium text-foreground mt-0.5">{i.subject}</p>
                               )}
+                              <p className="whitespace-pre-wrap text-muted-foreground mt-0.5">
+                                {i.content || "—"}
+                              </p>
                             </div>
-                            {i.subject && (
-                              <p className="font-medium text-foreground mt-0.5">{i.subject}</p>
-                            )}
-                            <p className="whitespace-pre-wrap text-muted-foreground mt-0.5">
-                              {i.content || "—"}
-                            </p>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {interactions.length === 0 && (
+                    <p className="text-sm text-muted-foreground text-center py-2">
+                      No interactions yet. Click &quot;Log Activity&quot; to get started.
+                    </p>
                   )}
                 </CardContent>
               </TabsContent>
@@ -846,18 +864,10 @@ export default function DonorProfilePage() {
                   </Table>
                 </CardContent>
               </TabsContent>
-
-              <TabsContent value="notes" className="mt-0">
-                <CardContent className="pt-4">
-                  <DonorNotesCard
-                    donorId={donor.id}
-                    initialNotes={donor.notes}
-                    savedNotes={activity}
-                  />
-                </CardContent>
-              </TabsContent>
             </Tabs>
           </Card>
+
+          <DonorInsightsPanel donorId={donor.id} />
         </div>
       </div>
 
@@ -882,6 +892,22 @@ export default function DonorProfilePage() {
           }}
         />
       </Dialog>
+
+      {/* Send Email Dialog */}
+      <EmailComposeDialog
+        open={emailDialogOpen}
+        onOpenChange={setEmailDialogOpen}
+        mode="single"
+        recipient={{
+          donorId,
+          donorEmail: donor.email,
+          donorName: donor.display_name,
+        }}
+        onSent={async () => {
+          const ints = await getDonorInteractions(donorId)
+          setInteractions(ints)
+        }}
+      />
     </div>
   )
 }

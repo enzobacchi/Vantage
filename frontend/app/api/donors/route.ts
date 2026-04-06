@@ -11,6 +11,7 @@ export type DonorTag = { id: string; name: string; color: string };
 export type DonorListItem = {
   id: string;
   display_name: string | null;
+  email: string | null;
   total_lifetime_value: number | string | null;
   last_donation_amount: number | string | null;
   last_donation_date: string | null;
@@ -157,7 +158,7 @@ export async function GET(request: Request) {
     const [donorsRes, extras] = await Promise.all([
       supabase
         .from("donors")
-        .select("id, display_name, total_lifetime_value, last_donation_amount, last_donation_date, billing_address, state, notes")
+        .select("id, display_name, email, total_lifetime_value, last_donation_amount, last_donation_date, billing_address, state, notes")
         .in("id", donorIdsInRange)
         .eq("org_id", auth.orgId),
       fetchDonorExtras(supabase, donorIdsInRange),
@@ -271,7 +272,7 @@ export async function GET(request: Request) {
   // Data query with offset pagination
   let query = supabase
     .from("donors")
-    .select("id, display_name, total_lifetime_value, last_donation_amount, last_donation_date, billing_address, state, notes")
+    .select("id, display_name, email, total_lifetime_value, last_donation_amount, last_donation_date, billing_address, state, notes")
     .eq("org_id", auth.orgId)
     .order(orderColumn, { ascending, nullsFirst: false })
     .range(page * limit, page * limit + limit - 1);

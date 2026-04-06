@@ -2,37 +2,15 @@
 
 import { getCurrentUserOrg } from "@/lib/auth"
 import { createAdminClient } from "@/lib/supabase/admin"
+import {
+  OPPORTUNITY_STATUSES,
+  type OpportunityStatus,
+  type PipelineOpportunity,
+  type CreateOpportunityData,
+} from "@/lib/pipeline-constants"
 
-export const OPPORTUNITY_STATUSES = [
-  "identified",
-  "qualified",
-  "solicited",
-  "committed",
-  "closed_won",
-  "closed_lost",
-] as const
-
-export type OpportunityStatus = (typeof OPPORTUNITY_STATUSES)[number]
-
-export type PipelineOpportunity = {
-  id: string
-  organization_id: string
-  donor_id: string
-  title: string
-  amount: number
-  status: OpportunityStatus
-  expected_date: string | null
-  created_at: string
-  donor?: { display_name: string | null } | null
-}
-
-export type CreateOpportunityData = {
-  donor_id: string
-  title?: string
-  amount: number
-  status: OpportunityStatus
-  expected_date?: string | null
-}
+// Re-export types for consumers
+export type { OpportunityStatus, PipelineOpportunity, CreateOpportunityData }
 
 export async function getPipeline(): Promise<PipelineOpportunity[]> {
   const org = await getCurrentUserOrg()
@@ -113,6 +91,30 @@ export async function createOpportunity(
     const message = err instanceof Error ? err.message : "Failed to create opportunity"
     return { ok: false, error: message }
   }
+}
+
+export async function updateOpportunity(
+  id: string,
+  data: { title?: string; amount?: number; status?: OpportunityStatus; expected_date?: string | null }
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const org = await getCurrentUserOrg()
+  if (!org) return { ok: false, error: "Unauthorized" }
+
+  const update: Record<string, unknown> = {}
+  if (data.title !== undefined) update.title = data.title.trim() || "Opportunity"
+  if (data.amount !== undefined) update.amount = Number(data.amount)
+  if (data.status !== undefined && OPPORTUNITY_STATUSES.includes(data.status)) update.status = data.status
+  if ("expected_date" in data) update.expected_date = data.expected_date || null
+
+  const supabase = createAdminClient()
+  const { error } = await supabase
+    .from("opportunities")
+    .update(update)
+    .eq("id", id)
+    .eq("organization_id", org.orgId)
+
+  if (error) return { ok: false, error: error.message }
+  return { ok: true }
 }
 
 export async function deleteOpportunity(

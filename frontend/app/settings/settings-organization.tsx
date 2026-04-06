@@ -78,6 +78,7 @@ export function SettingsOrganization() {
         legal_501c3_wording: legalWording.trim(),
       })
       toast.success("Organization updated")
+      router.refresh()
     } catch (e) {
       toast.error("Failed to save", {
         description: e instanceof Error ? e.message : "Unknown error",

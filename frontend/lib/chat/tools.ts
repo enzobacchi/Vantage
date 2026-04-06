@@ -3,6 +3,7 @@ import { z } from "zod"
 
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getDonorLifecycleStatus } from "@/lib/donor-lifecycle"
+import { computeDonorHealthScore } from "@/lib/donor-score"
 import { isLimitExceeded } from "@/lib/subscription"
 
 export function buildTools(orgId: string) {
@@ -655,6 +656,159 @@ export function buildTools(orgId: string) {
         return {
           total_donors_with_location: rows.length,
           locations: sorted,
+        }
+      },
+    }),
+
+    get_donor_health_score: tool({
+      description:
+        "Get the health score (0-100) for a specific donor. Returns the score, label (Excellent/Good/Fair/At Risk/Cold), factor breakdown (recency, frequency, monetary trend, engagement, consistency), giving trend, and a suggested ask amount. Use this when asked about donor health, engagement, or 'how is this donor doing'.",
+      inputSchema: z.object({
+        donor_id: z.string().describe("The donor's ID"),
+      }),
+      execute: async ({ donor_id }) => {
+        const { data: donor, error: donorErr } = await supabase
+          .from("donors")
+          .select("id,display_name,total_lifetime_value,last_donation_date")
+          .eq("id", donor_id)
+          .eq("org_id", orgId)
+          .single()
+
+        if (donorErr || !donor) return { error: "Donor not found." }
+
+        const [donationsRes, interactionsRes] = await Promise.all([
+          supabase
+            .from("donations")
+            .select("amount,date")
+            .eq("donor_id", donor_id)
+            .eq("org_id", orgId)
+            .order("date", { ascending: true }),
+          supabase
+            .from("interactions")
+            .select("date,type")
+            .eq("donor_id", donor_id)
+            .order("date", { ascending: true }),
+        ])
+
+        const donationsList = donationsRes.data ?? []
+
+        const score = computeDonorHealthScore({
+          lastDonationDate: donor.last_donation_date ?? null,
+          firstDonationDate: donationsList.length > 0 ? donationsList[0].date : null,
+          totalLifetimeValue: Number(donor.total_lifetime_value ?? 0),
+          donations: donationsList.map((d) => ({ amount: d.amount, date: d.date })),
+          interactions: (interactionsRes.data ?? []).map((i) => ({ date: i.date, type: i.type })),
+        })
+
+        return {
+          donor_name: donor.display_name,
+          health_score: score.score,
+          label: score.label,
+          trend: score.trend,
+          suggested_ask: score.suggestedAsk,
+          factors: score.factors,
+        }
+      },
+    }),
+
+    get_at_risk_donors: tool({
+      description:
+        "Find donors who are at risk of lapsing. Returns donors with low health scores who have meaningful giving history. Use this when asked about 'at risk donors', 'who might we lose', 'lapsing donors', or 'donor retention'.",
+      inputSchema: z.object({
+        max_score: z
+          .number()
+          .optional()
+          .describe("Maximum health score threshold (default 40)"),
+        min_lifetime_value: z
+          .number()
+          .optional()
+          .describe("Minimum lifetime value to include (default 100)"),
+        limit: z
+          .number()
+          .min(1)
+          .max(25)
+          .optional()
+          .describe("Max results (default 10)"),
+      }),
+      execute: async ({ max_score = 40, min_lifetime_value = 100, limit = 10 }) => {
+        // Fetch donors with meaningful giving
+        const { data: donors, error } = await supabase
+          .from("donors")
+          .select("id,display_name,total_lifetime_value,last_donation_date")
+          .eq("org_id", orgId)
+          .gte("total_lifetime_value", min_lifetime_value)
+          .order("total_lifetime_value", { ascending: false, nullsFirst: false })
+          .limit(200)
+
+        if (error) return { error: "Failed to load donors." }
+        if (!donors?.length) return { at_risk_donors: [], total_found: 0 }
+
+        const donorIds = donors.map((d) => d.id)
+
+        // Batch fetch donations and interactions
+        const [donationsRes, interactionsRes] = await Promise.all([
+          supabase
+            .from("donations")
+            .select("donor_id,amount,date")
+            .eq("org_id", orgId)
+            .in("donor_id", donorIds)
+            .order("date", { ascending: true }),
+          supabase
+            .from("interactions")
+            .select("donor_id,date,type")
+            .in("donor_id", donorIds)
+            .order("date", { ascending: true }),
+        ])
+
+        // Group by donor
+        const donationsByDonor = new Map<string, { amount: number | string | null; date: string | null }[]>()
+        for (const d of donationsRes.data ?? []) {
+          const list = donationsByDonor.get(d.donor_id) ?? []
+          list.push({ amount: d.amount, date: d.date })
+          donationsByDonor.set(d.donor_id, list)
+        }
+
+        const interactionsByDonor = new Map<string, { date: string | null; type: string }[]>()
+        for (const i of interactionsRes.data ?? []) {
+          if (!i.donor_id) continue
+          const list = interactionsByDonor.get(i.donor_id) ?? []
+          list.push({ date: i.date, type: i.type })
+          interactionsByDonor.set(i.donor_id, list)
+        }
+
+        // Score and filter
+        const atRisk = donors
+          .map((donor) => {
+            const donations = donationsByDonor.get(donor.id) ?? []
+            if (donations.length < 2) return null // Need history to be "at risk"
+
+            const score = computeDonorHealthScore({
+              lastDonationDate: donor.last_donation_date ?? null,
+              firstDonationDate: donations.length > 0 ? (donations[0].date as string | null) : null,
+              totalLifetimeValue: Number(donor.total_lifetime_value ?? 0),
+              donations,
+              interactions: interactionsByDonor.get(donor.id) ?? [],
+            })
+
+            if (score.score > max_score) return null
+
+            return {
+              donor_id: donor.id,
+              donor_name: donor.display_name,
+              health_score: score.score,
+              label: score.label,
+              trend: score.trend,
+              lifetime_value: Number(donor.total_lifetime_value ?? 0),
+              last_donation_date: donor.last_donation_date,
+              suggested_ask: score.suggestedAsk,
+            }
+          })
+          .filter(Boolean)
+          .sort((a, b) => a!.health_score - b!.health_score)
+
+        return {
+          at_risk_donors: atRisk.slice(0, limit),
+          total_found: atRisk.length,
         }
       },
     }),

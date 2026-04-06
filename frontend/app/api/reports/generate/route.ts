@@ -113,6 +113,7 @@ export async function POST(request: Request) {
       selectedColumns?: unknown;
       title?: string;
       visibility?: string;
+      shared_with_user_ids?: unknown;
       reportId?: string;
       donorIds?: unknown;
     } | null;
@@ -129,7 +130,10 @@ export async function POST(request: Request) {
         )
       : [];
     const customTitle = typeof body?.title === "string" ? body.title.trim() : "";
-    const visibility = body?.visibility === "private" ? "private" : "shared";
+    const visibility = body?.visibility === "private" ? "private" : body?.visibility === "specific" ? "specific" : "shared";
+    const sharedWithUserIds: string[] = Array.isArray(body?.shared_with_user_ids)
+      ? (body.shared_with_user_ids as string[]).filter((id) => typeof id === "string" && id.trim())
+      : [];
     const rawDonorIds = body?.donorIds;
     const donorIds =
       Array.isArray(rawDonorIds) && rawDonorIds.length > 0
@@ -448,9 +452,17 @@ export async function POST(request: Request) {
       );
     }
 
+    // Insert report_shares for "specific" visibility
+    const reportId = String(inserted?.id ?? "");
+    if (visibility === "specific" && sharedWithUserIds.length > 0 && reportId) {
+      await supabase.from("report_shares").insert(
+        sharedWithUserIds.map((uid) => ({ report_id: reportId, user_id: uid }))
+      );
+    }
+
     return NextResponse.json({
       success: true,
-      reportId: String(inserted?.id ?? ""),
+      reportId,
       rowCount,
       bytes: csvBytes,
       title: stripSqlArtifacts(title),

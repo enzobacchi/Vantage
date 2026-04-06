@@ -51,7 +51,6 @@ export function DonorTagsCard({ donorId }: { donorId: string }) {
   const [tags, setTags] = React.useState<Tag[]>([])
   const [allTags, setAllTags] = React.useState<Tag[]>([])
   const [open, setOpen] = React.useState(false)
-  const [creating, setCreating] = React.useState<{ name: string } | null>(null)
   const [loading, setLoading] = React.useState(true)
 
   const loadTags = React.useCallback(async () => {
@@ -85,13 +84,13 @@ export function DonorTagsCard({ donorId }: { donorId: string }) {
     }
   }
 
-  const handleCreateAndAssign = async (name: string, color: string) => {
+  const handleCreateAndAssign = async (name: string) => {
+    const autoColor = TAG_COLORS[allTags.length % TAG_COLORS.length].value
     try {
-      const newTag = await createTag(name, color)
+      const newTag = await createTag(name, autoColor)
       await assignTag(donorId, newTag.id)
       setTags((prev) => [...prev, newTag])
       setAllTags((prev) => [...prev, newTag])
-      setCreating(null)
       setOpen(false)
       toast.success(`Tag "${name}" created and added`)
     } catch (e) {
@@ -136,7 +135,7 @@ export function DonorTagsCard({ donorId }: { donorId: string }) {
                   </button>
                 </Badge>
               ))}
-              <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) setCreating(null) }}>
+              <Popover open={open} onOpenChange={setOpen}>
                 <PopoverTrigger asChild>
                   <Button variant="outline" size="sm" className="h-8 gap-1">
                     <Plus className="size-4" />
@@ -144,39 +143,12 @@ export function DonorTagsCard({ donorId }: { donorId: string }) {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent align="start" className="w-[280px] p-0">
-                  {creating ? (
-                    <div className="p-3">
-                      <p className="text-sm font-medium mb-2">Create &quot;{creating.name}&quot;</p>
-                      <p className="text-xs text-muted-foreground mb-2">Pick a color:</p>
-                      <div className="flex flex-wrap gap-2">
-                        {TAG_COLORS.map(({ value, label, class: cls }) => (
-                          <button
-                            key={value}
-                            type="button"
-                            onClick={() => handleCreateAndAssign(creating.name, value)}
-                            className={`rounded-full px-3 py-1.5 text-xs font-medium border ${cls}`}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="mt-2"
-                        onClick={() => setCreating(null)}
-                      >
-                        Back
-                      </Button>
-                    </div>
-                  ) : (
-                    <TagCommand
-                      allTags={allTags}
-                      donorTagIds={donorTagIds}
-                      onSelect={(tag) => handleAssign(tag)}
-                      onCreate={(name) => setCreating({ name })}
-                    />
-                  )}
+                  <TagCommand
+                    allTags={allTags}
+                    donorTagIds={donorTagIds}
+                    onSelect={(tag) => handleAssign(tag)}
+                    onCreate={(name) => handleCreateAndAssign(name)}
+                  />
                 </PopoverContent>
               </Popover>
             </div>

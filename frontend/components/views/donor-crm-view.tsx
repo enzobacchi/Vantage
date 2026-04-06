@@ -1,15 +1,15 @@
 "use client"
 
 import * as React from "react"
-import { IconChevronDown, IconSearch, IconUsers } from "@tabler/icons-react"
+import { IconSearch, IconUsers } from "@tabler/icons-react"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { toast } from "sonner"
-import { Calendar, CheckSquare, Download, ExternalLink, FileText, GitMerge, Mail, MapPin, Phone, Sparkles, Trash2 } from "lucide-react"
+import { Download, ExternalLink, GitMerge, Mail, MapPin, Phone, Trash2 } from "lucide-react"
 
-import { getDonorProfile, getDonorActivityNotes, type DonorProfileDonor, type DonorProfileDonation, type DonorNoteRow } from "@/app/donors/[id]/actions"
+import { getDonorProfile, type DonorProfileDonor, type DonorProfileDonation } from "@/app/donors/[id]/actions"
 import { listReceiptTemplates, type ReceiptTemplate } from "@/app/actions/receipt-templates"
 import { applyEmailTemplate } from "@/app/settings/settings-email-templates"
-import { getDonorInteractions, logInteraction, toggleTaskStatus } from "@/app/actions/crm"
+import { getDonorInteractions, logInteraction } from "@/app/actions/crm"
 import { DEFAULT_LIFECYCLE_CONFIG } from "@/lib/donor-lifecycle"
 import type { Interaction } from "@/types/database"
 import { bulkAssignTag, bulkRemoveTag, getOrganizationTags } from "@/app/actions/tags"
@@ -19,10 +19,11 @@ import { DateRangeFilter, getDateRangeFromSearchParams } from "@/components/date
 import { format } from "date-fns"
 import { SaveReportButton } from "@/components/donors/save-report-button"
 import { useNav } from "@/components/nav-context"
-import { DonorInsightsPanel } from "@/components/donors/donor-insights-panel"
-import { MagicActionsCard } from "@/components/donors/magic-actions-card"
-import { DonorNotesCard } from "@/components/donors/donor-notes-card"
-import { DonorTagsCard } from "@/components/donors/donor-tags-card"
+import { ScoreBadge } from "@/components/donors/donor-health-score"
+import { getDonorPledges } from "@/app/actions/pledges"
+import type { Pledge } from "@/app/actions/pledges"
+import { formatFrequency } from "@/lib/pledge-helpers"
+import { getPledgeProgress } from "@/lib/pledge-helpers"
 import { formatCurrency } from "@/lib/format"
 import { Button } from '@/components/ui/button'
 import {
@@ -56,14 +57,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { DataTable, type DataTableRef } from "@/components/ui/data-table"
 import { createDonorColumns, type Donor } from "@/components/views/donor-crm/columns"
 import {
@@ -83,19 +76,13 @@ import {
 } from "@/components/ui/popover"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import { EmailComposeDialog, type EmailRecipient } from "@/components/email/email-compose-dialog"
 
 function formatDate(value: string | null | undefined) {
   if (!value) return "—"
   const d = new Date(`${value}T00:00:00Z`)
   if (Number.isNaN(d.getTime())) return value
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
-}
-
-function formatDateTime(value: string | null | undefined) {
-  if (!value) return "—"
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return value
-  return d.toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })
 }
 
 type SortOption = "recent" | "highest" | "lowest" | "lifetime_highest" | "lifetime_lowest"
@@ -107,81 +94,6 @@ const SORT_OPTIONS: { value: SortOption; label: string }[] = [
   { value: "lifetime_highest", label: "Highest lifetime" },
   { value: "lifetime_lowest", label: "Lowest lifetime" },
 ]
-
-function interactionIcon(type: Interaction["type"]) {
-  switch (type) {
-    case "call":
-      return <Phone className="size-4 shrink-0 text-muted-foreground" />
-    case "email":
-      return <Mail className="size-4 shrink-0 text-muted-foreground" />
-    case "meeting":
-      return <Calendar className="size-4 shrink-0 text-muted-foreground" />
-    case "task":
-      return <CheckSquare className="size-4 shrink-0 text-muted-foreground" />
-    default:
-      return <FileText className="size-4 shrink-0 text-muted-foreground" />
-  }
-}
-
-function InteractionTimeline({
-  donorId,
-  interactions,
-  onToggleTask,
-  onRefresh,
-}: {
-  donorId: string
-  interactions: Interaction[]
-  onToggleTask: (id: string) => Promise<void>
-  onRefresh: () => void
-}) {
-  const [togglingId, setTogglingId] = React.useState<string | null>(null)
-  const handleToggle = (id: string) => {
-    setTogglingId(id)
-    onToggleTask(id).finally(() => setTogglingId(null))
-  }
-  if (interactions.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground py-2">
-        No interactions yet. Click &quot;Log Activity&quot; to log a call, email, or task.
-      </p>
-    )
-  }
-  return (
-    <ul className="space-y-2">
-      {interactions.map((i) => (
-        <li
-          key={i.id}
-          className="flex gap-3 rounded-md border bg-muted/30 px-3 py-2 text-sm"
-        >
-          <span className="mt-0.5">{interactionIcon(i.type)}</span>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs text-muted-foreground">
-                {formatDateTime(i.date)}
-              </span>
-              {i.type === "task" && (
-                <button
-                  type="button"
-                  onClick={() => handleToggle(i.id)}
-                  disabled={togglingId === i.id}
-                  className="text-xs text-muted-foreground hover:text-foreground"
-                >
-                  {i.status === "completed" ? "Done" : "Mark done"}
-                </button>
-              )}
-            </div>
-            {i.subject && (
-              <p className="font-medium text-foreground mt-0.5">{i.subject}</p>
-            )}
-            <p className="whitespace-pre-wrap text-muted-foreground mt-0.5">
-              {i.content || "—"}
-            </p>
-          </div>
-        </li>
-      ))}
-    </ul>
-  )
-}
 
 function LogActivityDialog({
   donorId,
@@ -484,12 +396,14 @@ export function DonorCRMView() {
     }
   }, [donorIdFromUrl, pathname, searchParams, router])
   const [sheetProfile, setSheetProfile] = React.useState<{ donor: DonorProfileDonor; donations: DonorProfileDonation[] } | null>(null)
-  const [sheetActivity, setSheetActivity] = React.useState<DonorNoteRow[]>([])
   const [sheetInteractions, setSheetInteractions] = React.useState<Interaction[]>([])
   const [sheetLoading, setSheetLoading] = React.useState(false)
+  const [sheetScore, setSheetScore] = React.useState<{ score: number; label: string } | null>(null)
+  const [sheetActivePledges, setSheetActivePledges] = React.useState<Pledge[]>([])
   const [logActivityOpen, setLogActivityOpen] = React.useState(false)
   const [logActivityDefaultTab, setLogActivityDefaultTab] = React.useState<"call" | "email" | "task">("call")
-  const [historyOpen, setHistoryOpen] = React.useState(false)
+  const [emailDialogOpen, setEmailDialogOpen] = React.useState(false)
+  const [emailTarget, setEmailTarget] = React.useState<Donor | null>(null)
 
   const loadDonors = React.useCallback(async (
     tagIds?: Set<string>,
@@ -567,9 +481,14 @@ export function DonorCRMView() {
     setSheetOpen(true)
   }, [])
 
+  const handleSendEmailFromRow = React.useCallback((donor: Donor) => {
+    setEmailTarget(donor)
+    setEmailDialogOpen(true)
+  }, [])
+
   const donorColumns = React.useMemo(
-    () => createDonorColumns({ onOpenDonorSheet: openDonorSheet }),
-    [openDonorSheet]
+    () => createDonorColumns({ onOpenDonorSheet: openDonorSheet, onSendEmail: handleSendEmailFromRow }),
+    [openDonorSheet, handleSendEmailFromRow]
   )
 
   const handleBulkAddTag = React.useCallback(
@@ -684,28 +603,30 @@ export function DonorCRMView() {
   React.useEffect(() => {
     if (!sheetOpen || !sheetDonorId) {
       setSheetProfile(null)
-      setSheetActivity([])
       setSheetInteractions([])
+      setSheetScore(null)
+      setSheetActivePledges([])
       return
     }
     let cancelled = false
     setSheetLoading(true)
     Promise.all([
       getDonorProfile(sheetDonorId),
-      getDonorActivityNotes(sheetDonorId),
       getDonorInteractions(sheetDonorId),
+      getDonorPledges(sheetDonorId),
+      fetch(`/api/donors/${sheetDonorId}/score`).then(r => r.ok ? r.json() : null).catch(() => null),
     ])
-      .then(([profile, activity, interactions]) => {
+      .then(([profile, interactions, pledges, scoreData]) => {
         if (cancelled) return
         if (profile.donor) {
           setSheetProfile({ donor: profile.donor, donations: profile.donations })
-          setSheetActivity(activity)
           setSheetInteractions(interactions)
         } else {
           setSheetProfile(null)
-          setSheetActivity([])
           setSheetInteractions([])
         }
+        setSheetActivePledges((pledges as Pledge[]).filter(p => p.status === "active"))
+        if (scoreData) setSheetScore({ score: scoreData.score, label: scoreData.label })
       })
       .catch(() => {
         if (!cancelled) setSheetProfile(null)
@@ -721,7 +642,8 @@ export function DonorCRMView() {
   const closeSheet = React.useCallback(() => {
     setSheetOpen(false)
     setSheetDonorId(null)
-    setHistoryOpen(false)
+    setSheetScore(null)
+    setSheetActivePledges([])
   }, [])
   const emptyMessage = searchQuery.trim()
     ? "No donors match your search."
@@ -883,6 +805,18 @@ export function DonorCRMView() {
               >
                 <Download className="size-3.5" strokeWidth={1.5} />
                 Export
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setEmailTarget(null)
+                  setEmailDialogOpen(true)
+                }}
+                className="gap-1.5"
+              >
+                <Mail className="size-3.5" strokeWidth={1.5} />
+                Send Email ({selectedDonors.length})
               </Button>
               {selectedDonors.length === 2 && (
                 <Button
@@ -1050,23 +984,54 @@ export function DonorCRMView() {
           {/* Header */}
           <SheetHeader className="shrink-0 border-b bg-muted/30 px-6 py-4 text-left">
             <div className="flex items-center justify-between gap-3">
-              <SheetTitle className="text-xl font-bold tracking-tight truncate">
-                {sheetProfile?.donor?.display_name ?? "Donor"}
-              </SheetTitle>
-              {sheetDonorId && (
+              <div className="flex items-center gap-2 min-w-0">
+                <SheetTitle className="text-xl font-bold tracking-tight truncate">
+                  {sheetProfile?.donor?.display_name ?? "Donor"}
+                </SheetTitle>
+                {sheetScore && (
+                  <ScoreBadge score={sheetScore.score} label={sheetScore.label as any} className="shrink-0" />
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
                 <Button
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0 text-xs"
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  title="Send email"
                   onClick={() => {
-                    closeSheet()
-                    router.push(`/dashboard/donors/${sheetDonorId}`)
+                    setLogActivityDefaultTab("email")
+                    setLogActivityOpen(true)
                   }}
                 >
-                  <ExternalLink className="size-3 mr-1.5" />
-                  Full Profile
+                  <Mail className="size-3.5" strokeWidth={1.5} />
                 </Button>
-              )}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  title="Log call"
+                  onClick={() => {
+                    setLogActivityDefaultTab("call")
+                    setLogActivityOpen(true)
+                  }}
+                >
+                  <Phone className="size-3.5" strokeWidth={1.5} />
+                </Button>
+                {sheetDonorId && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 text-xs"
+                    onClick={() => {
+                      closeSheet()
+                      router.push(`/dashboard/donors/${sheetDonorId}`)
+                    }}
+                  >
+                    <ExternalLink className="size-3 mr-1.5" />
+                    Full Profile
+                  </Button>
+                )}
+              </div>
             </div>
           </SheetHeader>
 
@@ -1114,10 +1079,9 @@ export function DonorCRMView() {
               return (
                 <div className="flex-1 overflow-y-auto p-6 space-y-5">
 
-                  {/* AI donor briefing + stats + contact — single column for compact panel */}
+                  {/* Stats + contact + AI insights + notes — streamlined single column */}
                   <div className="space-y-4">
-                    <DonorInsightsPanel donorId={sheetProfile.donor.id} />
-
+                    {/* Giving stats */}
                     <div className="grid grid-cols-3 divide-x border rounded-lg">
                       <div className="flex flex-col items-center justify-center px-1 py-3">
                         <span className="text-[10px] text-muted-foreground text-center">Lifetime</span>
@@ -1133,6 +1097,20 @@ export function DonorCRMView() {
                       </div>
                     </div>
 
+                    {/* Active pledge summary (if any) */}
+                    {sheetActivePledges.length > 0 && (
+                      <div className="text-xs text-muted-foreground px-1">
+                        {sheetActivePledges.length === 1 ? (
+                          <>
+                            1 active pledge · {formatCurrency(sheetActivePledges[0].amount)} {formatFrequency(sheetActivePledges[0].frequency)} · {getPledgeProgress(sheetActivePledges[0])}% fulfilled
+                          </>
+                        ) : (
+                          <>{sheetActivePledges.length} active pledges</>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Contact */}
                     <Card>
                       <CardHeader>
                         <CardTitle className="text-sm">Contact</CardTitle>
@@ -1164,26 +1142,6 @@ export function DonorCRMView() {
                       </CardContent>
                     </Card>
 
-                    <MagicActionsCard
-                      donorId={sheetDonorId}
-                      donorName={sheetProfile.donor.display_name ?? "Unknown Donor"}
-                      compact
-                      onSendEmail={() => {
-                        setLogActivityDefaultTab("email")
-                        setLogActivityOpen(true)
-                      }}
-                      onLogCall={() => {
-                        setLogActivityDefaultTab("call")
-                        setLogActivityOpen(true)
-                      }}
-                    />
-
-                    <DonorTagsCard donorId={sheetDonorId} />
-                    <DonorNotesCard
-                      donorId={sheetDonorId}
-                      initialNotes={sheetProfile.donor.notes}
-                      savedNotes={sheetActivity}
-                    />
                   </div>
 
                   {/* Log Activity dialog — state-controlled, no nested trigger */}
@@ -1201,97 +1159,77 @@ export function DonorCRMView() {
                     />
                   </Dialog>
 
-                  {/* Bottom: history — collapsed by default */}
-                  <div className="border rounded-lg overflow-hidden">
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => setHistoryOpen((v) => !v)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault()
-                          setHistoryOpen((v) => !v)
-                        }
-                      }}
-                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors cursor-pointer select-none"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm font-medium">History</span>
-                        <span className="text-xs text-muted-foreground">
-                          {sheetProfile.donations.length} gift{sheetProfile.donations.length !== 1 ? "s" : ""}
-                        </span>
+                  {/* Recent Gifts — compact summary */}
+                  {donations.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-medium text-muted-foreground px-1">Recent Gifts</p>
+                      <div className="space-y-1.5">
+                        {donations.slice(0, 3).map((d) => (
+                          <div key={d.id} className="flex items-center justify-between rounded-md border px-3 py-2">
+                            <span className="text-sm text-muted-foreground">{formatDate(d.date)}</span>
+                            <span className="text-sm font-medium tabular-nums">{formatCurrency(d.amount)}</span>
+                          </div>
+                        ))}
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 text-xs"
-                          onClick={(e) => { e.stopPropagation(); setLogActivityOpen(true) }}
-                        >
-                          Log Activity
-                        </Button>
-                        <IconChevronDown className={`size-4 text-muted-foreground transition-transform duration-200 ${historyOpen ? "rotate-180" : ""}`} />
-                      </div>
+                      {donations.length > 3 && (
+                        <p className="text-xs text-muted-foreground text-center">
+                          +{donations.length - 3} more gift{donations.length - 3 !== 1 ? "s" : ""}
+                        </p>
+                      )}
                     </div>
+                  )}
 
-                    {historyOpen && (
-                      <div className="border-t max-h-[300px] overflow-y-auto">
-                        <Tabs defaultValue="giving" className="w-full">
-                          <TabsList className="grid w-full grid-cols-2 rounded-none border-b h-9">
-                            <TabsTrigger value="giving" className="rounded-none text-xs">Giving History</TabsTrigger>
-                            <TabsTrigger value="timeline" className="rounded-none text-xs">Timeline</TabsTrigger>
-                          </TabsList>
-                          <TabsContent value="giving" className="mt-0 p-0">
-                            <Table>
-                              <TableHeader>
-                                <TableRow>
-                                  <TableHead>Date</TableHead>
-                                  <TableHead className="text-right">Amount</TableHead>
-                                  <TableHead>Memo</TableHead>
-                                </TableRow>
-                              </TableHeader>
-                              <TableBody>
-                                {sheetProfile.donations.length === 0 ? (
-                                  <TableRow>
-                                    <TableCell colSpan={3} className="text-muted-foreground text-center py-4 text-sm">
-                                      No donations recorded.
-                                    </TableCell>
-                                  </TableRow>
-                                ) : (
-                                  sheetProfile.donations.map((d) => (
-                                    <TableRow key={d.id}>
-                                      <TableCell className="font-medium text-sm">{formatDate(d.date)}</TableCell>
-                                      <TableCell className="text-right tabular-nums text-sm">{formatCurrency(d.amount)}</TableCell>
-                                      <TableCell className="text-muted-foreground max-w-[300px] truncate text-sm">
-                                        {d.memo && !/^qb_sales_receipt_id:/i.test(d.memo) ? d.memo : "—"}
-                                      </TableCell>
-                                    </TableRow>
-                                  ))
-                                )}
-                              </TableBody>
-                            </Table>
-                          </TabsContent>
-                          <TabsContent value="timeline" className="mt-0 p-3">
-                            <InteractionTimeline
-                              donorId={sheetDonorId}
-                              interactions={sheetInteractions}
-                              onToggleTask={async (id) => {
-                                await toggleTaskStatus(id)
-                                getDonorInteractions(sheetDonorId).then(setSheetInteractions)
-                              }}
-                              onRefresh={() => getDonorInteractions(sheetDonorId).then(setSheetInteractions)}
-                            />
-                          </TabsContent>
-                        </Tabs>
-                      </div>
-                    )}
-                  </div>
+                  {/* View Full Profile CTA */}
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      closeSheet()
+                      router.push(`/dashboard/donors/${sheetDonorId}`)
+                    }}
+                  >
+                    <ExternalLink className="size-3.5 mr-2" strokeWidth={1.5} />
+                    View Full Profile
+                  </Button>
                 </div>
               )
             })()
           )}
         </SheetContent>
       </Sheet>
+
+      {/* Email Compose Dialog */}
+      {emailDialogOpen && emailTarget ? (
+        <EmailComposeDialog
+          open={emailDialogOpen}
+          onOpenChange={setEmailDialogOpen}
+          mode="single"
+          recipient={{
+            donorId: emailTarget.id,
+            donorEmail: emailTarget.email,
+            donorName: emailTarget.display_name,
+          }}
+          onSent={() => {
+            if (sheetDonorId) {
+              getDonorInteractions(sheetDonorId).then(setSheetInteractions)
+            }
+          }}
+        />
+      ) : emailDialogOpen && selectedDonors.length > 0 ? (
+        <EmailComposeDialog
+          open={emailDialogOpen}
+          onOpenChange={setEmailDialogOpen}
+          mode="bulk"
+          recipients={selectedDonors.map((d) => ({
+            donorId: d.id,
+            donorEmail: d.email,
+            donorName: d.display_name,
+          }))}
+          onSent={() => {
+            dataTableRef.current?.clearSelection()
+          }}
+        />
+      ) : null}
     </div>
   )
 }

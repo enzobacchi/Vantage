@@ -12,11 +12,14 @@ import {
   useSensors,
 } from "@dnd-kit/core"
 import { IconPlus, IconTrendingUp } from "@tabler/icons-react"
+import { Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import {
   getPipeline,
   updateOpportunityStatus,
+  updateOpportunity,
+  deleteOpportunity,
   type OpportunityStatus,
   type PipelineOpportunity,
 } from "@/app/actions/pipeline"
@@ -89,8 +92,10 @@ function formatDate(value: string | null): string {
 
 function KanbanCard({
   opportunity,
+  onEdit,
 }: {
   opportunity: PipelineOpportunity
+  onEdit: (opp: PipelineOpportunity) => void
 }) {
   const { openDonor } = useNav()
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
@@ -107,6 +112,7 @@ function KanbanCard({
       className={`cursor-grab rounded-lg border bg-card shadow-xs active:cursor-grabbing ${isDragging ? "opacity-80 shadow-md" : ""}`}
       {...listeners}
       {...attributes}
+      onClick={() => onEdit(opportunity)}
     >
       <CardContent className="p-3">
         <button
@@ -136,9 +142,11 @@ function KanbanCard({
 function KanbanColumn({
   status,
   opportunities,
+  onEditOpportunity,
 }: {
   status: OpportunityStatus
   opportunities: PipelineOpportunity[]
+  onEditOpportunity: (opp: PipelineOpportunity) => void
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status })
 
@@ -155,7 +163,7 @@ function KanbanColumn({
       </p>
       <div className="flex flex-1 flex-col gap-2 overflow-y-auto">
         {opportunities.map((opp) => (
-          <KanbanCard key={opp.id} opportunity={opp} />
+          <KanbanCard key={opp.id} opportunity={opp} onEdit={onEditOpportunity} />
         ))}
       </div>
     </div>
@@ -178,6 +186,16 @@ export default function PipelinePage() {
   const [newStatus, setNewStatus] = React.useState<OpportunityStatus>("identified")
   const [newExpectedDate, setNewExpectedDate] = React.useState("")
   const [submitting, setSubmitting] = React.useState(false)
+
+  // Edit dialog state
+  const [editOpen, setEditOpen] = React.useState(false)
+  const [editingOpp, setEditingOpp] = React.useState<PipelineOpportunity | null>(null)
+  const [editTitle, setEditTitle] = React.useState("")
+  const [editAmount, setEditAmount] = React.useState("")
+  const [editStatus, setEditStatus] = React.useState<OpportunityStatus>("identified")
+  const [editExpectedDate, setEditExpectedDate] = React.useState("")
+  const [editSubmitting, setEditSubmitting] = React.useState(false)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false)
 
   const donorSearchDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   React.useEffect(() => {
@@ -343,6 +361,64 @@ export default function PipelinePage() {
     }
   }
 
+  const openEditDialog = (opp: PipelineOpportunity) => {
+    setEditingOpp(opp)
+    setEditTitle(opp.title ?? "")
+    setEditAmount(String(opp.amount ?? ""))
+    setEditStatus(opp.status)
+    setEditExpectedDate(opp.expected_date ?? "")
+    setEditOpen(true)
+  }
+
+  const handleUpdate = async () => {
+    if (!editingOpp) return
+    const amount = parseFloat(editAmount)
+    if (!Number.isFinite(amount) || amount < 0) {
+      toast.error("Enter a valid amount")
+      return
+    }
+    setEditSubmitting(true)
+    try {
+      const result = await updateOpportunity(editingOpp.id, {
+        title: editTitle,
+        amount,
+        status: editStatus,
+        expected_date: editExpectedDate || null,
+      })
+      if (result.ok) {
+        toast.success("Opportunity updated")
+        setEditOpen(false)
+        setOpportunities(prev => prev.map(o =>
+          o.id === editingOpp.id
+            ? { ...o, title: editTitle.trim() || "Opportunity", amount, status: editStatus, expected_date: editExpectedDate || null }
+            : o
+        ))
+      } else {
+        toast.error("Failed to update", { description: result.error })
+      }
+    } finally {
+      setEditSubmitting(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!editingOpp) return
+    setEditSubmitting(true)
+    try {
+      const result = await deleteOpportunity(editingOpp.id)
+      if (result.ok) {
+        toast.success("Opportunity deleted")
+        setDeleteConfirmOpen(false)
+        setEditOpen(false)
+        setOpportunities(prev => prev.filter(o => o.id !== editingOpp.id))
+      } else {
+        toast.error("Failed to delete", { description: result.error })
+      }
+    } finally {
+      setEditSubmitting(false)
+    }
+  }
+
   return (
     <div className="flex flex-1 flex-col gap-4 py-4 md:py-6">
       <div className="flex items-center justify-between px-4 lg:px-6">
@@ -373,12 +449,108 @@ export default function PipelinePage() {
                   key={status}
                   status={status}
                   opportunities={opportunitiesByStatus[status]}
+                  onEditOpportunity={openEditDialog}
                 />
               ))}
             </div>
           </DndContext>
         )}
       </div>
+
+      {/* Edit dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Opportunity</DialogTitle>
+            <DialogDescription>
+              {editingOpp?.donor?.display_name ?? "Donor"} · Update this deal&apos;s details or delete it.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="edit-title">Title</Label>
+              <Input
+                id="edit-title"
+                placeholder="e.g. End of Year Ask"
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="edit-amount">Amount ($)</Label>
+              <Input
+                id="edit-amount"
+                type="number"
+                min={0}
+                step={100}
+                value={editAmount}
+                onChange={(e) => setEditAmount(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="edit-status">Stage</Label>
+              <Select value={editStatus} onValueChange={(v) => setEditStatus(v as OpportunityStatus)}>
+                <SelectTrigger id="edit-status">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PIPELINE_STATUSES.map((s) => (
+                    <SelectItem key={s} value={s}>{COLUMN_LABELS[s]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="edit-date">Expected date</Label>
+              <Input
+                id="edit-date"
+                type="date"
+                value={editExpectedDate}
+                onChange={(e) => setEditExpectedDate(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter className="flex items-center justify-between sm:justify-between">
+            <button
+              type="button"
+              className="flex items-center gap-1.5 text-sm text-destructive hover:text-destructive/80 transition-colors"
+              onClick={() => setDeleteConfirmOpen(true)}
+              disabled={editSubmitting}
+            >
+              <Trash2 className="size-3.5" strokeWidth={1.5} />
+              Delete
+            </button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setEditOpen(false)} className="bg-transparent">
+                Cancel
+              </Button>
+              <Button onClick={() => void handleUpdate()} disabled={editSubmitting || !editAmount.trim()}>
+                {editSubmitting ? "Saving…" : "Save"}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation */}
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete opportunity?</DialogTitle>
+            <DialogDescription>
+              This will permanently remove this deal from the pipeline. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)} className="bg-transparent">
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={() => void handleDelete()} disabled={editSubmitting}>
+              {editSubmitting ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={newOpen} onOpenChange={setNewOpen}>
         <DialogContent className="sm:max-w-md">

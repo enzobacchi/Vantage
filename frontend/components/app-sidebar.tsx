@@ -12,9 +12,9 @@ import {
   LayoutDashboard,
   Map,
   FileText,
-  Route,
   Settings,
   Sparkles,
+  Target,
   Users,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -133,9 +133,6 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
     (pathname === "/dashboard" && searchParams.get("view") === "tasks") ||
     pathname.startsWith("/dashboard/donors/")
 
-  const isDonorMapActive =
-    pathname === "/dashboard" && searchParams.get("view") === "donor-map"
-
   const isDonationsActive =
     (pathname === "/dashboard" && searchParams.get("view") === "donations") ||
     pathname === "/dashboard/donations/entry"
@@ -143,14 +140,12 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   // Use controlled state for collapsibles to avoid hydration mismatch.
   // Start closed (consistent server/client), then open the active section after mount.
   const [crmOpen, setCrmOpen] = React.useState(false)
-  const [mapOpen, setMapOpen] = React.useState(false)
   const [donationsOpen, setDonationsOpen] = React.useState(false)
 
   React.useEffect(() => {
     setCrmOpen(isDonorCRMActive)
-    setMapOpen(isDonorMapActive || pathname === "/dashboard/routes")
     setDonationsOpen(isDonationsActive)
-  }, [isDonorCRMActive, isDonorMapActive, isDonationsActive, pathname])
+  }, [isDonorCRMActive, isDonationsActive])
 
   React.useEffect(() => {
     setProfileData((prev) => ({
@@ -308,49 +303,21 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
                   </SidebarMenuItem>
                 </Collapsible>
 
-                <Collapsible
-                  open={mapOpen}
-                  onOpenChange={setMapOpen}
-                  className="group/collapsible"
-                >
-                  <SidebarMenuItem>
-                    <CollapsibleTrigger asChild>
-                      <SidebarMenuButton tooltip="Donor Map">
-                        <Map />
-                        <span>Donor Map</span>
-                        <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
-                      </SidebarMenuButton>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent>
-                      <SidebarMenuSub>
-                        <SidebarMenuSubItem>
-                          <SidebarMenuSubButton
-                            asChild
-                            isActive={isActive("donor-map")}
-                          >
-                            <Link
-                              href="/dashboard?view=donor-map"
-                              onClick={() => setActiveViewOnly("donor-map")}
-                            >
-                              <span>Map View</span>
-                            </Link>
-                          </SidebarMenuSubButton>
-                        </SidebarMenuSubItem>
-                        <SidebarMenuSubItem>
-                          <SidebarMenuSubButton
-                            asChild
-                            isActive={pathname === "/dashboard/routes"}
-                          >
-                            <Link href="/dashboard/routes">
-                              <Route />
-                              <span>Route Planner</span>
-                            </Link>
-                          </SidebarMenuSubButton>
-                        </SidebarMenuSubItem>
-                      </SidebarMenuSub>
-                    </CollapsibleContent>
-                  </SidebarMenuItem>
-                </Collapsible>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    tooltip="Donor Map"
+                    isActive={isActive("donor-map")}
+                    asChild
+                  >
+                    <Link
+                      href="/dashboard?view=donor-map"
+                      onClick={() => setActiveViewOnly("donor-map")}
+                    >
+                      <Map />
+                      <span>Donor Map</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
 
                 <Collapsible
                   open={donationsOpen}
@@ -396,6 +363,18 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
                     </CollapsibleContent>
                   </SidebarMenuItem>
                 </Collapsible>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    tooltip="Pipeline"
+                    isActive={pathname === "/dashboard/pipeline"}
+                    asChild
+                  >
+                    <Link href="/dashboard/pipeline">
+                      <Target />
+                      <span>Pipeline</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
                 <SidebarMenuItem>
                   <SidebarMenuButton
                     tooltip="Saved Reports"

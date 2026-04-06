@@ -500,7 +500,12 @@ export async function runSyncForOrg(
     const forceFull = options?.full ?? false;
     const lastSyncedAt = org?.last_synced_at ?? null;
     const isFullSync = !lastSyncedAt || forceFull;
-    const sinceIso = lastSyncedAt ? toQBTime(lastSyncedAt) : undefined;
+    // Subtract 5 minutes from last_synced_at to create an overlap window.
+    // This prevents missing records due to clock skew between our server and
+    // QuickBooks, or transactions created during the previous sync. The upsert
+    // on (donor_id, memo) deduplicates any records fetched twice.
+    const sinceDate = lastSyncedAt ? new Date(new Date(lastSyncedAt).getTime() - 5 * 60 * 1000) : undefined;
+    const sinceIso = sinceDate ? toQBTime(sinceDate) : undefined;
 
     // Fetch QB data
     const customers = await withTokenRefreshRetry(() =>

@@ -16,7 +16,7 @@ type DashboardMetrics = {
   totalDonors: number
   totalRevenue: number
   averageGift: number
-  medianGift: number
+  ytdRevenue: number
 }
 
 
@@ -111,10 +111,10 @@ export function SectionCards() {
       </Card>
       <Card className="@container/card">
         <CardHeader>
-          <CardDescription>Median Donation</CardDescription>
+          <CardDescription>YTD Revenue</CardDescription>
           <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
             {metrics ? (
-              formatCurrency(metrics.medianGift)
+              formatCurrency(metrics.ytdRevenue)
             ) : (
               <Skeleton className="h-8 w-32 @[250px]/card:h-9" />
             )}
@@ -122,9 +122,9 @@ export function SectionCards() {
         </CardHeader>
         <CardFooter className="flex-col items-start gap-1.5 text-sm">
           <div className="line-clamp-1 flex gap-2 font-medium">
-            Middle value
+            {new Date().getFullYear()} donations
           </div>
-          <div className="text-muted-foreground">Less skewed by outliers</div>
+          <div className="text-muted-foreground">Since January 1st</div>
         </CardFooter>
       </Card>
     </div>

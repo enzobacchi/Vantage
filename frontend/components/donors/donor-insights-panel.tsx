@@ -3,7 +3,6 @@
 import { useState } from "react"
 import { Sparkles } from "lucide-react"
 
-import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
 
@@ -42,17 +41,20 @@ export function DonorInsightsPanel({ donorId }: { donorId: string }) {
 
   if (!data && !loading && !error) {
     return (
-      <div className="rounded-xl bg-gradient-to-r from-[#007A3F] to-[#21E0D6] p-[1px]">
-        <div className="rounded-[11px] bg-card flex items-center justify-between py-3 px-4">
+      <Card>
+        <CardContent className="py-3 px-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Sparkles className="size-4 text-[#0ea5b8] shrink-0" strokeWidth={1.5} />
+            <Sparkles className="size-4 text-muted-foreground shrink-0" strokeWidth={1.5} />
             <span className="text-xs text-muted-foreground">AI Insights</span>
           </div>
-          <Button size="sm" className="h-6 text-xs px-2 bg-gradient-to-r from-[#007A3F] to-[#21E0D6] text-white hover:opacity-90 border-0" onClick={generate}>
-            Generate
-          </Button>
-        </div>
-      </div>
+          <button
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            onClick={generate}
+          >
+            Generate →
+          </button>
+        </CardContent>
+      </Card>
     )
   }
 
@@ -64,14 +66,13 @@ export function DonorInsightsPanel({ donorId }: { donorId: string }) {
             <Sparkles className="size-4 text-muted-foreground shrink-0" strokeWidth={1.5} />
             <span className="text-xs font-medium text-foreground">AI Insights</span>
           </div>
-          <Button
-            size="sm"
-            className="h-6 text-xs px-2 bg-gradient-to-r from-[#007A3F] to-[#21E0D6] text-white hover:opacity-90 border-0"
+          <button
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
             onClick={generate}
             disabled={loading}
           >
-            {loading ? <Spinner className="size-3" /> : "Refresh"}
-          </Button>
+            {loading ? <Spinner className="size-3" /> : "Refresh →"}
+          </button>
         </div>
 
         {loading && (
@@ -84,32 +85,24 @@ export function DonorInsightsPanel({ donorId }: { donorId: string }) {
         {error && <p className="text-xs text-red-600">{error}</p>}
 
         {data && !loading && (
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <p className="text-xs text-muted-foreground leading-relaxed">{data.summary}</p>
 
-            {data.insights.length > 0 && (
+            {(data.insights.length > 0 || data.nextSteps.length > 0) && (
               <ul className="space-y-0.5">
                 {data.insights.map((insight, i) => (
-                  <li key={i} className="text-xs text-muted-foreground flex items-start gap-1.5">
+                  <li key={`insight-${i}`} className="text-xs text-muted-foreground flex items-start gap-1.5">
                     <span className="text-muted-foreground/60 mt-px shrink-0">•</span>
                     {insight}
                   </li>
                 ))}
+                {data.nextSteps.map((step, i) => (
+                  <li key={`step-${i}`} className="text-xs text-muted-foreground flex items-start gap-1.5">
+                    <span className="text-muted-foreground/60 mt-px shrink-0">•</span>
+                    {step}
+                  </li>
+                ))}
               </ul>
-            )}
-
-            {data.nextSteps.length > 0 && (
-              <div>
-                <p className="text-[10px] font-medium text-foreground uppercase tracking-wide mb-1">Next Steps</p>
-                <ul className="space-y-0.5">
-                  {data.nextSteps.map((step, i) => (
-                    <li key={i} className="text-xs text-muted-foreground flex items-start gap-1.5">
-                      <span className="text-emerald-600 mt-px shrink-0 font-medium">{i + 1}.</span>
-                      {step}
-                    </li>
-                  ))}
-                </ul>
-              </div>
             )}
           </div>
         )}

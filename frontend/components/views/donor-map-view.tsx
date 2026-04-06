@@ -14,12 +14,18 @@ import {
   IconTrash,
   IconFileReport,
 } from "@tabler/icons-react"
-import { MapPin } from "lucide-react"
-import Map, { Marker, Popup } from "react-map-gl/mapbox"
+import { ExternalLink, MapPin, Navigation, X } from "lucide-react"
+import Map, { Marker, Popup, Source, Layer } from "react-map-gl/mapbox"
 import type { MapRef } from "react-map-gl/mapbox"
 import MapboxDraw from "@mapbox/mapbox-gl-draw"
 import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css"
 import { isPointInPolygon, isPointInCircle } from "@/lib/geo-utils"
+import {
+  type RouteDonorWithCoords,
+  type RouteDonorWithIcebreaker,
+  getDonorsForRoute,
+  optimizeRoute,
+} from "@/app/dashboard/routes/actions"
 
 /** Catches WebGL/map init errors and shows a friendly message instead of a blank map. */
 class MapErrorBoundary extends React.Component<
@@ -68,6 +74,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Slider } from "@/components/ui/slider"
 import { toast } from "sonner"
 
 /** Params sent to the map API; all optional. */
@@ -218,6 +225,17 @@ export function DonorMapView() {
   const [circleRadiusInput, setCircleRadiusInput] = useState("")
   const [generateReportLoading, setGenerateReportLoading] = useState(false)
   const [showAllSelectedDonors, setShowAllSelectedDonors] = useState(false)
+
+  // Route planner state
+  const [routeMode, setRouteMode] = useState(false)
+  const [routeStartLocation, setRouteStartLocation] = useState("")
+  const [routeRadius, setRouteRadius] = useState(15)
+  const [routeMinDonation, setRouteMinDonation] = useState("")
+  const [routeLoading, setRouteLoading] = useState(false)
+  const [routeOptimizing, setRouteOptimizing] = useState(false)
+  const [routeError, setRouteError] = useState<string | null>(null)
+  const [routeDonors, setRouteDonors] = useState<RouteDonorWithCoords[]>([])
+  const [routeOptimized, setRouteOptimized] = useState<RouteDonorWithIcebreaker[] | null>(null)
 
   const INITIAL_DONORS_SHOWN = 10
   const donorsToShow =
@@ -581,6 +599,104 @@ export function DonorMapView() {
     }
   }, [selectedByDraw, setActiveView])
 
+  // Route planner handlers
+  const routeDisplayList = routeOptimized ?? routeDonors
+  const routeIsOptimized = routeOptimized !== null
+
+  const handleRouteFindDonors = useCallback(async () => {
+    setRouteError(null)
+    setRouteLoading(true)
+    setRouteDonors([])
+    setRouteOptimized(null)
+    try {
+      const minNum = routeMinDonation.trim() === "" ? undefined : Number(routeMinDonation)
+      const list = await getDonorsForRoute(routeStartLocation, routeRadius, minNum && Number.isFinite(minNum) && minNum >= 0 ? minNum : undefined)
+      setRouteDonors(list)
+      // Fit map to route results
+      if (list.length > 0 && mapRef.current) {
+        const lats = list.map((d) => d.location_lat)
+        const lngs = list.map((d) => d.location_lng)
+        const sw: [number, number] = [Math.min(...lngs) - 0.05, Math.min(...lats) - 0.05]
+        const ne: [number, number] = [Math.max(...lngs) + 0.05, Math.max(...lats) + 0.05]
+        mapRef.current.fitBounds([sw, ne], { padding: 60, duration: 1200 })
+      }
+    } catch (e) {
+      setRouteError(e instanceof Error ? e.message : "Failed to find donors.")
+    } finally {
+      setRouteLoading(false)
+    }
+  }, [routeStartLocation, routeRadius, routeMinDonation])
+
+  const handleRouteOptimize = useCallback(async () => {
+    if (routeDonors.length === 0 || !routeStartLocation.trim()) return
+    setRouteError(null)
+    setRouteOptimizing(true)
+    setRouteOptimized(null)
+    try {
+      const list = await optimizeRoute(routeDonors, routeStartLocation.trim())
+      setRouteOptimized(list)
+    } catch (e) {
+      setRouteError(e instanceof Error ? e.message : "Failed to optimize route.")
+    } finally {
+      setRouteOptimizing(false)
+    }
+  }, [routeDonors, routeStartLocation])
+
+  const handleCloseRouteMode = useCallback(() => {
+    setRouteMode(false)
+    setRouteDonors([])
+    setRouteOptimized(null)
+    setRouteError(null)
+    setRouteStartLocation("")
+    setRouteRadius(15)
+    setRouteMinDonation("")
+  }, [])
+
+  const generateGoogleMapsUrl = useCallback((startZip: string, donors: { billing_address: string | null }[]) => {
+    const addresses = donors
+      .map((d) => d.billing_address?.trim())
+      .filter((a): a is string => Boolean(a))
+    if (addresses.length === 0) {
+      return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(startZip)}`
+    }
+    const destination = addresses[addresses.length - 1]
+    const waypoints = addresses.slice(0, -1)
+    const params = new URLSearchParams({
+      api: "1",
+      origin: startZip,
+      destination,
+      ...(waypoints.length > 0 ? { waypoints: waypoints.join("|") } : {}),
+    })
+    return `https://www.google.com/maps/dir/?${params.toString()}`
+  }, [])
+
+  // GeoJSON line for route visualization
+  const routeLineGeoJSON = useMemo(() => {
+    if (!routeIsOptimized || routeDisplayList.length < 2) return null
+    const coords = (routeDisplayList as RouteDonorWithCoords[])
+      .filter((d) => d.location_lng != null && d.location_lat != null)
+      .map((d) => [d.location_lng, d.location_lat])
+    if (coords.length < 2) return null
+    return {
+      type: "Feature" as const,
+      properties: {},
+      geometry: {
+        type: "LineString" as const,
+        coordinates: coords,
+      },
+    }
+  }, [routeDisplayList, routeIsOptimized])
+
+  const routeLineStyle = useMemo(() => ({
+    id: "route-line" as const,
+    type: "line" as const,
+    paint: {
+      "line-color": "#007A3F",
+      "line-width": 3,
+      "line-dasharray": [2, 1],
+    },
+  }), [])
+
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 lg:p-6">
       <div className="flex items-center justify-between">
@@ -685,6 +801,25 @@ export function DonorMapView() {
 
       {/* Draw toolbar */}
       <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-background/95 px-3 py-2">
+        <span className="text-xs font-medium text-muted-foreground">Tools:</span>
+        <Button
+          type="button"
+          variant={routeMode ? "secondary" : "outline"}
+          size="sm"
+          className="h-8"
+          onClick={() => {
+            if (routeMode) {
+              handleCloseRouteMode()
+            } else {
+              setRouteMode(true)
+              clearDraw()
+            }
+          }}
+        >
+          <Navigation className="mr-1.5 size-4" />
+          Route Planner
+        </Button>
+        <span className="mx-1 h-4 w-px bg-border" />
         <span className="text-xs font-medium text-muted-foreground">Select by area:</span>
         <Button
           type="button"
@@ -822,6 +957,32 @@ export function DonorMapView() {
                       <div className="size-4 rounded-full border-2 border-primary bg-primary/30 shadow" />
                     </div>
                   </Marker>
+                )}
+
+                {/* Route planner markers */}
+                {routeMode && routeDisplayList.length > 0 && (routeDisplayList as RouteDonorWithCoords[]).map((d, i) => (
+                  d.location_lat != null && d.location_lng != null ? (
+                    <Marker
+                      key={`route-${d.id}`}
+                      latitude={d.location_lat}
+                      longitude={d.location_lng}
+                      anchor="center"
+                    >
+                      <div
+                        className="flex items-center justify-center size-7 rounded-full bg-[#007A3F] text-white text-xs font-bold shadow-md border-2 border-white"
+                        title={d.display_name ?? undefined}
+                      >
+                        {routeIsOptimized ? i + 1 : ""}
+                      </div>
+                    </Marker>
+                  ) : null
+                ))}
+
+                {/* Route line */}
+                {routeLineGeoJSON && (
+                  <Source id="route-line-source" type="geojson" data={routeLineGeoJSON}>
+                    <Layer {...routeLineStyle} />
+                  </Source>
                 )}
 
                 {/* Map Legend & Settings: bottom-left */}
@@ -962,7 +1123,7 @@ export function DonorMapView() {
       </div>
 
       {/* Selected donors panel */}
-      {selectedByDraw.length > 0 && (
+      {selectedByDraw.length > 0 && !routeMode && (
         <div className="w-80 shrink-0 flex flex-col rounded-lg border bg-muted overflow-hidden h-[60vh] min-h-[400px]">
           <div className="flex items-center justify-between border-b px-3 py-2 shrink-0">
             <span className="text-sm font-medium text-foreground">
@@ -1038,6 +1199,155 @@ export function DonorMapView() {
               {generateReportLoading ? "Creating…" : "Generate Report"}
             </Button>
           </div>
+        </div>
+      )}
+
+      {/* Route planner panel */}
+      {routeMode && (
+        <div className="w-80 shrink-0 flex flex-col rounded-lg border bg-muted overflow-hidden h-[60vh] min-h-[400px]">
+          <div className="flex items-center justify-between border-b px-3 py-2.5 shrink-0">
+            <div className="flex items-center gap-2">
+              <Navigation className="size-4 text-[#007A3F]" />
+              <span className="text-sm font-semibold text-foreground">Route Planner</span>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={handleCloseRouteMode}
+            >
+              <X className="size-4" />
+            </Button>
+          </div>
+          <ScrollArea className="flex-1 min-h-0">
+            <div className="p-3 space-y-4">
+              {/* Search controls */}
+              <div className="space-y-2">
+                <Label htmlFor="route-start" className="text-xs">Starting City or Zip</Label>
+                <Input
+                  id="route-start"
+                  placeholder="e.g. Troy, MI or 48095"
+                  value={routeStartLocation}
+                  onChange={(e) => setRouteStartLocation(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleRouteFindDonors()}
+                  className="h-9"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs">Radius (miles)</Label>
+                <div className="flex items-center gap-3">
+                  <Slider
+                    min={5}
+                    max={50}
+                    step={1}
+                    value={[routeRadius]}
+                    onValueChange={(v) => setRouteRadius(v[0] ?? 15)}
+                    className="flex-1"
+                  />
+                  <span className="text-muted-foreground w-9 text-right text-sm tabular-nums">
+                    {routeRadius}
+                  </span>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="route-min-donation" className="text-xs">Min Donation ($)</Label>
+                <Input
+                  id="route-min-donation"
+                  type="number"
+                  min={0}
+                  step={100}
+                  placeholder="e.g. 1000"
+                  value={routeMinDonation}
+                  onChange={(e) => setRouteMinDonation(e.target.value)}
+                  className="h-9"
+                />
+              </div>
+              <Button
+                onClick={handleRouteFindDonors}
+                disabled={routeLoading || !routeStartLocation.trim()}
+                className="w-full"
+                size="sm"
+              >
+                {routeLoading ? "Searching…" : "Find Donors"}
+              </Button>
+
+              {routeError && (
+                <p className="text-destructive text-xs">{routeError}</p>
+              )}
+
+              {/* Results */}
+              {routeDisplayList.length > 0 && (
+                <div className="space-y-2 border-t pt-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-foreground">
+                      {routeIsOptimized
+                        ? `${routeDisplayList.length} stop${routeDisplayList.length === 1 ? "" : "s"} (optimized)`
+                        : `${routeDonors.length} donor${routeDonors.length === 1 ? "" : "s"} found`}
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    {routeDisplayList.map((d, i) => (
+                      <div
+                        key={d.id}
+                        className="flex items-center gap-2 rounded border bg-card px-2.5 py-2 text-sm"
+                      >
+                        {routeIsOptimized && (
+                          <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-[#007A3F] text-[10px] font-bold text-white">
+                            {i + 1}
+                          </span>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <button
+                            type="button"
+                            className="font-medium text-primary hover:underline truncate block text-left w-full text-sm"
+                            onClick={() => openDonor(d.id)}
+                          >
+                            {d.display_name ?? "Unknown"}
+                          </button>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {d.billing_address ?? "No address"}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+
+          {/* Route actions footer */}
+          {routeDonors.length > 0 && (
+            <div className="border-t p-3 shrink-0 space-y-2">
+              <Button
+                onClick={handleRouteOptimize}
+                disabled={routeOptimizing}
+                className="w-full"
+                size="sm"
+                variant={routeIsOptimized ? "outline" : "default"}
+              >
+                {routeOptimizing ? "Optimizing…" : "Optimize Route"}
+              </Button>
+              {routeIsOptimized && routeOptimized && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  asChild
+                >
+                  <a
+                    href={generateGoogleMapsUrl(routeStartLocation.trim(), routeOptimized)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <ExternalLink className="mr-1.5 size-4" />
+                    Open in Google Maps
+                  </a>
+                </Button>
+              )}
+            </div>
+          )}
         </div>
       )}
       </div>

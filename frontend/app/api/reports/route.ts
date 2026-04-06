@@ -28,11 +28,23 @@ export async function GET(request: Request) {
   const supabase = createAdminClient();
   const baseSelect = "id,title,query,type,summary,records_count,created_at,folder_id,visibility,created_by_user_id";
 
+  // Fetch report IDs specifically shared with this user (visibility = "specific")
+  const { data: sharedWithMe } = await supabase
+    .from("report_shares")
+    .select("report_id")
+    .eq("user_id", auth.userId);
+  const sharedReportIds = (sharedWithMe ?? []).map((r) => r.report_id);
+
+  let orFilter = `visibility.eq.shared,created_by_user_id.eq.${auth.userId},created_by_user_id.is.null`;
+  if (sharedReportIds.length > 0) {
+    orFilter += `,id.in.(${sharedReportIds.join(",")})`;
+  }
+
   let query = supabase
     .from("saved_reports")
     .select(baseSelect)
     .eq("organization_id", auth.orgId)
-    .or(`visibility.eq.shared,created_by_user_id.eq.${auth.userId},created_by_user_id.is.null`)
+    .or(orFilter)
     .order("created_at", { ascending: false });
 
   if (folderIdParam === "") {

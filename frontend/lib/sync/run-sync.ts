@@ -448,12 +448,40 @@ export async function runSyncForOrg(
   });
 
   console.log(
-    `[Sync] org=${orgId} realm=${orgRealmId} env=${process.env.QB_ENVIRONMENT}`
+    `[Sync] org=${orgId} realm=${orgRealmId} env=${process.env.QB_ENVIRONMENT} hasAccessToken=${!!accessToken} hasRefreshToken=${!!refreshToken}`
   );
 
   // --- Token refresh helper ---
   async function refreshTokens() {
-    const refreshed = await oauthClient.refresh();
+    // Re-read from DB: another concurrent sync may have already refreshed
+    const { data: freshOrg, error: freshOrgError } = await supabase
+      .from("organizations")
+      .select("qb_access_token, qb_refresh_token")
+      .eq("id", orgId)
+      .maybeSingle();
+
+    if (
+      !freshOrgError &&
+      freshOrg?.qb_refresh_token &&
+      freshOrg.qb_refresh_token !== refreshToken
+    ) {
+      // Another process already refreshed — adopt the newer tokens
+      accessToken = freshOrg.qb_access_token ?? "";
+      refreshToken = freshOrg.qb_refresh_token;
+      oauthClient.setToken({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      });
+      console.log(
+        `[Sync] org=${orgId} adopted tokens refreshed by another process`
+      );
+      return;
+    }
+
+    // Use refreshUsingToken() instead of refresh() — the latter calls
+    // validateToken() which always fails when tokens are loaded from DB
+    // without x_refresh_token_expires_in metadata.
+    const refreshed = await oauthClient.refreshUsingToken(refreshToken);
     const refreshedJson = refreshed.getJson();
     const newAccess = refreshedJson.access_token;
     const newRefresh = refreshedJson.refresh_token;
@@ -916,21 +944,44 @@ export async function runSyncForOrg(
       message.includes("reconnect QuickBooks");
 
     if (isInvalidRefreshToken) {
-      await supabase
+      // Re-read from DB: another sync may have already refreshed successfully.
+      // Only clear tokens if the DB still has our same stale token (or null).
+      const { data: currentOrg } = await supabase
         .from("organizations")
-        .update({
-          qb_access_token: null,
-          qb_refresh_token: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", orgId);
+        .select("qb_refresh_token")
+        .eq("id", orgId)
+        .maybeSingle();
 
+      if (
+        !currentOrg?.qb_refresh_token ||
+        currentOrg.qb_refresh_token === refreshToken
+      ) {
+        await supabase
+          .from("organizations")
+          .update({
+            qb_access_token: null,
+            qb_refresh_token: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", orgId);
+
+        return {
+          error:
+            "QuickBooks connection expired or was revoked. Please reconnect QuickBooks in Settings.",
+          details: message,
+          status: 401,
+          tokenCleared: true,
+        };
+      }
+
+      // Another process saved valid tokens — don't nuke them
+      console.warn(
+        `[Sync] org=${orgId} refresh token conflict — another process saved newer tokens`
+      );
       return {
-        error:
-          "QuickBooks connection expired or was revoked. Please reconnect QuickBooks in Settings.",
+        error: "Sync encountered a token conflict. Please try again.",
         details: message,
-        status: 401,
-        tokenCleared: true,
+        status: 409,
       };
     }
 

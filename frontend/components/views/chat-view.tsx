@@ -331,7 +331,7 @@ function ChatInputBox({
   const inputContent = (
     <div className={cn(
       "relative flex items-end rounded-2xl bg-card shadow-sm transition-colors",
-      !animatedBorder && "border border-border/60 focus-within:border-border focus-within:shadow-md"
+      !animatedBorder && "border border-border/60 focus-within:border-border focus-within:shadow-sm"
     )}>
       <textarea
         ref={textareaRef}
@@ -354,7 +354,7 @@ function ChatInputBox({
               : "bg-muted text-muted-foreground cursor-not-allowed"
           )}
         >
-          <ArrowUp className="size-4" strokeWidth={2} />
+          <ArrowUp className="size-4" strokeWidth={1.5} />
         </button>
       </div>
     </div>

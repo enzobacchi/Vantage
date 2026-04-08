@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { IconBadge, IconTag } from "@tabler/icons-react"
+import { BadgeCheck, Tag } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
@@ -41,7 +41,7 @@ export function DonorTagFilter({
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <Button variant="outline" size="sm" className="gap-2 h-9">
-          <IconTag className="size-4 shrink-0" />
+          <Tag className="size-4 shrink-0" />
           Filter by Tag
           {selectedTagIds.size > 0 && (
             <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary">
@@ -170,7 +170,7 @@ export function DonorBadges({
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <Button variant="outline" size="sm" className="gap-2 h-9">
-          <IconBadge className="size-4 shrink-0" />
+          <BadgeCheck className="size-4 shrink-0" />
           Badges
         </Button>
       </PopoverTrigger>

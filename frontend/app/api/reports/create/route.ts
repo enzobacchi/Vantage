@@ -669,8 +669,9 @@ export async function POST(request: Request) {
 
     const { data, error } = await q;
     if (error) {
+      console.error("[reports/create] donation query:", error.message);
       return NextResponse.json(
-        { error: "Failed to execute report query.", details: error.message },
+        { error: "Failed to execute report query." },
         { status: 500 }
       );
     }
@@ -827,8 +828,9 @@ export async function POST(request: Request) {
 
   const { data, error } = await q;
   if (error) {
+    console.error("[reports/create] query:", error.message);
     return NextResponse.json(
-      { error: "Failed to execute report query.", details: error.message },
+      { error: "Failed to execute report query." },
       { status: 500 }
     );
   }

@@ -48,7 +48,8 @@ export async function PATCH(
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[interactions/[id]/toggle]", error.message);
+    return NextResponse.json({ error: "Failed to toggle interaction status." }, { status: 500 });
   }
 
   return NextResponse.json(updated);

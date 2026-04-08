@@ -12,6 +12,8 @@ export const PLACEHOLDERS = {
   DONOR_ADDRESS: "[DONOR_ADDRESS]",
   DONOR_CITY: "[DONOR_CITY]",
   DONOR_STATE: "[DONOR_STATE]",
+  DONOR_PHONE: "[DONOR_PHONE]",
+  DONOR_ZIP: "[DONOR_ZIP]",
 } as const
 
 export type PIIValues = {
@@ -20,6 +22,8 @@ export type PIIValues = {
   address?: string | null
   city?: string | null
   state?: string | null
+  phone?: string | null
+  zip?: string | null
 }
 
 export type RedactionResult = {
@@ -69,6 +73,29 @@ export function redactPII(text: string, pii: PIIValues): RedactionResult {
     placeholders["DONOR_STATE"] = v
     redacted = redacted.replace(new RegExp(escapeForReplacement(v), "gi"), PLACEHOLDERS.DONOR_STATE)
   }
+
+  if (pii.phone != null && String(pii.phone).trim() !== "") {
+    const v = String(pii.phone).trim()
+    placeholders["DONOR_PHONE"] = v
+    redacted = redacted.replace(new RegExp(escapeForReplacement(v), "gi"), PLACEHOLDERS.DONOR_PHONE)
+  }
+
+  if (pii.zip != null && String(pii.zip).trim() !== "") {
+    const v = String(pii.zip).trim()
+    placeholders["DONOR_ZIP"] = v
+    redacted = redacted.replace(new RegExp(escapeForReplacement(v), "gi"), PLACEHOLDERS.DONOR_ZIP)
+  }
+
+  // Pattern-based redaction: catch phone numbers and emails that may appear
+  // in free-text fields (notes, interaction content) beyond the known PII values
+  redacted = redacted.replace(
+    /[^\s@]+@[^\s@]+\.[^\s@]+/g,
+    "[REDACTED_EMAIL]"
+  )
+  redacted = redacted.replace(
+    /(\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g,
+    "[REDACTED_PHONE]"
+  )
 
   return { redacted, placeholders }
 }

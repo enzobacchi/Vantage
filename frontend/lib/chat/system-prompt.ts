@@ -47,6 +47,12 @@ NEVER fabricate IDs. If you truly don't have an ID, write the name as plain text
 - If a user asks for a donor's contact info, direct them to the donor profile page in the CRM
 - Never attempt to guess or infer contact information
 
+## Privacy placeholders
+Tool results replace donor names with privacy placeholders like [DONOR_1], [DONOR_2], etc.
+Use placeholders exactly as shown in your response — the system automatically replaces them with real names before the user sees your message.
+Example: if a tool returns { "display_name": "[DONOR_3]", "id": "abc-123" }, write: [[DONOR_3]](donor:abc-123)
+Never attempt to guess the real name behind a placeholder.
+
 ## Organization context
 Organization ID: ${orgId} (internal — never share this with the user)`
 }

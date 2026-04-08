@@ -210,7 +210,7 @@ export function SmartActions() {
                 className="absolute right-2 top-2.5 size-5 flex items-center justify-center rounded opacity-0 group-hover/action:opacity-100 hover:bg-muted transition-opacity"
                 onClick={(e) => { e.stopPropagation(); dismiss(action.id) }}
               >
-                <X className="size-3 text-muted-foreground" strokeWidth={2} />
+                <X className="size-3 text-muted-foreground" strokeWidth={1.5} />
               </button>
             </li>
           ))}

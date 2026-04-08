@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { IconPlus, IconTrash } from "@tabler/icons-react"
+import { Plus, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -120,7 +120,7 @@ export function RecentActivity() {
             onClick={addTask}
             disabled={!newTaskTitle.trim() || adding}
           >
-            <IconPlus className="size-4" />
+            <Plus className="size-4" />
             <span className="sr-only">Add task</span>
           </Button>
         </div>
@@ -157,7 +157,7 @@ export function RecentActivity() {
                   className="size-7 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
                   onClick={() => deleteTask(task.id)}
                 >
-                  <IconTrash className="size-4" />
+                  <Trash2 className="size-4" />
                   <span className="sr-only">Delete task</span>
                 </Button>
               </div>

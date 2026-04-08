@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUserOrg } from "@/lib/auth"
 import { notifyNewDonation, checkAndNotifyMilestones } from "@/lib/notifications"
+import { recalcDonorTotals } from "@/lib/recalc-donor-totals"
 import type { PaymentMethod } from "@/types/database"
 
 export type OrgDonationOptionRow = {
@@ -97,7 +98,6 @@ export async function createOrgDonationOption(
   }
 
   revalidatePath("/settings")
-  revalidatePath("/dashboard/donations")
   revalidatePath("/dashboard/donations/entry")
   return data as OrgDonationOptionRow
 }
@@ -126,7 +126,6 @@ export async function updateOrgDonationOption(
   if (error) throw new Error(error.message)
 
   revalidatePath("/settings")
-  revalidatePath("/dashboard/donations")
   revalidatePath("/dashboard/donations/entry")
 }
 
@@ -147,7 +146,6 @@ export async function deleteOrgDonationOption(id: string): Promise<void> {
   if (error) throw new Error(error.message)
 
   revalidatePath("/settings")
-  revalidatePath("/dashboard/donations")
   revalidatePath("/dashboard/donations/entry")
 }
 
@@ -230,29 +228,7 @@ export async function createDonation(input: CreateDonationInput): Promise<string
   return donation.id
 }
 
-async function recalcDonorTotals(
-  supabase: ReturnType<typeof createAdminClient>,
-  donorId: string
-): Promise<void> {
-  const { data: donations } = await supabase
-    .from("donations")
-    .select("amount,date")
-    .eq("donor_id", donorId)
-    .order("date", { ascending: false })
-
-  const rows = (donations ?? []) as { amount: number; date: string }[]
-  const total = rows.reduce((sum, r) => sum + Number(r.amount || 0), 0)
-  const last = rows[0]
-
-  await supabase
-    .from("donors")
-    .update({
-      total_lifetime_value: total,
-      last_donation_date: last?.date ?? null,
-      last_donation_amount: last?.amount ?? null,
-    })
-    .eq("id", donorId)
-}
+// Shared utility — see frontend/lib/recalc-donor-totals.ts
 
 export type BulkUpdateDonationsInput = {
   donationIds: string[]

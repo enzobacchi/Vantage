@@ -11,8 +11,7 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core"
-import { IconPlus, IconTrendingUp } from "@tabler/icons-react"
-import { Trash2 } from "lucide-react"
+import { Plus, TrendingUp, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -109,7 +108,7 @@ function KanbanCard({
   return (
     <Card
       ref={setNodeRef}
-      className={`cursor-grab rounded-lg border bg-card shadow-xs active:cursor-grabbing ${isDragging ? "opacity-80 shadow-md" : ""}`}
+      className={`cursor-grab rounded-lg border bg-card shadow-xs active:cursor-grabbing ${isDragging ? "opacity-80 shadow-sm" : ""}`}
       {...listeners}
       {...attributes}
       onClick={() => onEdit(opportunity)}
@@ -423,13 +422,13 @@ export default function PipelinePage() {
     <div className="flex flex-1 flex-col gap-4 py-4 md:py-6">
       <div className="flex items-center justify-between px-4 lg:px-6">
         <div className="flex items-center gap-2">
-          <IconTrendingUp className="size-5 text-slate-900 dark:text-white" />
+          <TrendingUp className="size-5 text-slate-900 dark:text-white" />
           <h1 className="text-xl font-semibold">Pipeline</h1>
         </div>
         <Button
           onClick={openNewDialog}
         >
-          <IconPlus className="mr-2 size-4" />
+          <Plus className="mr-2 size-4" />
           New Opportunity
         </Button>
       </div>

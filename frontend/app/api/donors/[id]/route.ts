@@ -106,7 +106,8 @@ export async function PATCH(
     .eq("org_id", auth.orgId);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[donors/[id]] PATCH:", error.message);
+    return NextResponse.json({ error: "Failed to update donor." }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });

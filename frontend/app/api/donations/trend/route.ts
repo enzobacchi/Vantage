@@ -47,8 +47,9 @@ export async function GET() {
     .gte("date", startIso);
 
   if (error) {
+    console.error("[donations/trend]", error.message);
     return NextResponse.json(
-      { error: "Failed to load donation trend.", details: error.message },
+      { error: "Failed to load donation trend." },
       { status: 500 }
     );
   }

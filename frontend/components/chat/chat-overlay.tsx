@@ -536,7 +536,7 @@ export function ChatOverlay() {
                     : "bg-muted text-muted-foreground cursor-not-allowed"
                 )}
               >
-                <ArrowUp className="size-4" strokeWidth={2} />
+                <ArrowUp className="size-4" strokeWidth={1.5} />
               </button>
             </div>
           </div>

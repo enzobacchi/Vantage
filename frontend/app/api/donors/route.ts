@@ -283,8 +283,9 @@ export async function GET(request: Request) {
   const { data: donors, error } = await query;
 
   if (error) {
+    console.error("[donors] GET:", error.message);
     return NextResponse.json(
-      { error: "Failed to load donors.", details: error.message },
+      { error: "Failed to load donors." },
       { status: 500 }
     );
   }
@@ -350,7 +351,8 @@ export async function POST(request: Request) {
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[donors] POST:", error.message);
+    return NextResponse.json({ error: "Failed to create donor." }, { status: 500 });
   }
 
   return NextResponse.json({ id: data.id }, { status: 201 });

@@ -39,8 +39,9 @@ export async function PATCH(
       .single();
 
     if (error) {
+      console.error("[tasks/[id]] PATCH:", error.message);
       return NextResponse.json(
-        { error: "Failed to update task.", details: error.message },
+        { error: "Failed to update task." },
         { status: 500 }
       );
     }
@@ -76,8 +77,9 @@ export async function DELETE(
       .eq("organization_id", auth.orgId);
 
     if (error) {
+      console.error("[tasks/[id]] DELETE:", error.message);
       return NextResponse.json(
-        { error: "Failed to delete task.", details: error.message },
+        { error: "Failed to delete task." },
         { status: 500 }
       );
     }

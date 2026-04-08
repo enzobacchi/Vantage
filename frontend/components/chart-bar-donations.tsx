@@ -140,7 +140,7 @@ export function ChartBarDonations() {
                 type="natural"
                 fill="url(#fillTotal)"
                 stroke="url(#strokeTotal)"
-                strokeWidth={2}
+                strokeWidth={1.5}
               />
             </AreaChart>
           </ChartContainer>

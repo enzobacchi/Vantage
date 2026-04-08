@@ -76,8 +76,9 @@ export async function GET(request: Request) {
   }
 
   if (error) {
+    console.error("[reports] GET:", error.message);
     return NextResponse.json(
-      { error: "Failed to load saved reports.", details: error.message },
+      { error: "Failed to load saved reports." },
       { status: 500 }
     );
   }

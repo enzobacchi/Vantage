@@ -1,10 +1,9 @@
 "use client"
 
 import * as React from "react"
-import { IconSearch, IconUsers } from "@tabler/icons-react"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { toast } from "sonner"
-import { Download, ExternalLink, GitMerge, Mail, MapPin, Phone, Trash2 } from "lucide-react"
+import { Download, ExternalLink, GitMerge, Mail, MapPin, Phone, Search, Trash2, Users } from "lucide-react"
 
 import { getDonorProfile, type DonorProfileDonor, type DonorProfileDonation } from "@/app/donors/[id]/actions"
 import { listReceiptTemplates, type ReceiptTemplate } from "@/app/actions/receipt-templates"
@@ -658,7 +657,7 @@ export function DonorCRMView() {
   return (
     <div className="flex flex-col gap-4 py-4 md:py-6">
       <div className="flex items-center gap-2 px-4 lg:px-6">
-        <IconUsers className="size-5 text-slate-900 dark:text-white" />
+        <Users className="size-5 text-slate-900 dark:text-white" />
         <h1 className="text-xl font-semibold">Donor CRM</h1>
       </div>
 
@@ -672,7 +671,7 @@ export function DonorCRMView() {
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-center gap-4">
             <div className="relative flex-1 min-w-[200px] max-w-sm">
-              <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
               <input
                 type="search"
                 placeholder="Search donors by name…"

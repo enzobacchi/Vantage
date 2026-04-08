@@ -58,7 +58,7 @@ export async function POST(request: Request) {
     if (error) {
       console.error("[organization/logo] Upload error:", error)
       return NextResponse.json(
-        { error: "Upload failed", details: error.message },
+        { error: "Upload failed" },
         { status: 500 }
       )
     }

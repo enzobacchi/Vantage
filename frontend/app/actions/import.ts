@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { getCurrentUserOrg } from "@/lib/auth";
 import { geocodeAddress } from "@/lib/geocode";
+import { recalcDonorTotals } from "@/lib/recalc-donor-totals";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getOrgSubscription, PLANS } from "@/lib/subscription";
 
@@ -256,26 +257,4 @@ function buildMatchKey(
   return `${name}::${e}`;
 }
 
-async function recalcDonorTotals(
-  supabase: ReturnType<typeof createAdminClient>,
-  donorId: string
-): Promise<void> {
-  const { data: donations } = await supabase
-    .from("donations")
-    .select("amount,date")
-    .eq("donor_id", donorId)
-    .order("date", { ascending: false });
-
-  const rows = (donations ?? []) as { amount: number; date: string }[];
-  const total = rows.reduce((sum, r) => sum + Number(r.amount || 0), 0);
-  const last = rows[0];
-
-  await supabase
-    .from("donors")
-    .update({
-      total_lifetime_value: total,
-      last_donation_date: last?.date ?? null,
-      last_donation_amount: last?.amount ?? null,
-    })
-    .eq("id", donorId);
-}
+// recalcDonorTotals imported from @/lib/recalc-donor-totals

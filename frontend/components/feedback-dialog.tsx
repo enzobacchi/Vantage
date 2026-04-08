@@ -4,7 +4,7 @@ import * as React from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { IconLoader2 } from "@tabler/icons-react"
+import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -143,7 +143,7 @@ export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
               <Button type="submit" disabled={submitting}>
                 {submitting ? (
                   <>
-                    <IconLoader2 className="mr-2 size-4 animate-spin" />
+                    <Loader2 className="mr-2 size-4 animate-spin" />
                     Submitting…
                   </>
                 ) : (

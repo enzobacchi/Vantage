@@ -148,11 +148,11 @@ export async function generateDigestAISummary(
         .from("donors")
         .select("id, display_name, email, last_donation_date, first_donation_date, total_lifetime_value, donor_type")
         .eq("org_id", orgId),
-      // This week's interactions
+      // This week's interactions — scoped via donor join (interactions has no org_id)
       admin
         .from("interactions")
-        .select("type")
-        .eq("org_id", orgId)
+        .select("type,donors!inner(org_id)")
+        .eq("donors.org_id", orgId)
         .gte("created_at", since),
       // Open opportunities (uses organization_id, not org_id)
       admin
@@ -313,7 +313,11 @@ export async function generateDigestAISummary(
     // -----------------------------------------------------------------------
     // Build payload & redact PII
     // -----------------------------------------------------------------------
-    const piiDonors = cappedNotable.map((n) => ({ display_name: n.name }))
+    // Build PII map from ALL donors (not just notable) to catch any name/email in the payload
+    const piiDonors = allDonors.map((d) => ({
+      display_name: d.display_name,
+      email: d.email,
+    }))
     const piiMap: PIIMap = buildPIIMapFromDonors(piiDonors)
 
     const payload: DigestPayload = {

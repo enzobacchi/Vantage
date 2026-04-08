@@ -75,8 +75,9 @@ export async function POST() {
       .range(offset, offset + PAGE_SIZE - 1);
 
     if (error) {
+      console.error("[donors/geocode-backfill]", error.message);
       return NextResponse.json(
-        { error: "Failed to load donors.", details: error.message },
+        { error: "Failed to load donors." },
         { status: 500 }
       );
     }

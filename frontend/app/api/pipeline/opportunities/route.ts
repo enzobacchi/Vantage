@@ -66,8 +66,9 @@ export async function POST(request: Request) {
     .single();
 
   if (error) {
+    console.error("[pipeline/opportunities]", error.message);
     return NextResponse.json(
-      { error: error.message },
+      { error: "Failed to load opportunities." },
       { status: 500 }
     );
   }

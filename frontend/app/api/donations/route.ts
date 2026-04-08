@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { requireUserOrg } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { notifyNewDonation, checkAndNotifyMilestones } from "@/lib/notifications";
+import { recalcDonorTotals } from "@/lib/recalc-donor-totals";
 import type { PaymentMethod } from "@/types/database";
 
 export const runtime = "nodejs";
@@ -205,28 +206,12 @@ export async function POST(request: Request) {
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[donations] POST:", error.message);
+    return NextResponse.json({ error: "Failed to create donation." }, { status: 500 });
   }
 
   // Recalculate donor totals
-  const { data: allDonations } = await supabase
-    .from("donations")
-    .select("amount,date")
-    .eq("donor_id", body.donor_id)
-    .order("date", { ascending: false });
-
-  const rows = (allDonations ?? []) as { amount: number; date: string }[];
-  const total = rows.reduce((sum, r) => sum + Number(r.amount || 0), 0);
-  const last = rows[0];
-
-  await supabase
-    .from("donors")
-    .update({
-      total_lifetime_value: total,
-      last_donation_date: last?.date ?? null,
-      last_donation_amount: last?.amount ?? null,
-    })
-    .eq("id", body.donor_id);
+  await recalcDonorTotals(supabase, body.donor_id);
 
   // Fire-and-forget notifications
   const donorName = (donor.display_name as string) || "Unknown Donor";

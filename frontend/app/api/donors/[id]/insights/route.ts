@@ -60,6 +60,8 @@ export async function GET(
     address: donor.billing_address,
     city: donor.city,
     state: donor.state,
+    phone: donor.phone,
+    zip: donor.zip,
   }
 
   // Fetch donations (amounts + dates only — no memos which could contain PII)

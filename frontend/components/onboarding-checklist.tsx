@@ -115,7 +115,7 @@ export function OnboardingChecklist() {
             >
               {item.done ? (
                 <div className="flex size-5 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-                  <Check className="size-3" strokeWidth={2} />
+                  <Check className="size-3" strokeWidth={1.5} />
                 </div>
               ) : (
                 <Circle className="size-5 text-muted-foreground/40" strokeWidth={1.5} />

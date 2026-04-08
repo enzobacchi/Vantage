@@ -166,8 +166,9 @@ export async function GET(
     .single();
 
   if (error) {
+    console.error("[reports/[id]] GET:", error.message);
     return NextResponse.json(
-      { error: "Failed to load report.", details: error.message },
+      { error: "Failed to load report." },
       { status: 500 }
     );
   }
@@ -250,8 +251,9 @@ export async function PATCH(
     .single();
 
   if (error) {
+    console.error("[reports/[id]] PATCH:", error.message);
     return NextResponse.json(
-      { error: "Failed to rename report.", details: error.message },
+      { error: "Failed to rename report." },
       { status: 500 }
     );
   }
@@ -277,8 +279,9 @@ export async function DELETE(
     .eq("organization_id", auth.orgId);
 
   if (error) {
+    console.error("[reports/[id]] DELETE:", error.message);
     return NextResponse.json(
-      { error: "Failed to delete report.", details: error.message },
+      { error: "Failed to delete report." },
       { status: 500 }
     );
   }

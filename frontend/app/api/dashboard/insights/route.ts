@@ -87,11 +87,11 @@ export async function GET() {
         .eq("org_id", auth.orgId)
         .gte("date", fourteenDaysAgo.slice(0, 10))
         .lt("date", sevenDaysAgo.slice(0, 10)),
-      // Recent interactions (30 days)
+      // Recent interactions (30 days) — scoped via donor join (interactions has no org_id)
       supabase
         .from("interactions")
-        .select("type,donor_id,date")
-        .eq("org_id", auth.orgId)
+        .select("type,donor_id,date,donors!inner(org_id)")
+        .eq("donors.org_id", auth.orgId)
         .gte("date", thirtyDaysAgo),
       // Open pipeline
       supabase
@@ -99,11 +99,11 @@ export async function GET() {
         .select("id,donor_id,amount,status,expected_date,title")
         .eq("organization_id", auth.orgId)
         .not("status", "in", '("closed_won","closed_lost")'),
-      // Overdue tasks
+      // Overdue tasks — scoped via donor join (interactions has no org_id)
       supabase
         .from("interactions")
-        .select("id,donor_id,subject,date")
-        .eq("org_id", auth.orgId)
+        .select("id,donor_id,subject,date,donors!inner(org_id)")
+        .eq("donors.org_id", auth.orgId)
         .eq("type", "task")
         .eq("status", "pending")
         .lt("date", now.toISOString()),

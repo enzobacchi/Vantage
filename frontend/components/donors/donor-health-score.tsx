@@ -24,13 +24,13 @@ import { cn } from "@/lib/utils"
 function TrendIcon({ trend }: { trend: DonorHealthScore["trend"] }) {
   switch (trend) {
     case "rising":
-      return <ArrowUpRight className="size-3.5 text-emerald-500" strokeWidth={2} />
+      return <ArrowUpRight className="size-3.5 text-emerald-500" strokeWidth={1.5} />
     case "declining":
-      return <ArrowDownRight className="size-3.5 text-red-500" strokeWidth={2} />
+      return <ArrowDownRight className="size-3.5 text-red-500" strokeWidth={1.5} />
     case "stable":
-      return <ArrowRight className="size-3.5 text-blue-500" strokeWidth={2} />
+      return <ArrowRight className="size-3.5 text-blue-500" strokeWidth={1.5} />
     default:
-      return <Minus className="size-3.5 text-muted-foreground" strokeWidth={2} />
+      return <Minus className="size-3.5 text-muted-foreground" strokeWidth={1.5} />
   }
 }
 

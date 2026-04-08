@@ -11,8 +11,7 @@ import {
 } from "@dnd-kit/core"
 import { arrayMove, horizontalListSortingStrategy, SortableContext, useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
-import { IconFileText, IconFolder, IconFolderPlus, IconFilter, IconUpload } from "@tabler/icons-react"
-import { PanelLeft, PanelLeftClose } from "lucide-react"
+import { FileText, Folder, FolderPlus, Filter, Upload, PanelLeft, PanelLeftClose } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from '@/components/ui/button'
@@ -757,7 +756,7 @@ export function SavedReportsView() {
                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
               }`}
             >
-              <IconFileText className="size-4 shrink-0" />
+              <FileText className="size-4 shrink-0" />
               All Reports
             </button>
             {folders.map((folder) => (
@@ -771,7 +770,7 @@ export function SavedReportsView() {
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 }`}
               >
-                <IconFolder className="size-4 shrink-0" />
+                <Folder className="size-4 shrink-0" />
                 <span className="truncate">{folder.name}</span>
               </button>
             ))}
@@ -781,7 +780,7 @@ export function SavedReportsView() {
               className="mt-2 justify-start gap-2 text-muted-foreground hover:text-foreground"
               onClick={() => setCreateFolderOpen(true)}
             >
-              <IconFolderPlus className="size-4" />
+              <FolderPlus className="size-4" />
               Create Folder
             </Button>
           </nav>
@@ -804,7 +803,7 @@ export function SavedReportsView() {
                   <PanelLeft className="size-5 text-slate-900 dark:text-white" />
                 )}
               </Button>
-              <IconFileText className="size-5 text-slate-900 dark:text-white" />
+              <FileText className="size-5 text-slate-900 dark:text-white" />
               <h1 className="text-xl font-semibold">Saved Reports</h1>
             </div>
             <div className="flex items-center gap-2">
@@ -822,7 +821,7 @@ export function SavedReportsView() {
                 onClick={handleUploadClick}
                 disabled={uploading}
               >
-                <IconUpload className="size-4" />
+                <Upload className="size-4" />
                 {uploading ? "Uploading…" : "Upload External File"}
               </Button>
               <Button
@@ -834,7 +833,7 @@ export function SavedReportsView() {
                   setFilters([])
                 }}
               >
-                <IconFilter className="size-4" />
+                <Filter className="size-4" />
                 Create Report
               </Button>
             </div>
@@ -1002,7 +1001,7 @@ export function SavedReportsView() {
                   setBulkMoveIds(null)
                 }}
               >
-                <IconFolder className="size-4 mr-2 shrink-0" />
+                <Folder className="size-4 mr-2 shrink-0" />
                 {folder.name}
               </Button>
             ))}

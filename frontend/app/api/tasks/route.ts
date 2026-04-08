@@ -19,8 +19,9 @@ export async function GET() {
       .order("created_at", { ascending: false });
 
     if (error) {
+      console.error("[tasks] GET:", error.message);
       return NextResponse.json(
-        { error: "Failed to fetch tasks.", details: error.message },
+        { error: "Failed to fetch tasks." },
         { status: 500 }
       );
     }
@@ -61,8 +62,9 @@ export async function POST(request: Request) {
       .single();
 
     if (error) {
+      console.error("[tasks] POST:", error.message);
       return NextResponse.json(
-        { error: "Failed to create task.", details: error.message },
+        { error: "Failed to create task." },
         { status: 500 }
       );
     }

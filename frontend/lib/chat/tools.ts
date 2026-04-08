@@ -4,12 +4,15 @@ import { z } from "zod"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getDonorLifecycleStatus } from "@/lib/donor-lifecycle"
 import { computeDonorHealthScore } from "@/lib/donor-score"
+import { recalcDonorTotals } from "@/lib/recalc-donor-totals"
 import { isLimitExceeded } from "@/lib/subscription"
 
-export function buildTools(orgId: string) {
+import type { ChatPIIRedactor } from "./pii-redactor"
+
+export function buildTools(orgId: string, redactor?: ChatPIIRedactor) {
   const supabase = createAdminClient()
 
-  return {
+  const rawTools = {
     search_donors: tool({
       description:
         "Search and list donors. Use this for questions like 'who are my top donors', 'show me donors', 'list donors'. Returns donor profiles with IDs, names, lifetime giving, location, and lifecycle status. Results are sorted by lifetime giving (highest first) by default.",
@@ -112,9 +115,10 @@ export function buildTools(orgId: string) {
       execute: async ({ donor_id }) => {
         const [donorRes, donationsRes, interactionsRes, tagsRes, oppsRes] =
           await Promise.all([
+            // Only select fields needed for the summary — never fetch email/phone/address
             supabase
               .from("donors")
-              .select("*")
+              .select("id,display_name,donor_type,city,state,total_lifetime_value,last_donation_date,last_donation_amount,first_donation_date,notes")
               .eq("id", donor_id)
               .eq("org_id", orgId)
               .single(),
@@ -524,24 +528,7 @@ export function buildTools(orgId: string) {
         }
 
         // Recalculate donor totals
-        const { data: allDonations } = await supabase
-          .from("donations")
-          .select("amount,date")
-          .eq("donor_id", donor_id)
-          .order("date", { ascending: false })
-
-        const rows = (allDonations ?? []) as { amount: number; date: string }[]
-        const total = rows.reduce((sum, r) => sum + Number(r.amount || 0), 0)
-        const last = rows[0]
-
-        await supabase
-          .from("donors")
-          .update({
-            total_lifetime_value: total,
-            last_donation_date: last?.date ?? null,
-            last_donation_amount: last?.amount ?? null,
-          })
-          .eq("id", donor_id)
+        await recalcDonorTotals(supabase, donor_id)
 
         return {
           success: true,
@@ -813,4 +800,23 @@ export function buildTools(orgId: string) {
       },
     }),
   }
+
+  if (!redactor) return rawTools
+
+  // Wrap each tool's execute to redact PII from results before the LLM sees them.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const wrapped: Record<string, any> = {}
+  for (const [name, t] of Object.entries(rawTools)) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const orig = t as any
+    wrapped[name] = {
+      ...orig,
+      execute: async (...args: unknown[]) => {
+        const result = await orig.execute(...args)
+        return redactor.redactToolResult(result)
+      },
+    }
+  }
+
+  return wrapped as typeof rawTools
 }

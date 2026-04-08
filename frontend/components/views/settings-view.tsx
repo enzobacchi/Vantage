@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { IconAlertTriangle, IconCheck, IconSettings } from "@tabler/icons-react"
+import { AlertTriangle, Check, Settings } from "lucide-react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
@@ -127,7 +127,7 @@ export function SettingsView() {
   return (
     <div className="flex flex-1 flex-col gap-6 p-4 lg:p-6">
       <div className="flex items-center gap-2">
-        <IconSettings className="size-5 text-slate-900 dark:text-white" />
+        <Settings className="size-5 text-slate-900 dark:text-white" />
         <h1 className="text-xl font-semibold">Settings</h1>
       </div>
 
@@ -150,7 +150,7 @@ export function SettingsView() {
                     <p className="font-medium">QuickBooks</p>
                     {qbStatus.connected ? (
                       <Badge variant="secondary" className="bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white gap-1">
-                        <IconCheck className="size-3" />
+                        <Check className="size-3" />
                         Connected
                       </Badge>
                     ) : (
@@ -205,7 +205,7 @@ export function SettingsView() {
                   </>
                 ) : (
                   <>
-                    <IconAlertTriangle className="mr-2 size-4" />
+                    <AlertTriangle className="mr-2 size-4" />
                     Resync All Donor Data (Historical)
                   </>
                 )}

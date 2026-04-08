@@ -35,8 +35,9 @@ export async function GET(request: Request) {
   const { data, error } = await query;
 
   if (error) {
+    console.error("[donations/options]", error.message);
     return NextResponse.json(
-      { error: "Failed to load options.", details: error.message },
+      { error: "Failed to load options." },
       { status: 500 }
     );
   }

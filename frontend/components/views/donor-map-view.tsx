@@ -3,18 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { useNav } from "@/components/nav-context"
-import {
-  IconFilter,
-  IconMap,
-  IconRefresh,
-  IconSearch,
-  IconSettings2,
-  IconCircle,
-  IconPolygon,
-  IconTrash,
-  IconFileReport,
-} from "@tabler/icons-react"
-import { ExternalLink, MapPin, Navigation, X } from "lucide-react"
+import { ExternalLink, MapPin, Navigation, X, Filter, Map as MapIcon, RefreshCw, Search, Settings2, Circle, Pentagon, Trash2, FileText } from "lucide-react"
 import Map, { Marker, Popup, Source, Layer } from "react-map-gl/mapbox"
 import type { MapRef } from "react-map-gl/mapbox"
 import MapboxDraw from "@mapbox/mapbox-gl-draw"
@@ -701,7 +690,7 @@ export function DonorMapView() {
     <div className="flex flex-1 flex-col gap-4 p-4 lg:p-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <IconMap className="size-5 text-primary" />
+          <MapIcon className="size-5 text-primary" />
           <h1 className="text-xl font-semibold">Donor Map</h1>
         </div>
       </div>
@@ -709,7 +698,7 @@ export function DonorMapView() {
       {/* Filter bar above the map */}
       <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-background/95 px-4 py-3 shadow-sm backdrop-blur">
         <div className="flex items-center gap-2">
-          <IconFilter className="size-4 text-muted-foreground" />
+          <Filter className="size-4 text-muted-foreground" />
           <span className="text-sm font-medium">Filters</span>
         </div>
         <Popover open={flyToSearchOpen} onOpenChange={setFlyToSearchOpen}>
@@ -721,7 +710,7 @@ export function DonorMapView() {
               aria-expanded={flyToSearchOpen}
               className="h-9 w-64 justify-start gap-2 font-normal text-muted-foreground"
             >
-              <IconSearch className="size-4 shrink-0" />
+              <Search className="size-4 shrink-0" />
               <span className="truncate">Find donor on map…</span>
             </Button>
           </PopoverTrigger>
@@ -788,7 +777,7 @@ export function DonorMapView() {
           disabled={geocodeLoading}
           onClick={runGeocodeBackfill}
         >
-          <IconRefresh className="mr-2 size-4" />
+          <RefreshCw className="mr-2 size-4" />
           {geocodeLoading ? "Geocoding…" : "Load locations"}
         </Button>
         {geocodeMessage && (
@@ -828,7 +817,7 @@ export function DonorMapView() {
           className="h-8"
           onClick={activatePolygonMode}
         >
-          <IconPolygon className="mr-1.5 size-4" />
+          <Pentagon className="mr-1.5 size-4" />
           Polygon
         </Button>
         <Button
@@ -838,12 +827,12 @@ export function DonorMapView() {
           className="h-8"
           onClick={activateCircleMode}
         >
-          <IconCircle className="mr-1.5 size-4" />
+          <Circle className="mr-1.5 size-4" />
           Circle
         </Button>
         {(drawMode || selectedByDraw.length > 0) && (
           <Button type="button" variant="ghost" size="sm" className="h-8" onClick={clearDraw}>
-            <IconTrash className="mr-1.5 size-4" />
+            <Trash2 className="mr-1.5 size-4" />
             Clear
           </Button>
         )}
@@ -969,7 +958,7 @@ export function DonorMapView() {
                       anchor="center"
                     >
                       <div
-                        className="flex items-center justify-center size-7 rounded-full bg-[#007A3F] text-white text-xs font-bold shadow-md border-2 border-white"
+                        className="flex items-center justify-center size-7 rounded-full bg-[#007A3F] text-white text-xs font-bold shadow-sm border-2 border-white"
                         title={d.display_name ?? undefined}
                       >
                         {routeIsOptimized ? i + 1 : ""}
@@ -994,7 +983,7 @@ export function DonorMapView() {
                         className="flex items-center gap-2 rounded-md border bg-background/95 px-3 py-2 shadow-sm backdrop-blur hover:bg-muted/50"
                         aria-label="Map legend and settings"
                       >
-                        <IconSettings2 className="size-4 text-muted-foreground" />
+                        <Settings2 className="size-4 text-muted-foreground" />
                         <span className="text-xs font-medium text-muted-foreground">
                           Legend &amp; settings
                         </span>
@@ -1082,7 +1071,7 @@ export function DonorMapView() {
                     onClose={() => setSelected(null)}
                     closeButton
                     closeOnClick={false}
-                    className="[&_.mapboxgl-popup-content]:!p-0 [&_.mapboxgl-popup-content]:!bg-background [&_.mapboxgl-popup-content]:!text-foreground [&_.mapboxgl-popup-content]:border [&_.mapboxgl-popup-content]:border-border [&_.mapboxgl-popup-content]:rounded-lg [&_.mapboxgl-popup-content]:shadow-md"
+                    className="[&_.mapboxgl-popup-content]:!p-0 [&_.mapboxgl-popup-content]:!bg-background [&_.mapboxgl-popup-content]:!text-foreground [&_.mapboxgl-popup-content]:border [&_.mapboxgl-popup-content]:border-border [&_.mapboxgl-popup-content]:rounded-lg [&_.mapboxgl-popup-content]:shadow-sm"
                   >
                     <div className="min-w-56 rounded-lg border bg-card p-3 text-card-foreground shadow-sm">
                       <button
@@ -1195,7 +1184,7 @@ export function DonorMapView() {
               disabled={generateReportLoading}
               onClick={handleGenerateReport}
             >
-              <IconFileReport className="mr-2 size-4" />
+              <FileText className="mr-2 size-4" />
               {generateReportLoading ? "Creating…" : "Generate Report"}
             </Button>
           </div>

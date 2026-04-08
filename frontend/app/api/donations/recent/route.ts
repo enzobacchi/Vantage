@@ -46,8 +46,9 @@ export async function GET() {
     .limit(20);
 
   if (error) {
+    console.error("[donations/recent]", error.message);
     return NextResponse.json(
-      { error: "Failed to load recent gifts.", details: error.message },
+      { error: "Failed to load recent gifts." },
       { status: 500 }
     );
   }

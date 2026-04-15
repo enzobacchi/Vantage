@@ -18,12 +18,26 @@ export type SavedReportRow = {
   created_by_user_id: string | null;
 };
 
+export type ReportUserRef = {
+  user_id: string;
+  full_name: string | null;
+};
+
+export type SavedReportListItem = SavedReportRow & {
+  shares: ReportUserRef[];
+  creator: ReportUserRef | null;
+};
+
 export async function GET(request: Request) {
   const auth = await requireUserOrg();
   if (!auth.ok) return auth.response;
 
   const { searchParams } = new URL(request.url);
   const folderIdParam = searchParams.get("folderId");
+  const includeShares = (searchParams.get("include") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .includes("shares");
 
   const supabase = createAdminClient();
   const baseSelect = "id,title,query,type,summary,records_count,created_at,folder_id,visibility,created_by_user_id";
@@ -82,6 +96,136 @@ export async function GET(request: Request) {
     );
   }
 
-  return NextResponse.json((data ?? []) as SavedReportRow[]);
+  const rows = (data ?? []) as SavedReportRow[];
+
+  if (!includeShares) {
+    return NextResponse.json(rows);
+  }
+
+  const reportIds = rows.map((r) => r.id);
+  const { data: shareRows } = reportIds.length
+    ? await supabase
+        .from("report_shares")
+        .select("report_id,user_id")
+        .in("report_id", reportIds)
+    : { data: [] as { report_id: string; user_id: string }[] };
+
+  const sharesByReport = new Map<string, string[]>();
+  for (const s of shareRows ?? []) {
+    const list = sharesByReport.get(s.report_id) ?? [];
+    list.push(s.user_id);
+    sharesByReport.set(s.report_id, list);
+  }
+
+  const userIds = new Set<string>();
+  for (const r of rows) if (r.created_by_user_id) userIds.add(r.created_by_user_id);
+  for (const ids of sharesByReport.values()) for (const id of ids) userIds.add(id);
+
+  const userRefs = new Map<string, ReportUserRef>();
+  await Promise.all(
+    [...userIds].map(async (uid) => {
+      const { data: u } = await supabase.auth.admin.getUserById(uid);
+      const meta = (u?.user?.user_metadata ?? {}) as Record<string, unknown>;
+      const fullName =
+        (typeof meta.full_name === "string" && meta.full_name) ||
+        (typeof meta.name === "string" && meta.name) ||
+        u?.user?.email?.split("@")[0] ||
+        null;
+      userRefs.set(uid, { user_id: uid, full_name: fullName ? String(fullName).trim() : null });
+    })
+  );
+
+  const enriched: SavedReportListItem[] = rows.map((r) => ({
+    ...r,
+    shares: (sharesByReport.get(r.id) ?? []).map(
+      (uid) => userRefs.get(uid) ?? { user_id: uid, full_name: null }
+    ),
+    creator: r.created_by_user_id
+      ? userRefs.get(r.created_by_user_id) ?? { user_id: r.created_by_user_id, full_name: null }
+      : null,
+  }));
+
+  return NextResponse.json(enriched);
+}
+
+type CreateReportBody = {
+  title?: unknown;
+  tagIds?: unknown;
+  selectedColumns?: unknown;
+  search?: unknown;
+  visibility?: unknown;
+};
+
+export async function POST(request: Request) {
+  const auth = await requireUserOrg();
+  if (!auth.ok) return auth.response;
+
+  const body = (await request.json().catch(() => null)) as CreateReportBody | null;
+  const title = typeof body?.title === "string" ? body.title.trim() : "";
+  if (!title) {
+    return NextResponse.json({ error: "Report title is required." }, { status: 400 });
+  }
+
+  const tagIds = Array.isArray(body?.tagIds)
+    ? body.tagIds.filter((v): v is string => typeof v === "string")
+    : [];
+  const selectedColumns = Array.isArray(body?.selectedColumns)
+    ? body.selectedColumns.filter((v): v is string => typeof v === "string")
+    : [];
+  const search = typeof body?.search === "string" ? body.search.trim() : "";
+  const visibility: "private" | "shared" =
+    body?.visibility === "private" ? "private" : "shared";
+
+  const criteria: Record<string, unknown> = { source: "crm" };
+  if (search) criteria.search = search;
+  if (tagIds.length) criteria.tagIds = tagIds;
+  if (selectedColumns.length) criteria.selectedColumns = selectedColumns;
+
+  const summaryParts: string[] = [];
+  if (search) summaryParts.push(`Search: "${search}"`);
+  if (tagIds.length) summaryParts.push(`Tags: ${tagIds.length} selected`);
+  const summary = summaryParts.length ? summaryParts.join(" · ") : "CRM filters";
+
+  const supabase = createAdminClient();
+  let { data, error } = await supabase
+    .from("saved_reports")
+    .insert({
+      organization_id: auth.orgId,
+      title,
+      type: "crm",
+      summary,
+      query: JSON.stringify(criteria),
+      visibility,
+      created_by_user_id: auth.userId,
+    })
+    .select("id,title,type,summary,created_at,visibility,created_by_user_id")
+    .single();
+
+  // Tolerate older schemas without optional columns
+  const colMissing =
+    error?.message?.includes("created_by_user_id") ||
+    error?.message?.includes("visibility") ||
+    error?.message?.includes("summary");
+  if (error && colMissing) {
+    const fallback = await supabase
+      .from("saved_reports")
+      .insert({
+        organization_id: auth.orgId,
+        title,
+        type: "crm",
+        query: JSON.stringify(criteria),
+      })
+      .select("id,title,type,created_at")
+      .single();
+    data = fallback.data as typeof data;
+    error = fallback.error;
+  }
+
+  if (error || !data) {
+    console.error("[reports] POST:", error?.message);
+    return NextResponse.json({ error: "Failed to create report." }, { status: 500 });
+  }
+
+  return NextResponse.json(data, { status: 201 });
 }
 

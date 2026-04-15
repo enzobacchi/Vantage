@@ -161,7 +161,7 @@ export async function GET(
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from("saved_reports")
-    .select("id,title,type,content,summary,created_at,organization_id,query,filter_criteria")
+    .select("id,title,type,content,summary,created_at,organization_id,query,filter_criteria,created_by_user_id,visibility")
     .eq("id", id)
     .single();
 
@@ -215,6 +215,31 @@ export async function GET(
         }
       : null;
 
+  const createdBy = (row?.created_by_user_id as string | null | undefined) ?? null;
+
+  const { data: shareRows } = await supabase
+    .from("report_shares")
+    .select("user_id")
+    .eq("report_id", id);
+
+  const shareUserIds = (shareRows ?? []).map((r) => r.user_id as string);
+  const userIds = new Set<string>(shareUserIds);
+  if (createdBy) userIds.add(createdBy);
+
+  const userRefs = new Map<string, { user_id: string; full_name: string | null }>();
+  await Promise.all(
+    [...userIds].map(async (uid) => {
+      const { data: u } = await supabase.auth.admin.getUserById(uid);
+      const meta = (u?.user?.user_metadata ?? {}) as Record<string, unknown>;
+      const fullName =
+        (typeof meta.full_name === "string" && meta.full_name) ||
+        (typeof meta.name === "string" && meta.name) ||
+        u?.user?.email?.split("@")[0] ||
+        null;
+      userRefs.set(uid, { user_id: uid, full_name: fullName ? String(fullName).trim() : null });
+    })
+  );
+
   return NextResponse.json({
     id: row.id,
     title: row.title,
@@ -224,6 +249,14 @@ export async function GET(
     content,
     records_count,
     reportParams,
+    created_by_user_id: createdBy,
+    visibility: (row?.visibility as string | null | undefined) ?? null,
+    creator: createdBy
+      ? userRefs.get(createdBy) ?? { user_id: createdBy, full_name: null }
+      : null,
+    shares: shareUserIds.map(
+      (uid) => userRefs.get(uid) ?? { user_id: uid, full_name: null }
+    ),
   });
 }
 

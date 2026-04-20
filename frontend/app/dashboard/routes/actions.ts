@@ -240,3 +240,83 @@ export async function optimizeRoute(
   const sortedDonors = await sortRouteByDistance(coords, donors)
   return sortedDonors.map((d) => ({ ...d, icebreaker: "" }))
 }
+
+export type SaveRouteReportInput = {
+  name: string
+  startLocation: string
+  radius: number
+  minDonation?: number
+  isOptimized: boolean
+  donorIds: string[]
+  selectedColumns: string[]
+}
+
+/**
+ * Save the current route as a first-class Report in saved_reports.
+ * Stores only the criteria (donor ids, column choices, route params) in `query`.
+ * The content is regenerated on read by `/api/reports/[id]` so the saved report
+ * renders with the same column format as CRM reports.
+ */
+export async function saveRouteReport(
+  input: SaveRouteReportInput
+): Promise<{ id: string }> {
+  const org = await getCurrentUserOrg()
+  if (!org) throw new Error("Sign in and connect an organization to save route reports.")
+
+  const title = input.name.trim()
+  if (!title) throw new Error("Report name is required.")
+  if (input.donorIds.length === 0) throw new Error("No donors to save.")
+  if (input.selectedColumns.length === 0) throw new Error("Select at least one column.")
+
+  const stops = input.donorIds.length
+  const summary = `${input.startLocation.trim()} · ${input.radius}mi · ${stops} stop${stops === 1 ? "" : "s"}`
+  const query = JSON.stringify({
+    source: "route" as const,
+    startLocation: input.startLocation.trim(),
+    radius: input.radius,
+    minDonation: input.minDonation ?? null,
+    isOptimized: input.isOptimized,
+    donorIds: input.donorIds,
+    selectedColumns: input.selectedColumns,
+  })
+
+  const supabase = createAdminClient()
+  let { data, error } = await supabase
+    .from("saved_reports")
+    .insert({
+      organization_id: org.orgId,
+      title,
+      type: "route",
+      summary,
+      query,
+      visibility: "shared",
+      created_by_user_id: org.userId,
+    })
+    .select("id")
+    .single()
+
+  // Older schemas may be missing optional columns — retry with only the required set.
+  if (
+    error?.message?.includes("created_by_user_id") ||
+    error?.message?.includes("visibility") ||
+    error?.message?.includes("summary")
+  ) {
+    const fallback = await supabase
+      .from("saved_reports")
+      .insert({
+        organization_id: org.orgId,
+        title,
+        type: "route",
+        query,
+      })
+      .select("id")
+      .single()
+    data = fallback.data
+    error = fallback.error
+  }
+
+  if (error) throw new Error(error.message)
+  if (!data?.id) throw new Error("Failed to save route report.")
+
+  return { id: String(data.id) }
+}

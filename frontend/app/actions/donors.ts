@@ -102,6 +102,7 @@ export type UpdateDonorInput = {
   donor_type?: "individual" | "corporate" | "school" | "church"
   first_name?: string | null
   last_name?: string | null
+  acquisition_source?: string | null
 }
 
 /**
@@ -131,6 +132,9 @@ export async function updateDonor(donorId: string, input: UpdateDonorInput): Pro
     if (["individual", "corporate", "school", "church"].includes(input.donor_type)) {
       updates.donor_type = input.donor_type
     }
+  }
+  if (input.acquisition_source !== undefined) {
+    updates.acquisition_source = input.acquisition_source?.trim() || null
   }
 
   if (Object.keys(updates).length === 0) return

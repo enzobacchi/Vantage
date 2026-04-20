@@ -5,6 +5,7 @@ import type { UIMessage } from "ai"
 import { ChevronDown, ChevronRight, Loader2, User } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { BuildCustomReportCard } from "./build-custom-report-card"
 
 function VantageLogo({ size = "sm" }: { size?: "sm" | "lg" }) {
   const dim = size === "lg" ? "size-10" : "size-7"
@@ -31,6 +32,11 @@ const TOOL_LABELS: Record<string, string> = {
   get_donation_metrics: "Calculating donation metrics",
   filter_donations: "Searching donations",
   get_recent_activity: "Loading recent activity",
+  get_donor_locations: "Mapping donor locations",
+  get_donor_health_score: "Computing donor health score",
+  get_at_risk_donors: "Finding at-risk donors",
+  build_custom_report: "Building custom report",
+  save_custom_report: "Saving report",
 }
 
 function ToolPart({ part }: { part: { type: string; state?: string; toolCallId?: string; output?: unknown } }) {
@@ -139,7 +145,11 @@ export function ChatMessages({ messages, isLoading }: ChatMessagesProps) {
               }
               // Tool parts have types like "tool-search_donors"
               if (part.type.startsWith("tool-")) {
-                return <ToolPart key={i} part={part as { type: string; state?: string; toolCallId?: string; output?: unknown }} />
+                const tp = part as { type: string; state?: string; toolCallId?: string; output?: unknown }
+                if (tp.type === "tool-build_custom_report") {
+                  return <BuildCustomReportCard key={i} part={tp} />
+                }
+                return <ToolPart key={i} part={tp} />
               }
               return null
             })}

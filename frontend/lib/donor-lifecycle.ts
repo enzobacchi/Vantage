@@ -30,7 +30,6 @@ const DEFAULT_MAJOR_THRESHOLD = 5000
 
 export type DonorForLifecycle = {
   last_donation_date?: string | null
-  first_donation_date?: string | null
   total_lifetime_value?: number | string | null
 }
 

@@ -71,7 +71,7 @@ export async function GET() {
     ] = await Promise.all([
       supabase
         .from("donors")
-        .select("id,display_name,email,total_lifetime_value,last_donation_date,first_donation_date,donor_type")
+        .select("id,display_name,email,total_lifetime_value,last_donation_date,donor_type")
         .eq("org_id", auth.orgId),
       // Last 7 days donations with donor info
       supabase
@@ -115,7 +115,6 @@ export async function GET() {
       email: string | null
       total_lifetime_value: number | null
       last_donation_date: string | null
-      first_donation_date: string | null
       donor_type: string | null
     }>
     const recentDonationsRaw = (recentDonationsRes.data ?? []) as unknown as Array<{
@@ -133,6 +132,31 @@ export async function GET() {
       id: string; donor_id: string | null; amount: number | null; status: string; expected_date: string | null; title: string | null
     }>
     const overdueTasks = (tasksRes.data ?? []) as Array<{ id: string; donor_id: string; subject: string | null; date: string }>
+
+    // Derive "first-gift this week" set from donations.date.
+    // `donors` has no first_donation_date column, so we identify first-time
+    // donors by checking which week-givers have zero prior donations.
+    const weekDonorIds = [...new Set(recentDonations.map((d) => d.donor_id))]
+    const firstGiftDonorIds = new Set<string>()
+    if (weekDonorIds.length > 0) {
+      const priorDonorIds = new Set<string>()
+      const pageSize = 1000
+      for (let offset = 0; priorDonorIds.size < weekDonorIds.length; offset += pageSize) {
+        const { data: page } = await supabase
+          .from("donations")
+          .select("donor_id")
+          .eq("org_id", auth.orgId)
+          .in("donor_id", weekDonorIds)
+          .lt("date", sevenDaysAgo.slice(0, 10))
+          .range(offset, offset + pageSize - 1)
+        const rows = (page ?? []) as Array<{ donor_id: string }>
+        for (const r of rows) priorDonorIds.add(r.donor_id)
+        if (rows.length < pageSize) break
+      }
+      for (const id of weekDonorIds) {
+        if (!priorDonorIds.has(id)) firstGiftDonorIds.add(id)
+      }
+    }
 
     // Compute lifecycle distribution
     const lifecycleCounts: Record<LifecycleStatus, number> = { New: 0, Active: 0, Lapsed: 0, Lost: 0 }
@@ -167,8 +191,8 @@ export async function GET() {
         continue
       }
 
-      // First-time donor
-      if (donor.first_donation_date && new Date(donor.first_donation_date) >= new Date(sevenDaysAgo)) {
+      // First-time donor — derived from donations.date (no prior gifts before the window).
+      if (firstGiftDonorIds.has(donorId)) {
         notables.push({ name, event: "first_gift", amount: Number(don.amount) })
         seenIds.add(donorId)
         continue

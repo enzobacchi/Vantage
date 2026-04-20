@@ -37,7 +37,7 @@ export async function POST(request: Request) {
     model: anthropic("claude-haiku-4-5-20251001"),
     system: buildSystemPrompt(auth.orgId),
     messages: await convertToModelMessages(messages),
-    tools: buildTools(auth.orgId, redactor),
+    tools: buildTools(auth.orgId, auth.userId, redactor),
     maxOutputTokens: 8192,
     maxRetries: 2,
     stopWhen: stepCountIs(8),

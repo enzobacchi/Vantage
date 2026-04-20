@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server"
 import { requireUserOrg } from "@/lib/auth"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { toCsv } from "@/lib/csv"
 
 const VALID_TYPES = ["donors", "donations", "interactions"] as const
 type ExportType = (typeof VALID_TYPES)[number]
@@ -229,21 +230,3 @@ async function buildInteractionsExport(
   return { csv: toCsv(headers, rows), filename: `vantage-interactions-${timestamp}.csv` }
 }
 
-/** Convert headers + rows into a properly escaped CSV string. */
-function toCsv(headers: string[], rows: (string | number | null | undefined)[][]): string {
-  const escape = (val: string | number | null | undefined): string => {
-    if (val == null) return ""
-    const str = String(val)
-    if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
-      return `"${str.replace(/"/g, '""')}"`
-    }
-    return str
-  }
-
-  const lines = [
-    headers.map(escape).join(","),
-    ...rows.map((row) => row.map(escape).join(",")),
-  ]
-
-  return lines.join("\n")
-}

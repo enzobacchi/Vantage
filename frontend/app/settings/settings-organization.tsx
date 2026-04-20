@@ -26,6 +26,18 @@ import {
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+] as const
 import { createBrowserSupabaseClient } from "@/lib/supabase/client"
 
 export function SettingsOrganization() {
@@ -38,6 +50,7 @@ export function SettingsOrganization() {
   const [logoUrl, setLogoUrl] = React.useState("")
   const [taxId, setTaxId] = React.useState("")
   const [legalWording, setLegalWording] = React.useState("")
+  const [fyStartMonth, setFyStartMonth] = React.useState<number>(1)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
 
   // Delete dialog state
@@ -54,6 +67,7 @@ export function SettingsOrganization() {
         setLogoUrl(org.logo_url ?? "")
         setTaxId(org.tax_id ?? "")
         setLegalWording(org.legal_501c3_wording ?? "")
+        setFyStartMonth(org.fiscal_year_start_month ?? 1)
       }
       setRole(userRole)
     } catch {
@@ -76,6 +90,7 @@ export function SettingsOrganization() {
         logo_url: logoUrl.trim(),
         tax_id: taxId.trim(),
         legal_501c3_wording: legalWording.trim(),
+        fiscal_year_start_month: fyStartMonth,
       })
       toast.success("Organization updated")
       router.refresh()
@@ -316,6 +331,27 @@ export function SettingsOrganization() {
               className="mt-2 min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               rows={3}
             />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="org-fy-start" className="text-sm font-medium leading-none">
+              Fiscal year starts in
+            </Label>
+            <p className="text-[0.8rem] text-muted-foreground mt-1.5">
+              Used by report templates to compute "this fiscal year" and "last fiscal year". Default: January (calendar year).
+            </p>
+            <Select
+              value={String(fyStartMonth)}
+              onValueChange={(v) => setFyStartMonth(Number(v))}
+            >
+              <SelectTrigger id="org-fy-start" className="mt-2 h-9 w-full sm:w-[220px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {MONTH_NAMES.map((m, i) => (
+                  <SelectItem key={m} value={String(i + 1)}>{m}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div>
             <Button size="default" className="h-9 rounded-md px-4" onClick={handleSave} disabled={saving}>

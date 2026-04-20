@@ -38,6 +38,8 @@ import {
   ReportFilterBuilder,
   type FilterRow,
 } from "@/components/report-filter-builder"
+import { TemplatesSection } from "@/components/views/saved-reports/templates-tab"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Label } from "@/components/ui/label"
 import {
   Select,
@@ -166,6 +168,7 @@ export function SavedReportsView() {
   const [bulkDeleteIds, setBulkDeleteIds] = React.useState<string[] | null>(null)
   const [selectedReports, setSelectedReports] = React.useState<SavedReport[]>([])
   const [sidebarOpen, setSidebarOpen] = React.useState(false)
+  const [view, setView] = React.useState<"templates" | "saved">("templates")
   const dataTableRef = React.useRef<DataTableRef<SavedReport> | null>(null)
 
   const [generateDialogOpen, setGenerateDialogOpen] = React.useState(false)
@@ -385,7 +388,7 @@ export function SavedReportsView() {
       return
     }
     const typeUpper = (previewData.type ?? "").toUpperCase()
-    if (typeUpper === "CSV" || typeUpper === "CRM") {
+    if (typeUpper === "CSV" || typeUpper === "CRM" || typeUpper === "ROUTE") {
       const rows = parseCsvToRows(previewData.content)
       setPreviewTableRows(rows)
       setColumnOrder(rows[0] ? rows[0].map((_, i) => i) : [])
@@ -740,10 +743,10 @@ export function SavedReportsView() {
   return (
     <div className="flex flex-1 flex-col h-full py-4 md:py-6">
       <div className="flex flex-1 min-h-0 w-full">
-        {/* Collapsible Folders sidebar */}
+        {/* Collapsible Folders sidebar — only relevant on the Saved tab */}
         <aside
           className={`flex shrink-0 flex-col border-r bg-muted/30 transition-[width] duration-200 ease-out ${
-            sidebarOpen ? "w-52" : "w-0 overflow-hidden border-0"
+            sidebarOpen && view === "saved" ? "w-52" : "w-0 overflow-hidden border-0"
           }`}
         >
           <nav className="flex flex-col gap-0.5 p-2 lg:p-3">
@@ -788,58 +791,81 @@ export function SavedReportsView() {
 
         {/* Main content */}
         <div className="flex flex-1 flex-col min-w-0 items-start">
-          <div className="flex w-full items-center justify-between px-4 lg:px-6 mb-4">
+          <div className="flex w-full items-center justify-between px-4 lg:px-6 mb-4 gap-2 flex-wrap">
             <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="shrink-0"
-                onClick={() => setSidebarOpen((o) => !o)}
-                aria-label={sidebarOpen ? "Hide folders" : "Show folders"}
-              >
-                {sidebarOpen ? (
-                  <PanelLeftClose className="size-5 text-slate-900 dark:text-white" />
-                ) : (
-                  <PanelLeft className="size-5 text-slate-900 dark:text-white" />
-                )}
-              </Button>
+              {view === "saved" && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="shrink-0"
+                  onClick={() => setSidebarOpen((o) => !o)}
+                  aria-label={sidebarOpen ? "Hide folders" : "Show folders"}
+                >
+                  {sidebarOpen ? (
+                    <PanelLeftClose className="size-5 text-slate-900 dark:text-white" />
+                  ) : (
+                    <PanelLeft className="size-5 text-slate-900 dark:text-white" />
+                  )}
+                </Button>
+              )}
               <FileText className="size-5 text-slate-900 dark:text-white" />
-              <h1 className="text-xl font-semibold">Saved Reports</h1>
+              <h1 className="text-xl font-semibold">Reports</h1>
             </div>
-            <div className="flex items-center gap-2">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv"
-                className="hidden"
-                aria-hidden
-                onChange={handleFileChange}
-              />
-              <Button
-                variant="outline"
-                className="bg-transparent"
-                onClick={handleUploadClick}
-                disabled={uploading}
-              >
-                <Upload className="size-4" />
-                {uploading ? "Uploading…" : "Upload External File"}
-              </Button>
-              <Button
-                variant="outline"
-                className="bg-transparent"
-                onClick={() => {
-                  setGenerateDialogOpen(true)
-                  setReportName("")
-                  setFilters([])
-                }}
-              >
-                <Filter className="size-4" />
-                Create Report
-              </Button>
-            </div>
+            <Tabs value={view} onValueChange={(v) => setView(v as "templates" | "saved")}>
+              <TabsList>
+                <TabsTrigger value="templates">Templates</TabsTrigger>
+                <TabsTrigger value="saved">Saved Reports</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            {view === "saved" ? (
+              <div className="flex items-center gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv"
+                  className="hidden"
+                  aria-hidden
+                  onChange={handleFileChange}
+                />
+                <Button
+                  variant="outline"
+                  className="bg-transparent"
+                  onClick={handleUploadClick}
+                  disabled={uploading}
+                >
+                  <Upload className="size-4" />
+                  {uploading ? "Uploading…" : "Upload External File"}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="bg-transparent"
+                  onClick={() => {
+                    setGenerateDialogOpen(true)
+                    setReportName("")
+                    setFilters([])
+                  }}
+                >
+                  <Filter className="size-4" />
+                  Create Report
+                </Button>
+              </div>
+            ) : (
+              <div />
+            )}
           </div>
 
-          <Card className="mx-4 lg:mx-6 w-full flex flex-col">
+          <div className="w-full px-4 lg:px-6 space-y-6">
+            {view === "templates" && (
+              <TemplatesSection
+                onSavedReport={() => {
+                  void refresh()
+                  setView("saved")
+                }}
+              />
+            )}
+
+            {view === "saved" && (
+              <Card className="w-full flex flex-col">
             <CardHeader>
               <CardTitle>Generated Reports</CardTitle>
               <CardDescription>
@@ -929,6 +955,8 @@ export function SavedReportsView() {
               </div>
             </CardContent>
           </Card>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1198,7 +1226,7 @@ export function SavedReportsView() {
             ) : previewData?.content ? (
               (() => {
                 const typeUpper = (previewData.type ?? "").toUpperCase()
-                const isCsv = typeUpper === "CSV" || typeUpper === "CRM"
+                const isCsv = typeUpper === "CSV" || typeUpper === "CRM" || typeUpper === "ROUTE"
                 const rows = isCsv ? parseCsvToRows(previewData.content) : null
                 const headers = rows?.[0] ?? []
                 const orderedIndices = columnOrder.length === headers.length ? columnOrder : headers.map((_, i) => i)
@@ -1308,7 +1336,7 @@ export function SavedReportsView() {
                 Edit & Regenerate
               </Button>
             )}
-            {previewReportId && previewData && ((previewData.type ?? "").toUpperCase() === "CSV" || (previewData.type ?? "").toUpperCase() === "CRM") && (
+            {previewReportId && previewData && ((previewData.type ?? "").toUpperCase() === "CSV" || (previewData.type ?? "").toUpperCase() === "CRM" || (previewData.type ?? "").toUpperCase() === "ROUTE") && (
               <>
                 <Button
                   variant="outline"

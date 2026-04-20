@@ -6,10 +6,27 @@ import { getDonorLifecycleStatus } from "@/lib/donor-lifecycle"
 import { computeDonorHealthScore } from "@/lib/donor-score"
 import { recalcDonorTotals } from "@/lib/recalc-donor-totals"
 import { isLimitExceeded } from "@/lib/subscription"
+import {
+  DEFAULT_AI_COLUMNS,
+  filtersArraySchema,
+  type ValidatedFilterRow,
+} from "@/lib/reports/filter-schema"
+import {
+  EmptyResultError,
+  REPORT_COLUMN_CONFIG,
+  runFilterQuery,
+  type FilterRow,
+} from "@/lib/reports/run-filter-query"
+import { signSaveToken } from "@/lib/reports/save-token"
+import { saveCustomReport } from "@/app/actions/reports"
 
 import type { ChatPIIRedactor } from "./pii-redactor"
 
-export function buildTools(orgId: string, redactor?: ChatPIIRedactor) {
+export function buildTools(
+  orgId: string,
+  userId: string,
+  redactor?: ChatPIIRedactor
+) {
   const supabase = createAdminClient()
 
   const rawTools = {
@@ -118,7 +135,7 @@ export function buildTools(orgId: string, redactor?: ChatPIIRedactor) {
             // Only select fields needed for the summary — never fetch email/phone/address
             supabase
               .from("donors")
-              .select("id,display_name,donor_type,city,state,total_lifetime_value,last_donation_date,last_donation_amount,first_donation_date,notes")
+              .select("id,display_name,donor_type,city,state,total_lifetime_value,last_donation_date,last_donation_amount,notes")
               .eq("id", donor_id)
               .eq("org_id", orgId)
               .single(),
@@ -796,6 +813,163 @@ export function buildTools(orgId: string, redactor?: ChatPIIRedactor) {
         return {
           at_risk_donors: atRisk.slice(0, limit),
           total_found: atRisk.length,
+        }
+      },
+    }),
+
+    build_custom_report: tool({
+      description:
+        "Build (preview) a custom donor report from a structured filter spec. " +
+        "Use this for any 'show me / list / find donors who…' question whose " +
+        "criteria exceed search_donors — multi-temporal patterns " +
+        "(retention/recapture/reactivation), multiple AND'd conditions on " +
+        "different dimensions, etc. Returns row count, up to 5 sample donors, " +
+        "the filter JSON used, and a save token. " +
+        "If the user's request CANNOT be expressed in the supported filter " +
+        "schema, pass filters: [] — the tool returns { error: 'unreliable_query' }.",
+      inputSchema: z.object({
+        title: z
+          .string()
+          .min(3)
+          .max(120)
+          .describe("Short title for the report (e.g. 'Recaptured donors 2026')"),
+        summary: z
+          .string()
+          .max(300)
+          .optional()
+          .describe("One-sentence description of what this report finds"),
+        filters: z
+          .array(
+            z.object({
+              field: z.string(),
+              operator: z.string(),
+              value: z.union([z.string(), z.number(), z.array(z.string())]),
+              value2: z.union([z.string(), z.number()]).optional(),
+            })
+          )
+          .max(12)
+          .describe(
+            "Array of filter rows. Empty array signals you cannot reliably build the query."
+          ),
+        selectedColumns: z
+          .array(z.string())
+          .optional()
+          .describe(
+            "Column ids to include. Defaults to first_name, last_name, email, lifetime_value, last_gift_date."
+          ),
+      }),
+      execute: async ({ title, summary, filters, selectedColumns }) => {
+        if (!filters || filters.length === 0) {
+          return { error: "unreliable_query", reason: "no_filters_provided" }
+        }
+
+        const validated = filtersArraySchema.safeParse(filters)
+        if (!validated.success) {
+          return {
+            error: "unreliable_query",
+            reason: "validation_failed",
+            details: validated.error.format(),
+          }
+        }
+
+        const cols =
+          selectedColumns && selectedColumns.length > 0
+            ? selectedColumns.filter((c) => REPORT_COLUMN_CONFIG[c])
+            : DEFAULT_AI_COLUMNS
+        const finalCols = cols.length > 0 ? cols : DEFAULT_AI_COLUMNS
+
+        const validatedFilters = validated.data as ValidatedFilterRow[]
+        const filtersForQuery: FilterRow[] = validatedFilters.map((f) => ({
+          id: f.id,
+          field: f.field,
+          operator: f.operator,
+          value: f.value,
+          value2: f.value2,
+        }))
+
+        let result
+        try {
+          result = await runFilterQuery({
+            orgId,
+            filters: filtersForQuery,
+            selectedColumns: finalCols,
+            limit: 5,
+            allowEmpty: true,
+          })
+        } catch (e) {
+          if (e instanceof EmptyResultError) {
+            result = { rows: [], rowCount: 0, emptyByPrefilter: true }
+          } else {
+            return {
+              error: "unreliable_query",
+              reason: "query_execution_failed",
+              details: e instanceof Error ? e.message : String(e),
+            }
+          }
+        }
+
+        const sampleDonors = result.rows.map((r) => ({
+          id: r.id,
+          display_name: r.display_name,
+          total_lifetime_value: r.total_lifetime_value,
+          last_donation_date: r.last_donation_date,
+        }))
+
+        const pendingSaveToken = signSaveToken({
+          orgId,
+          userId,
+          title,
+          summary: summary ?? "",
+          filters: validatedFilters,
+          selectedColumns: finalCols,
+        })
+
+        return {
+          ok: true,
+          preview: {
+            title,
+            summary: summary ?? "",
+            filters: validatedFilters,
+            selectedColumns: finalCols,
+            rowCount: result.rowCount,
+            sampleDonors,
+            pendingSaveToken,
+          },
+        }
+      },
+    }),
+
+    save_custom_report: tool({
+      description:
+        "Save a previously-previewed custom report to the Reports tab. " +
+        "ONLY call after the user has explicitly confirmed they want it saved.",
+      inputSchema: z.object({
+        pendingSaveToken: z
+          .string()
+          .describe("The token returned by build_custom_report.preview"),
+        visibility: z
+          .enum(["private", "shared"])
+          .optional()
+          .describe("Default: private. Use 'shared' if the user wants the team to see it."),
+      }),
+      execute: async ({ pendingSaveToken, visibility }) => {
+        try {
+          const saved = await saveCustomReport(
+            pendingSaveToken,
+            visibility ?? "private"
+          )
+          return {
+            ok: true,
+            reportId: saved.id,
+            title: saved.title,
+            rowCount: saved.rowCount,
+            url: `/?view=reports&highlight=${saved.id}`,
+          }
+        } catch (e) {
+          return {
+            error: "save_failed",
+            reason: e instanceof Error ? e.message : String(e),
+          }
         }
       },
     }),

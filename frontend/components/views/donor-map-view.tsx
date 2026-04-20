@@ -2,8 +2,9 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
+import { useRouter } from "next/navigation"
 import { useNav } from "@/components/nav-context"
-import { ExternalLink, MapPin, Navigation, X, Filter, Map as MapIcon, RefreshCw, Search, Settings2, Circle, Pentagon, Trash2, FileText } from "lucide-react"
+import { ExternalLink, MapPin, Navigation, X, Filter, Map as MapIcon, RefreshCw, Search, Settings2, Circle, Pentagon, Trash2, FileText, Download, FilePlus } from "lucide-react"
 import Map, { Marker, Popup, Source, Layer } from "react-map-gl/mapbox"
 import type { MapRef } from "react-map-gl/mapbox"
 import MapboxDraw from "@mapbox/mapbox-gl-draw"
@@ -14,7 +15,11 @@ import {
   type RouteDonorWithIcebreaker,
   getDonorsForRoute,
   optimizeRoute,
+  saveRouteReport,
 } from "@/app/dashboard/routes/actions"
+import { toCsv } from "@/lib/csv"
+import { DEFAULT_REPORT_COLUMNS } from "@/lib/report-columns"
+import { ReportColumnsPicker } from "@/components/reports/report-columns-picker"
 
 /** Catches WebGL/map init errors and shows a friendly message instead of a blank map. */
 class MapErrorBoundary extends React.Component<
@@ -64,6 +69,14 @@ import {
 } from "@/components/ui/select"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Slider } from "@/components/ui/slider"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { toast } from "sonner"
 
 /** Params sent to the map API; all optional. */
@@ -225,6 +238,11 @@ export function DonorMapView() {
   const [routeError, setRouteError] = useState<string | null>(null)
   const [routeDonors, setRouteDonors] = useState<RouteDonorWithCoords[]>([])
   const [routeOptimized, setRouteOptimized] = useState<RouteDonorWithIcebreaker[] | null>(null)
+  const [routeReportDialogOpen, setRouteReportDialogOpen] = useState(false)
+  const [routeReportName, setRouteReportName] = useState("")
+  const [routeReportColumns, setRouteReportColumns] = useState<string[]>([...DEFAULT_REPORT_COLUMNS])
+  const [routeReportSaving, setRouteReportSaving] = useState(false)
+  const router = useRouter()
 
   const INITIAL_DONORS_SHOWN = 10
   const donorsToShow =
@@ -640,6 +658,118 @@ export function DonorMapView() {
     setRouteRadius(15)
     setRouteMinDonation("")
   }, [])
+
+  const slugForFile = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40) || "route"
+
+  const handleRouteExportCsv = useCallback(() => {
+    if (routeDisplayList.length === 0) return
+    const hasIcebreaker =
+      routeIsOptimized &&
+      routeOptimized?.some((d) => d.icebreaker && d.icebreaker.trim().length > 0)
+
+    const headers = ["Step", "Name", "Address", "Last Gift"]
+    if (hasIcebreaker) headers.push("Icebreaker")
+
+    const rows = routeDisplayList.map((d, i) => {
+      const row: (string | number | null | undefined)[] = [
+        routeIsOptimized ? i + 1 : "",
+        d.display_name ?? "",
+        d.billing_address ?? "",
+        d.last_donation_date ?? "",
+      ]
+      if (hasIcebreaker) {
+        const ic = "icebreaker" in d ? d.icebreaker : ""
+        row.push(ic ?? "")
+      }
+      return row
+    })
+
+    const csv = toCsv(headers, rows)
+    const today = new Date().toISOString().slice(0, 10)
+    const filename = `vantage-route-${slugForFile(routeStartLocation.trim())}-${today}.csv`
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    toast.success("CSV downloaded", {
+      description: `${routeDisplayList.length} donor${routeDisplayList.length === 1 ? "" : "s"} exported.`,
+    })
+  }, [routeDisplayList, routeIsOptimized, routeOptimized, routeStartLocation])
+
+  const openRouteReportDialog = useCallback(() => {
+    if (routeDisplayList.length === 0 || !routeStartLocation.trim()) return
+    const stops = routeDisplayList.length
+    setRouteReportName(
+      `${routeStartLocation.trim()} — ${stops} stop${stops === 1 ? "" : "s"}`
+    )
+    setRouteReportColumns((prev) => (prev.length ? prev : [...DEFAULT_REPORT_COLUMNS]))
+    setRouteReportDialogOpen(true)
+  }, [routeDisplayList.length, routeStartLocation])
+
+  const handleSaveRouteReport = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault()
+      const title = routeReportName.trim()
+      if (!title) {
+        toast.error("Enter a report name.")
+        return
+      }
+      if (routeDisplayList.length === 0) {
+        toast.error("No donors to save.")
+        return
+      }
+      if (routeReportColumns.length === 0) {
+        toast.error("Select at least one column.")
+        return
+      }
+      const minNum = Number(routeMinDonation)
+      const minDonation =
+        routeMinDonation.trim() !== "" && Number.isFinite(minNum) && minNum >= 0
+          ? minNum
+          : undefined
+      setRouteReportSaving(true)
+      try {
+        const { id } = await saveRouteReport({
+          name: title,
+          startLocation: routeStartLocation.trim(),
+          radius: routeRadius,
+          minDonation,
+          isOptimized: routeIsOptimized,
+          donorIds: routeDisplayList.map((d) => d.id),
+          selectedColumns: routeReportColumns,
+        })
+        toast.success("Report saved", { description: `"${title}" created.` })
+        setRouteReportDialogOpen(false)
+        setRouteReportName("")
+        router.push(`/dashboard?view=saved-reports&reportId=${encodeURIComponent(id)}`)
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to save report.")
+      } finally {
+        setRouteReportSaving(false)
+      }
+    },
+    [
+      routeReportName,
+      routeReportColumns,
+      routeDisplayList,
+      routeMinDonation,
+      routeStartLocation,
+      routeRadius,
+      routeIsOptimized,
+      router,
+    ]
+  )
 
   const generateGoogleMapsUrl = useCallback((startZip: string, donors: { billing_address: string | null }[]) => {
     const addresses = donors
@@ -1228,8 +1358,8 @@ export function DonorMapView() {
                 <div className="flex items-center gap-3">
                   <Slider
                     min={5}
-                    max={50}
-                    step={1}
+                    max={100}
+                    step={5}
                     value={[routeRadius]}
                     onValueChange={(v) => setRouteRadius(v[0] ?? 15)}
                     className="flex-1"
@@ -1318,6 +1448,28 @@ export function DonorMapView() {
               >
                 {routeOptimizing ? "Optimizing…" : "Optimize Route"}
               </Button>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRouteExportCsv}
+                  disabled={routeDisplayList.length === 0}
+                  title="Download the filtered donors as a CSV file"
+                >
+                  <Download className="mr-1.5 size-4" />
+                  Export CSV
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={openRouteReportDialog}
+                  disabled={routeDisplayList.length === 0}
+                  title="Save this route as a Report in Vantage"
+                >
+                  <FilePlus className="mr-1.5 size-4" />
+                  Save as Report
+                </Button>
+              </div>
               {routeIsOptimized && routeOptimized && (
                 <Button
                   variant="outline"
@@ -1337,6 +1489,57 @@ export function DonorMapView() {
               )}
             </div>
           )}
+
+          <Dialog open={routeReportDialogOpen} onOpenChange={setRouteReportDialogOpen}>
+            <DialogContent className="sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Save as Report</DialogTitle>
+                <DialogDescription>
+                  Save this route as a Report in Vantage. It will appear in your Reports list with a snapshot of the current stops.
+                </DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleSaveRouteReport} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="map-route-report-name">Report name</Label>
+                  <Input
+                    id="map-route-report-name"
+                    placeholder="e.g. Troy, MI — 10 stops"
+                    value={routeReportName}
+                    onChange={(e) => setRouteReportName(e.target.value)}
+                    autoFocus
+                  />
+                  <p className="text-muted-foreground text-xs">
+                    {routeDisplayList.length} stop
+                    {routeDisplayList.length === 1 ? "" : "s"} · {routeRadius}mi radius
+                    {routeIsOptimized ? " · optimized" : ""}
+                  </p>
+                </div>
+                <ReportColumnsPicker
+                  value={routeReportColumns}
+                  onChange={setRouteReportColumns}
+                />
+                <DialogFooter>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setRouteReportDialogOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={
+                      routeReportSaving ||
+                      !routeReportName.trim() ||
+                      routeReportColumns.length === 0
+                    }
+                  >
+                    {routeReportSaving ? "Saving…" : "Save report"}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
         </div>
       )}
       </div>

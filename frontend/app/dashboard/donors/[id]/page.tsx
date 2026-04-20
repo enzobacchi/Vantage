@@ -129,6 +129,7 @@ function EditContactDialog({
     mailing_state: donor.mailing_state ?? "",
     mailing_zip: donor.mailing_zip ?? "",
     donor_type: donor.donor_type ?? "individual",
+    acquisition_source: donor.acquisition_source ?? "",
   })
   const [saving, setSaving] = React.useState(false)
 
@@ -149,6 +150,7 @@ function EditContactDialog({
         mailing_state: donor.mailing_state ?? "",
         mailing_zip: donor.mailing_zip ?? "",
         donor_type: donor.donor_type ?? "individual",
+        acquisition_source: donor.acquisition_source ?? "",
       })
     }
   }, [open, donor])
@@ -175,6 +177,7 @@ function EditContactDialog({
         mailing_state: form.mailing_state || null,
         mailing_zip: form.mailing_zip || null,
         donor_type: form.donor_type as UpdateDonorInput["donor_type"],
+        acquisition_source: form.acquisition_source || null,
       })
       toast.success("Donor profile updated")
       onOpenChange(false)
@@ -328,6 +331,15 @@ function EditContactDialog({
                 <SelectItem value="church">Church</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="edit-acquisition-source">Acquisition Source</Label>
+            <Input
+              id="edit-acquisition-source"
+              value={form.acquisition_source}
+              onChange={(e) => update("acquisition_source", e.target.value)}
+              placeholder="e.g. event, referral, website"
+            />
           </div>
         </div>
         <DialogFooter>

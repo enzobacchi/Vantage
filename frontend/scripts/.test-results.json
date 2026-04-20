@@ -1,0 +1,66 @@
+{
+  "passed": 15,
+  "total": 15,
+  "results": [
+    {
+      "name": "1. retention basic",
+      "pass": true
+    },
+    {
+      "name": "2. recapture multi-year",
+      "pass": true
+    },
+    {
+      "name": "3. reactivation this month",
+      "pass": true
+    },
+    {
+      "name": "4. first-time this year",
+      "pass": true
+    },
+    {
+      "name": "5. major donors CA",
+      "pass": true
+    },
+    {
+      "name": "6. 3+ gifts last 12 months",
+      "pass": true
+    },
+    {
+      "name": "7. lost high-LTV",
+      "pass": true
+    },
+    {
+      "name": "8. zip search",
+      "pass": true
+    },
+    {
+      "name": "9. fiscal year mapped to calendar",
+      "pass": true
+    },
+    {
+      "name": "10. unrelated -> unreliable",
+      "pass": true
+    },
+    {
+      "name": "11. nonsense -> unreliable",
+      "pass": true
+    },
+    {
+      "name": "12. high-LTV state filter",
+      "pass": true
+    },
+    {
+      "name": "13. last gift over 1k",
+      "pass": true
+    },
+    {
+      "name": "14. lapsed only",
+      "pass": true
+    },
+    {
+      "name": "15. retained donors over 3 years",
+      "pass": true
+    }
+  ]
+}

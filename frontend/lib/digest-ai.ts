@@ -130,23 +130,23 @@ export async function generateDigestAISummary(
       interactionsResult,
       opportunitiesResult,
     ] = await Promise.all([
-      // This week's donations with donor info
+      // This week's donations with donor info — filter by gift date, not record creation.
       admin
         .from("donations")
-        .select("amount, donor_id, donors!inner(id, display_name, email, donor_type, total_lifetime_value, last_donation_date, first_donation_date)")
+        .select("amount, donor_id, donors!inner(id, display_name, email, donor_type, total_lifetime_value, last_donation_date)")
         .eq("org_id", orgId)
-        .gte("created_at", since),
-      // Previous week's donations (aggregate)
+        .gte("date", since),
+      // Previous week's donations (aggregate) — filter by gift date.
       admin
         .from("donations")
         .select("amount")
         .eq("org_id", orgId)
-        .gte("created_at", prevWeekStart.toISOString())
-        .lt("created_at", prevWeekEnd.toISOString()),
+        .gte("date", prevWeekStart.toISOString())
+        .lt("date", prevWeekEnd.toISOString()),
       // All org donors for lifecycle summary
       admin
         .from("donors")
-        .select("id, display_name, email, last_donation_date, first_donation_date, total_lifetime_value, donor_type")
+        .select("id, display_name, email, last_donation_date, total_lifetime_value, donor_type")
         .eq("org_id", orgId),
       // This week's interactions — scoped via donor join (interactions has no org_id)
       admin
@@ -174,7 +174,6 @@ export async function generateDigestAISummary(
         donor_type: string | null
         total_lifetime_value: number | null
         last_donation_date: string | null
-        first_donation_date: string | null
       }
     }>
     const thisWeekDonations = thisWeekDonationsRaw
@@ -184,12 +183,38 @@ export async function generateDigestAISummary(
       display_name: string | null
       email: string | null
       last_donation_date: string | null
-      first_donation_date: string | null
       total_lifetime_value: number | null
       donor_type: string | null
     }>
     const interactions = (interactionsResult.data ?? []) as Array<{ type: string }>
     const opportunities = (opportunitiesResult.data ?? []) as Array<{ amount: number | null; status: string }>
+
+    // -----------------------------------------------------------------------
+    // Derive "first-gift this week" set from donations.date.
+    // `donors` has no first_donation_date / created_at column, so we identify
+    // first-time donors by checking which week-givers have zero prior donations.
+    // -----------------------------------------------------------------------
+    const weekDonorIds = [...new Set(thisWeekDonations.map((d) => d.donor_id))]
+    const firstGiftDonorIds = new Set<string>()
+    if (weekDonorIds.length > 0) {
+      const priorDonorIds = new Set<string>()
+      const pageSize = 1000
+      for (let offset = 0; priorDonorIds.size < weekDonorIds.length; offset += pageSize) {
+        const { data: page } = await admin
+          .from("donations")
+          .select("donor_id")
+          .eq("org_id", orgId)
+          .in("donor_id", weekDonorIds)
+          .lt("date", since)
+          .range(offset, offset + pageSize - 1)
+        const rows = (page ?? []) as Array<{ donor_id: string }>
+        for (const r of rows) priorDonorIds.add(r.donor_id)
+        if (rows.length < pageSize) break
+      }
+      for (const id of weekDonorIds) {
+        if (!priorDonorIds.has(id)) firstGiftDonorIds.add(id)
+      }
+    }
 
     // -----------------------------------------------------------------------
     // Compute lifecycle summary
@@ -244,13 +269,11 @@ export async function generateDigestAISummary(
         continue
       }
 
-      // First-time donor (first_donation_date within the week)
-      if (donor.first_donation_date && new Date(donor.first_donation_date) >= new Date(since)) {
-        if (!seenDonorIds.has(donorId)) {
-          notableDonors.push({ name, event: "first_gift", amount: Number(don.amount) })
-          seenDonorIds.add(donorId)
-          continue
-        }
+      // First-time donor — derived from donations.date (no prior gifts before this window).
+      if (firstGiftDonorIds.has(donorId) && !seenDonorIds.has(donorId)) {
+        notableDonors.push({ name, event: "first_gift", amount: Number(don.amount) })
+        seenDonorIds.add(donorId)
+        continue
       }
 
       // Milestone crossed
@@ -296,9 +319,7 @@ export async function generateDigestAISummary(
     const prevWeekTotal = prevWeekDonations.reduce((s, d) => s + Number(d.amount || 0), 0)
     const prevWeekCount = prevWeekDonations.length
 
-    const newDonorCount = allDonors.filter(
-      (d) => d.first_donation_date && new Date(d.first_donation_date) >= new Date(since)
-    ).length
+    const newDonorCount = firstGiftDonorIds.size
 
     // Interactions by type
     const byType: Record<string, number> = {}

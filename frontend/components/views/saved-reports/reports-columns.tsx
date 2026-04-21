@@ -41,12 +41,13 @@ export type SavedReport = {
 
 export function createReportColumns(options: {
   onView: (reportId: string) => void
+  onEdit: (reportId: string) => void | Promise<void>
   onDownloadCsv: (report: SavedReport) => void | Promise<void>
   onMove: (reportId: string) => void
   onRename: (reportId: string, title: string) => void
   onDelete: (reportId: string) => void | Promise<void>
 }): ColumnDef<SavedReport>[] {
-  const { onView, onDownloadCsv, onMove, onRename, onDelete } = options
+  const { onView, onEdit, onDownloadCsv, onMove, onRename, onDelete } = options
 
   return [
     {
@@ -150,6 +151,9 @@ export function createReportColumns(options: {
               <DropdownMenuContent align="end" className="w-44">
                 <DropdownMenuItem onClick={() => onView(report.id)}>
                   View report
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void onEdit(report.id)}>
+                  Edit report
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   disabled={(report.type ?? "").toUpperCase() !== "CSV"}

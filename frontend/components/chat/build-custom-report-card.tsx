@@ -1,19 +1,18 @@
 "use client"
 
 import * as React from "react"
-import { AlertTriangle, ChevronDown, ChevronRight, Loader2, Save, Sparkles } from "lucide-react"
-import { toast } from "sonner"
+import {
+  AlertTriangle,
+  ArrowRight,
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+  Sparkles,
+  XCircle,
+} from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
-
-type SampleDonor = {
-  id?: string
-  display_name?: string
-  total_lifetime_value?: number | string | null
-  last_donation_date?: string | null
-}
+import { formatCurrency } from "@/lib/format"
 
 type FilterRowDisplay = {
   field: string
@@ -29,42 +28,53 @@ type ToolPart = {
   output?: unknown
 }
 
-type BuildOutput =
+type CreateOutput =
   | {
       ok: true
-      preview: {
+      saved: true
+      report: {
+        id: string
         title: string
         summary: string
         filters: FilterRowDisplay[]
         selectedColumns: string[]
+        columnLabels: string[]
         rowCount: number
-        sampleDonors: SampleDonor[]
-        pendingSaveToken: string
+        url: string
       }
     }
-  | { error: string; reason?: unknown }
+  | {
+      ok: true
+      saved: false
+      report: {
+        title: string
+        summary: string
+        filters: FilterRowDisplay[]
+        selectedColumns: string[]
+        rowCount: 0
+      }
+    }
+  | {
+      error: "unreliable_query" | "save_failed" | string
+      reason?: unknown
+      details?: unknown
+    }
   | null
 
-function isOk(o: BuildOutput): o is Extract<BuildOutput, { ok: true }> {
-  return !!o && typeof o === "object" && "ok" in o && o.ok === true
+function isSaved(o: CreateOutput): o is Extract<CreateOutput, { saved: true }> {
+  return !!o && typeof o === "object" && "saved" in o && o.saved === true
 }
 
-function formatCurrency(v: unknown): string {
-  const n = typeof v === "number" ? v : Number(v ?? 0)
-  if (!Number.isFinite(n)) return "—"
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(n)
+function isZeroResult(
+  o: CreateOutput
+): o is Extract<CreateOutput, { saved: false }> {
+  return !!o && typeof o === "object" && "saved" in o && o.saved === false
 }
 
-function formatDate(v: unknown): string {
-  if (!v) return "—"
-  const s = String(v)
-  const d = new Date(s)
-  if (Number.isNaN(d.getTime())) return s
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+function isError(
+  o: CreateOutput
+): o is Extract<CreateOutput, { error: string }> {
+  return !!o && typeof o === "object" && "error" in o && typeof (o as { error: unknown }).error === "string"
 }
 
 function describeFilter(f: FilterRowDisplay): string {
@@ -77,73 +87,329 @@ function describeFilter(f: FilterRowDisplay): string {
   return `${f.field} ${f.operator} ${val}${tail}`
 }
 
+/** Parse a single CSV row, honoring double-quoted cells with escaped quotes. */
+function parseCsvRow(line: string): string[] {
+  const cells: string[] = []
+  let cur = ""
+  let inQuotes = false
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]
+    if (inQuotes) {
+      if (c === '"') {
+        if (line[i + 1] === '"') {
+          cur += '"'
+          i++
+        } else {
+          inQuotes = false
+        }
+      } else {
+        cur += c
+      }
+    } else {
+      if (c === ",") {
+        cells.push(cur)
+        cur = ""
+      } else if (c === '"') {
+        inQuotes = true
+      } else {
+        cur += c
+      }
+    }
+  }
+  cells.push(cur)
+  return cells
+}
+
+const CURRENCY_COLUMN_IDS = new Set(["lifetime_value", "last_gift_amount"])
+
+function formatCell(value: string, columnId: string | undefined): string {
+  if (!value) return "—"
+  if (columnId && CURRENCY_COLUMN_IDS.has(columnId)) {
+    return formatCurrency(value)
+  }
+  return value
+}
+
+function PreviewTable({
+  reportId,
+  columnLabels,
+  selectedColumns,
+  rowCount,
+}: {
+  reportId: string
+  columnLabels: string[]
+  selectedColumns: string[]
+  rowCount: number
+}) {
+  const [rows, setRows] = React.useState<string[][] | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    let cancelled = false
+    const controller = new AbortController()
+    async function load() {
+      try {
+        const res = await fetch(`/api/reports/${reportId}`, {
+          signal: controller.signal,
+        })
+        if (!res.ok) {
+          throw new Error(`Failed to load preview (${res.status})`)
+        }
+        const data = (await res.json()) as { content?: string }
+        const content = data?.content ?? ""
+        const lines = content.split("\n").filter((l) => l.length > 0)
+        // Skip header (index 0), take up to 5 data rows
+        const dataRows = lines.slice(1, 6).map(parseCsvRow)
+        if (!cancelled) setRows(dataRows)
+      } catch (e) {
+        if (cancelled) return
+        const msg = e instanceof Error ? e.message : "Unknown error"
+        setError(msg)
+      }
+    }
+    void load()
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [reportId])
+
+  if (error) {
+    return (
+      <div className="mt-2 rounded bg-muted/50 px-2 py-2 text-[11px] text-muted-foreground">
+        Couldn&apos;t load preview: {error}
+      </div>
+    )
+  }
+
+  if (!rows) {
+    return (
+      <div className="mt-2 flex items-center gap-1.5 rounded bg-muted/50 px-2 py-2 text-[11px] text-muted-foreground">
+        <Loader2 className="size-3 animate-spin" strokeWidth={1.5} />
+        <span>Loading preview…</span>
+      </div>
+    )
+  }
+
+  if (rows.length === 0) {
+    return (
+      <div className="mt-2 rounded bg-muted/50 px-2 py-2 text-[11px] text-muted-foreground">
+        No rows to preview.
+      </div>
+    )
+  }
+
+  const remaining = rowCount - rows.length
+
+  return (
+    <div className="mt-2 overflow-x-auto rounded border border-border">
+      <table className="w-full text-[11px]">
+        <thead>
+          <tr className="bg-muted/50 text-muted-foreground">
+            {columnLabels.map((label, i) => (
+              <th
+                key={i}
+                className="px-2 py-1.5 text-left font-medium whitespace-nowrap"
+              >
+                {label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, rIdx) => (
+            <tr
+              key={rIdx}
+              className="border-t border-border text-foreground"
+            >
+              {columnLabels.map((_, cIdx) => (
+                <td
+                  key={cIdx}
+                  className="px-2 py-1.5 max-w-[160px] truncate"
+                  title={row[cIdx] ?? ""}
+                >
+                  {formatCell(row[cIdx] ?? "", selectedColumns[cIdx])}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {remaining > 0 && (
+        <div className="border-t border-border bg-muted/30 px-2 py-1.5 text-[10px] text-muted-foreground">
+          + {remaining.toLocaleString()} more row{remaining === 1 ? "" : "s"} in the full report
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function BuildCustomReportCard({ part }: { part: ToolPart }) {
+  const [previewOpen, setPreviewOpen] = React.useState(false)
   const [filtersOpen, setFiltersOpen] = React.useState(false)
-  const [saving, setSaving] = React.useState(false)
-  const [saved, setSaved] = React.useState<{ id: string; title: string } | null>(null)
 
   const isDone = part.state === "result" || part.state === "output" || part.state === "output-available"
-  const output = (part.output ?? null) as BuildOutput
+  const output = (part.output ?? null) as CreateOutput
 
   if (!isDone) {
     return (
       <div className="my-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs">
         <div className="flex items-center gap-2 text-muted-foreground">
-          <Loader2 className="size-3 animate-spin shrink-0" />
-          <span>Building report…</span>
+          <Sparkles className="size-3 shrink-0 animate-pulse" strokeWidth={1.5} />
+          <span>Creating report…</span>
         </div>
       </div>
     )
   }
 
-  // Errors render nothing — the model's text reply (the canonical safety
-  // sentence) carries the message.
-  if (!isOk(output)) return null
-
-  const { title, filters, rowCount, sampleDonors, pendingSaveToken } = output.preview
-  const isZero = rowCount === 0
-
-  async function onSave() {
-    setSaving(true)
-    try {
-      const { saveCustomReport } = await import("@/app/actions/reports")
-      const result = await saveCustomReport(pendingSaveToken, "private")
-      setSaved({ id: result.id, title: result.title })
-      toast.success(`Saved "${result.title}" to Reports`)
-    } catch (e) {
-      toast.error(
-        e instanceof Error ? e.message : "Failed to save report"
-      )
-    } finally {
-      setSaving(false)
-    }
+  if (isZeroResult(output)) {
+    return (
+      <div className="my-2 rounded-lg border border-border bg-card text-xs">
+        <div className="flex items-center gap-2 px-3 py-2">
+          <AlertTriangle className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" strokeWidth={1.5} />
+          <div className="min-w-0">
+            <div className="font-medium text-foreground truncate">{output.report.title}</div>
+            <div className="text-[10px] text-muted-foreground">
+              0 donors matched — not saved
+            </div>
+          </div>
+        </div>
+        <div className="border-t border-border px-3 py-2">
+          <button
+            onClick={() => setFiltersOpen((v) => !v)}
+            className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground"
+          >
+            {filtersOpen ? (
+              <ChevronDown className="size-3" />
+            ) : (
+              <ChevronRight className="size-3" />
+            )}
+            <span>
+              View filter ({output.report.filters.length} condition
+              {output.report.filters.length === 1 ? "" : "s"})
+            </span>
+          </button>
+          {filtersOpen && (
+            <ul className="mt-2 space-y-1 text-[11px] text-muted-foreground">
+              {output.report.filters.map((f, i) => (
+                <li key={i} className="rounded bg-muted/50 px-2 py-1 font-mono">
+                  {describeFilter(f)}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    )
   }
+
+  if (isError(output)) {
+    const isSaveFailed = output.error === "save_failed"
+    const reasonStr =
+      typeof output.reason === "string" && output.reason.trim().length > 0
+        ? output.reason
+        : null
+    const primary = isSaveFailed ? "Couldn't save the report" : "Couldn't build that query"
+    const secondary = isSaveFailed
+      ? reasonStr ?? "Unknown error."
+      : "The filter schema doesn't support this combination."
+    const Icon = isSaveFailed ? XCircle : AlertTriangle
+    const iconClass = isSaveFailed
+      ? "text-destructive"
+      : "text-amber-600 dark:text-amber-400"
+    const detailsPayload = output.reason ?? output.details ?? output
+
+    return (
+      <div className="my-2 rounded-lg border border-border bg-card text-xs">
+        <div className="flex items-center gap-2 px-3 py-2">
+          <Icon className={`size-3.5 shrink-0 ${iconClass}`} strokeWidth={1.5} />
+          <div className="min-w-0">
+            <div className="font-medium text-foreground truncate">{primary}</div>
+            <div className="text-[10px] text-muted-foreground truncate">{secondary}</div>
+          </div>
+        </div>
+        <div className="border-t border-border px-3 py-2">
+          <button
+            onClick={() => setFiltersOpen((v) => !v)}
+            className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground"
+          >
+            {filtersOpen ? (
+              <ChevronDown className="size-3" />
+            ) : (
+              <ChevronRight className="size-3" />
+            )}
+            <span>Show details</span>
+          </button>
+          {filtersOpen && (
+            <pre className="mt-2 rounded bg-muted/50 px-2 py-1 font-mono text-[11px] text-muted-foreground whitespace-pre-wrap break-all">
+              {JSON.stringify(detailsPayload, null, 2)}
+            </pre>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  if (!isSaved(output)) return null
+
+  const { id, title, summary, filters, selectedColumns, columnLabels, rowCount, url } = output.report
+  const previewCap = Math.min(rowCount, 5)
 
   return (
     <div className="my-2 rounded-lg border border-border bg-card text-xs">
       <div className="flex items-start justify-between gap-2 px-3 py-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <Sparkles className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.5} />
+        <div className="flex items-start gap-2 min-w-0">
+          <Sparkles
+            className="size-3.5 mt-0.5 shrink-0 text-muted-foreground"
+            strokeWidth={1.5}
+          />
           <div className="min-w-0">
             <div className="font-medium text-foreground truncate">{title}</div>
-            <div className="text-[10px] text-muted-foreground">
-              {rowCount === 0
-                ? "0 donors matched"
-                : `${rowCount.toLocaleString()} donor${rowCount === 1 ? "" : "s"} matched`}
+            <div className="text-[10px] text-muted-foreground truncate">
+              {summary || `${rowCount.toLocaleString()} donor${rowCount === 1 ? "" : "s"} · Saved to Reports`}
             </div>
           </div>
         </div>
-        <Badge variant="secondary" className="shrink-0 text-[10px]">
-          {rowCount.toLocaleString()}
-        </Badge>
+        <div className="flex items-center gap-2 shrink-0">
+          <Badge variant="secondary" className="text-[10px]">
+            {rowCount.toLocaleString()}
+          </Badge>
+          <a
+            href={url}
+            className="group inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 font-medium text-foreground hover:bg-accent transition-colors"
+          >
+            <span>Open</span>
+            <ArrowRight
+              className="size-3 text-muted-foreground group-hover:translate-x-0.5 group-hover:text-foreground transition-transform"
+              strokeWidth={1.5}
+            />
+          </a>
+        </div>
       </div>
 
-      {isZero && (
-        <div className="mx-3 mb-2 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-700 dark:text-amber-400">
-          <AlertTriangle className="size-3 mt-0.5 shrink-0" strokeWidth={1.5} />
-          <span>0 donors matched. Does the filter below match what you meant?</span>
-        </div>
-      )}
+      <div className="border-t border-border px-3 py-2">
+        <button
+          onClick={() => setPreviewOpen((v) => !v)}
+          className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground"
+        >
+          {previewOpen ? (
+            <ChevronDown className="size-3" />
+          ) : (
+            <ChevronRight className="size-3" />
+          )}
+          <span>
+            Preview ({previewCap} of {rowCount.toLocaleString()})
+          </span>
+        </button>
+        {previewOpen && (
+          <PreviewTable
+            reportId={id}
+            columnLabels={columnLabels}
+            selectedColumns={selectedColumns}
+            rowCount={rowCount}
+          />
+        )}
+      </div>
 
       <div className="border-t border-border px-3 py-2">
         <button
@@ -155,7 +421,10 @@ export function BuildCustomReportCard({ part }: { part: ToolPart }) {
           ) : (
             <ChevronRight className="size-3" />
           )}
-          <span>View filter ({filters.length} condition{filters.length === 1 ? "" : "s"})</span>
+          <span>
+            View filter ({filters.length} condition
+            {filters.length === 1 ? "" : "s"})
+          </span>
         </button>
         {filtersOpen && (
           <ul className="mt-2 space-y-1 text-[11px] text-muted-foreground">
@@ -168,54 +437,11 @@ export function BuildCustomReportCard({ part }: { part: ToolPart }) {
         )}
       </div>
 
-      {sampleDonors.length > 0 && (
-        <div className="border-t border-border px-3 py-2">
-          <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-            Sample
-          </div>
-          <ul className="space-y-1 text-[11px]">
-            {sampleDonors.map((d, i) => (
-              <li key={i} className="flex items-center justify-between gap-2 text-foreground">
-                <span className="truncate">{d.display_name ?? "—"}</span>
-                <span className="shrink-0 text-muted-foreground tabular-nums">
-                  {formatCurrency(d.total_lifetime_value)} · {formatDate(d.last_donation_date)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {!isZero && (
-        <div className="border-t border-border px-3 py-2">
-          {saved ? (
-            <div className="text-[11px] text-foreground">
-              Saved to Reports.{" "}
-              <a
-                href={`/?view=reports&highlight=${saved.id}`}
-                className="underline hover:no-underline"
-              >
-                Open
-              </a>
-            </div>
-          ) : (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={onSave}
-              disabled={saving}
-              className={cn("h-7 text-xs gap-1.5")}
-            >
-              {saving ? (
-                <Loader2 className="size-3 animate-spin" />
-              ) : (
-                <Save className="size-3" strokeWidth={1.5} />
-              )}
-              {saving ? "Saving…" : "Save to Reports"}
-            </Button>
-          )}
-        </div>
-      )}
+      <div
+        className="sr-only"
+        data-report-id={id}
+        aria-hidden="true"
+      />
     </div>
   )
 }

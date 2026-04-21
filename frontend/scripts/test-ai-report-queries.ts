@@ -2,7 +2,7 @@
  * AI Report Builder eval suite.
  *
  * Sends 15 natural-language queries to the live chat model with a stub
- * `build_custom_report` tool that records what spec the model would build.
+ * `create_custom_report` tool that records what spec the model would build.
  * Asserts the spec matches the expected pattern (donation_activity rows,
  * lifecycle filters, unreliable_query fallback, etc.).
  *
@@ -40,7 +40,7 @@ type Capture = {
 
 function buildStubTools(capture: Capture) {
   return {
-    build_custom_report: tool({
+    create_custom_report: tool({
       description: "Stubbed for eval. Records the spec the model would build.",
       inputSchema: z.object({
         title: z.string(),
@@ -54,6 +54,7 @@ function buildStubTools(capture: Capture) {
           })
         ),
         selectedColumns: z.array(z.string()).optional(),
+        visibility: z.enum(["private", "shared"]).optional(),
       }),
       execute: async (args) => {
         capture.called = true
@@ -61,28 +62,20 @@ function buildStubTools(capture: Capture) {
         if (args.filters.length === 0) {
           return { error: "unreliable_query", reason: "no_filters" }
         }
-        // Return a fake preview so the model can move on.
         return {
           ok: true,
-          preview: {
+          saved: true,
+          report: {
+            id: "stub-report-id",
             title: args.title,
             summary: args.summary ?? "",
             filters: args.filters,
             selectedColumns: args.selectedColumns ?? [],
             rowCount: 7,
-            sampleDonors: [],
-            pendingSaveToken: "STUB",
+            url: "/?view=reports&highlight=stub-report-id",
           },
         }
       },
-    }),
-    save_custom_report: tool({
-      description: "Stubbed.",
-      inputSchema: z.object({
-        pendingSaveToken: z.string(),
-        visibility: z.enum(["private", "shared"]).optional(),
-      }),
-      execute: async () => ({ ok: true, reportId: "STUB" }),
     }),
   }
 }
@@ -247,7 +240,7 @@ async function runOne(
   }
 
   if (!capture.called || !capture.args) {
-    return { name: c.name, pass: false, reason: "build_custom_report not called" }
+    return { name: c.name, pass: false, reason: "create_custom_report not called" }
   }
   if (capture.args.filters.length === 0) {
     return {

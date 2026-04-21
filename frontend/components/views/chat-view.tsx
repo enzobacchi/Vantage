@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { TextShimmerWave } from "@/components/ui/text-shimmer-wave"
 import { useDonorPopup } from "@/components/donors/donor-popup"
+import { BuildCustomReportCard } from "@/components/chat/build-custom-report-card"
 
 /* ───────── Markdown-lite renderer ───────── */
 
@@ -197,7 +198,11 @@ function MessageBubble({ message, onDonorClick }: { message: UIMessage; onDonorC
             )
           }
           if (part.type.startsWith("tool-")) {
-            return <ToolPart key={i} part={part as { type: string; state?: string; toolCallId?: string; output?: unknown }} />
+            const tp = part as { type: string; state?: string; toolCallId?: string; output?: unknown }
+            if (tp.type === "tool-create_custom_report") {
+              return <BuildCustomReportCard key={i} part={tp} />
+            }
+            return <ToolPart key={i} part={tp} />
           }
           return null
         })}

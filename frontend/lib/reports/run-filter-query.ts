@@ -51,6 +51,13 @@ export function buildSelectFromColumns(selectedColumns: string[]): string {
   return list.length > 0 ? list.join(",") : DEFAULT_SELECT
 }
 
+export function csvCell(value: unknown): string {
+  if (value == null) return ""
+  const s = String(value)
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`
+  return s
+}
+
 export function mapRowToOutputColumns(
   raw: Record<string, unknown>,
   selectedColumns: string[]

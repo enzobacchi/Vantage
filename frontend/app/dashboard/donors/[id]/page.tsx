@@ -16,6 +16,7 @@ import {
   Phone,
   Save,
   Send,
+  UserCircle2,
   X,
 } from "lucide-react"
 
@@ -35,6 +36,8 @@ import { DonorHealthScoreCard } from "@/components/donors/donor-health-score"
 import { DonorNotesCard } from "@/components/donors/donor-notes-card"
 import { DonorPledgesCard } from "@/components/donors/donor-pledges-card"
 import { DonorTagsCard } from "@/components/donors/donor-tags-card"
+import { DonorAssigneeSelect } from "@/components/donors/donor-assignee-select"
+import { getOrgAssignees, type OrgAssignee } from "@/app/actions/team"
 import { formatCurrency } from "@/lib/format"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -508,6 +511,8 @@ export default function DonorProfilePage() {
   const [donations, setDonations] = React.useState<DonorProfileDonation[]>([])
   const [activity, setActivity] = React.useState<DonorNoteRow[]>([])
   const [interactions, setInteractions] = React.useState<Interaction[]>([])
+  const [assignees, setAssignees] = React.useState<OrgAssignee[]>([])
+  const [assigneeSaving, setAssigneeSaving] = React.useState(false)
   const [loading, setLoading] = React.useState(true)
   const [editOpen, setEditOpen] = React.useState(false)
   const [logActivityOpen, setLogActivityOpen] = React.useState(false)
@@ -517,16 +522,18 @@ export default function DonorProfilePage() {
   const loadData = React.useCallback(async () => {
     try {
       setLoading(true)
-      const [profile, notes, ints] = await Promise.all([
+      const [profile, notes, ints, orgAssignees] = await Promise.all([
         getDonorProfile(donorId),
         getDonorActivityNotes(donorId),
         getDonorInteractions(donorId),
+        getOrgAssignees(),
       ])
       if (profile.donor) {
         setDonor(profile.donor)
         setDonations(profile.donations)
         setActivity(notes)
         setInteractions(ints)
+        setAssignees(orgAssignees)
       } else {
         toast.error("Donor not found")
         router.push("/dashboard?view=donor-crm")
@@ -551,6 +558,23 @@ export default function DonorProfilePage() {
   }
 
   if (!donor) return null
+
+  const handleAssigneeChange = async (userId: string | null) => {
+    if (userId === donor.assigned_to) return
+    try {
+      setAssigneeSaving(true)
+      await updateDonor(donor.id, { assigned_to: userId })
+      setDonor({ ...donor, assigned_to: userId })
+      const assigneeName = userId
+        ? assignees.find((a) => a.user_id === userId)?.name ?? "user"
+        : null
+      toast.success(assigneeName ? `Assigned to ${assigneeName}` : "Unassigned")
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to update assignee")
+    } finally {
+      setAssigneeSaving(false)
+    }
+  }
 
   // Compute stats
   const now = new Date()
@@ -685,6 +709,18 @@ export default function DonorProfilePage() {
                       Mailing: {fullMailingAddress}
                     </span>
                   )}
+                </div>
+              </li>
+              <li className="flex items-center gap-2.5">
+                <UserCircle2 className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.5} />
+                <div className="flex-1 min-w-0">
+                  <DonorAssigneeSelect
+                    assignees={assignees}
+                    value={donor.assigned_to}
+                    disabled={assigneeSaving}
+                    onChange={handleAssigneeChange}
+                    triggerClassName="h-8 border-none shadow-none px-2 -mx-2 hover:bg-accent/50 focus:ring-0"
+                  />
                 </div>
               </li>
             </ul>

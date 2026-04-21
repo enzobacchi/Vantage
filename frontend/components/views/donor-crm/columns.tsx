@@ -31,6 +31,7 @@ export type Donor = {
   state: string | null
   notes: string | null
   tags?: DonorTag[]
+  assigned_to: string | null
 }
 
 function formatDate(value: string | null | undefined) {
@@ -73,8 +74,9 @@ function tagBadgeStyle(color: string) {
 export function createDonorColumns(options: {
   onOpenDonorSheet: (donorId: string) => void
   onSendEmail?: (donor: Donor) => void
+  assigneeMap?: Map<string, string>
 }): ColumnDef<Donor>[] {
-  const { onOpenDonorSheet, onSendEmail } = options
+  const { onOpenDonorSheet, onSendEmail, assigneeMap } = options
 
   return [
     {
@@ -224,6 +226,19 @@ export function createDonorColumns(options: {
           </div>
         )
       },
+    },
+    {
+      id: "assigned_to",
+      header: "Assigned To",
+      cell: ({ row }) => {
+        const userId = row.original.assigned_to
+        if (!userId) {
+          return <span className="text-muted-foreground italic">Unassigned</span>
+        }
+        const name = assigneeMap?.get(userId) ?? "—"
+        return <span className="truncate block max-w-40">{name}</span>
+      },
+      enableSorting: false,
     },
     {
       accessorKey: "billing_address",

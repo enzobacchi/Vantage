@@ -35,8 +35,7 @@ const TOOL_LABELS: Record<string, string> = {
   get_donor_locations: "Mapping donor locations",
   get_donor_health_score: "Computing donor health score",
   get_at_risk_donors: "Finding at-risk donors",
-  build_custom_report: "Building custom report",
-  save_custom_report: "Saving report",
+  create_custom_report: "Creating report",
 }
 
 function ToolPart({ part }: { part: { type: string; state?: string; toolCallId?: string; output?: unknown } }) {
@@ -146,7 +145,7 @@ export function ChatMessages({ messages, isLoading }: ChatMessagesProps) {
               // Tool parts have types like "tool-search_donors"
               if (part.type.startsWith("tool-")) {
                 const tp = part as { type: string; state?: string; toolCallId?: string; output?: unknown }
-                if (tp.type === "tool-build_custom_report") {
+                if (tp.type === "tool-create_custom_report") {
                   return <BuildCustomReportCard key={i} part={tp} />
                 }
                 return <ToolPart key={i} part={tp} />

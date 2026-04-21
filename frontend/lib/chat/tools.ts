@@ -14,11 +14,11 @@ import {
 import {
   EmptyResultError,
   REPORT_COLUMN_CONFIG,
+  csvCell,
+  mapRowToOutputColumns,
   runFilterQuery,
   type FilterRow,
 } from "@/lib/reports/run-filter-query"
-import { signSaveToken } from "@/lib/reports/save-token"
-import { saveCustomReport } from "@/app/actions/reports"
 
 import type { ChatPIIRedactor } from "./pii-redactor"
 
@@ -817,14 +817,15 @@ export function buildTools(
       },
     }),
 
-    build_custom_report: tool({
+    create_custom_report: tool({
       description:
-        "Build (preview) a custom donor report from a structured filter spec. " +
-        "Use this for any 'show me / list / find donors who…' question whose " +
-        "criteria exceed search_donors — multi-temporal patterns " +
+        "Build AND save a custom donor report to the Reports tab in one step. " +
+        "Use this whenever the user asks to generate, build, create, or save a " +
+        "report — do NOT wait for confirmation, the UI renders a Saved Report " +
+        "card with an Open link. Use for any 'show me / list / find donors who…' " +
+        "question whose criteria exceed search_donors — multi-temporal patterns " +
         "(retention/recapture/reactivation), multiple AND'd conditions on " +
-        "different dimensions, etc. Returns row count, up to 5 sample donors, " +
-        "the filter JSON used, and a save token. " +
+        "different dimensions, etc. " +
         "If the user's request CANNOT be expressed in the supported filter " +
         "schema, pass filters: [] — the tool returns { error: 'unreliable_query' }.",
       inputSchema: z.object({
@@ -857,14 +858,28 @@ export function buildTools(
           .describe(
             "Column ids to include. Defaults to first_name, last_name, email, lifetime_value, last_gift_date."
           ),
+        visibility: z
+          .enum(["private", "shared"])
+          .optional()
+          .describe("Default: private. Use 'shared' if the user wants the team to see it."),
       }),
-      execute: async ({ title, summary, filters, selectedColumns }) => {
+      execute: async ({ title, summary, filters, selectedColumns, visibility }) => {
         if (!filters || filters.length === 0) {
+          console.log("[create_custom_report]", {
+            branch: "unreliable_query",
+            reason: "no_filters_provided",
+            title,
+          })
           return { error: "unreliable_query", reason: "no_filters_provided" }
         }
 
         const validated = filtersArraySchema.safeParse(filters)
         if (!validated.success) {
+          console.log("[create_custom_report]", {
+            branch: "unreliable_query",
+            reason: "validation_failed",
+            title,
+          })
           return {
             error: "unreliable_query",
             reason: "validation_failed",
@@ -893,83 +908,119 @@ export function buildTools(
             orgId,
             filters: filtersForQuery,
             selectedColumns: finalCols,
-            limit: 5,
             allowEmpty: true,
           })
         } catch (e) {
           if (e instanceof EmptyResultError) {
             result = { rows: [], rowCount: 0, emptyByPrefilter: true }
           } else {
+            const details = e instanceof Error ? e.message : String(e)
+            console.log("[create_custom_report]", {
+              branch: "unreliable_query",
+              reason: "query_execution_failed",
+              title,
+              details,
+            })
             return {
               error: "unreliable_query",
               reason: "query_execution_failed",
-              details: e instanceof Error ? e.message : String(e),
+              details,
             }
           }
         }
 
-        const sampleDonors = result.rows.map((r) => ({
-          id: r.id,
-          display_name: r.display_name,
-          total_lifetime_value: r.total_lifetime_value,
-          last_donation_date: r.last_donation_date,
-        }))
+        if (result.rowCount === 0) {
+          console.log("[create_custom_report]", { branch: "ok_zero", title })
+          return {
+            ok: true,
+            saved: false,
+            report: {
+              title,
+              summary: summary ?? "",
+              filters: validatedFilters,
+              selectedColumns: finalCols,
+              rowCount: 0,
+            },
+          }
+        }
 
-        const pendingSaveToken = signSaveToken({
-          orgId,
-          userId,
-          title,
+        const headerLabels = finalCols.map(
+          (id) => REPORT_COLUMN_CONFIG[id]?.label ?? id
+        )
+        const outputRows = result.rows.map((r) => mapRowToOutputColumns(r, finalCols))
+        const csv = [
+          headerLabels.map(csvCell).join(","),
+          ...outputRows.map((row) =>
+            finalCols.map((id) => csvCell(row[id])).join(",")
+          ),
+        ].join("\n")
+
+        const filterCriteria = {
+          type: "CSV",
+          content: csv,
           summary: summary ?? "",
+          row_count: result.rowCount,
+          bytes: Buffer.byteLength(csv, "utf8"),
+          reportSource: "ai_chat" as const,
           filters: validatedFilters,
           selectedColumns: finalCols,
-        })
+          visibility: visibility ?? "private",
+        }
 
+        const { data: inserted, error: insertError } = await supabase
+          .from("saved_reports")
+          .insert({
+            organization_id: orgId,
+            title,
+            type: "CSV",
+            content: csv,
+            query: "",
+            summary: summary ?? "",
+            records_count: result.rowCount,
+            visibility: visibility ?? "private",
+            created_by_user_id: userId,
+            filter_criteria: filterCriteria,
+          })
+          .select("id")
+          .single()
+
+        if (insertError || !inserted?.id) {
+          console.error("[create_custom_report] insert failed", {
+            orgId,
+            title,
+            error: insertError?.message,
+            code: insertError?.code,
+          })
+          console.log("[create_custom_report]", {
+            branch: "save_failed",
+            title,
+            reason: insertError?.message ?? "unknown_error",
+          })
+          return {
+            error: "save_failed",
+            reason: insertError?.message ?? "unknown_error",
+          }
+        }
+
+        console.log("[create_custom_report]", {
+          branch: "ok_saved",
+          title,
+          rowCount: result.rowCount,
+          id: inserted.id,
+        })
         return {
           ok: true,
-          preview: {
+          saved: true,
+          report: {
+            id: String(inserted.id),
             title,
             summary: summary ?? "",
             filters: validatedFilters,
             selectedColumns: finalCols,
+            columnLabels: headerLabels,
             rowCount: result.rowCount,
-            sampleDonors,
-            pendingSaveToken,
+            url: `/dashboard?view=saved-reports&reportId=${inserted.id}`,
           },
-        }
-      },
-    }),
-
-    save_custom_report: tool({
-      description:
-        "Save a previously-previewed custom report to the Reports tab. " +
-        "ONLY call after the user has explicitly confirmed they want it saved.",
-      inputSchema: z.object({
-        pendingSaveToken: z
-          .string()
-          .describe("The token returned by build_custom_report.preview"),
-        visibility: z
-          .enum(["private", "shared"])
-          .optional()
-          .describe("Default: private. Use 'shared' if the user wants the team to see it."),
-      }),
-      execute: async ({ pendingSaveToken, visibility }) => {
-        try {
-          const saved = await saveCustomReport(
-            pendingSaveToken,
-            visibility ?? "private"
-          )
-          return {
-            ok: true,
-            reportId: saved.id,
-            title: saved.title,
-            rowCount: saved.rowCount,
-            url: `/?view=reports&highlight=${saved.id}`,
-          }
-        } catch (e) {
-          return {
-            error: "save_failed",
-            reason: e instanceof Error ? e.message : String(e),
-          }
         }
       },
     }),

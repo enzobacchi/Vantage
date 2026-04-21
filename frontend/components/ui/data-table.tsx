@@ -55,6 +55,10 @@ export interface DataTableProps<TData, TValue> {
   tableRef?: React.RefObject<DataTableRef<TData> | null>
   /** Optional row className based on row data */
   getRowClassName?: (row: TData) => string | undefined
+  /** Optional extra HTML attributes for each row (e.g., draggable, onDragStart). */
+  getRowProps?: (row: TData) => React.HTMLAttributes<HTMLTableRowElement> & {
+    draggable?: boolean
+  }
 }
 
 export function DataTable<TData, TValue>({
@@ -70,6 +74,7 @@ export function DataTable<TData, TValue>({
   onRowClick,
   tableRef,
   getRowClassName,
+  getRowProps,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
@@ -172,13 +177,16 @@ export function DataTable<TData, TValue>({
                 </TableCell>
               </TableRow>
             ) : table.getRowModel().rows?.length ? (
-              table.getRowModel().rows.map((row) => (
+              table.getRowModel().rows.map((row) => {
+                const extraProps = getRowProps?.(row.original) ?? {}
+                return (
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
                   className={cn(
                     onRowClick && "cursor-pointer",
-                    getRowClassName?.(row.original)
+                    getRowClassName?.(row.original),
+                    extraProps.className
                   )}
                   role={onRowClick ? "button" : undefined}
                   tabIndex={onRowClick ? 0 : undefined}
@@ -197,6 +205,7 @@ export function DataTable<TData, TValue>({
                         }
                       : undefined
                   }
+                  {...extraProps}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
@@ -207,7 +216,8 @@ export function DataTable<TData, TValue>({
                     </TableCell>
                   ))}
                 </TableRow>
-              ))
+                )
+              })
             ) : (
               <TableRow>
                 <TableCell

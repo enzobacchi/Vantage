@@ -3,7 +3,7 @@
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUserOrg } from "@/lib/auth"
 
-const HOURLY_LIMIT = 10
+const HOURLY_LIMIT = 50
 
 export type EmailRateLimit = {
   used: number
@@ -13,7 +13,8 @@ export type EmailRateLimit = {
 }
 
 /**
- * Check how many emails the current org has sent in the last hour.
+ * Check how many emails the current user has sent in the last hour.
+ * Limit is per-user since each user sends from their own connected Gmail.
  */
 export async function getEmailRateLimit(): Promise<EmailRateLimit> {
   const org = await getCurrentUserOrg()
@@ -27,7 +28,7 @@ export async function getEmailRateLimit(): Promise<EmailRateLimit> {
   const { count } = await supabase
     .from("email_send_log")
     .select("id", { count: "exact", head: true })
-    .eq("org_id", org.orgId)
+    .eq("user_id", org.userId)
     .gte("sent_at", oneHourAgo)
 
   const used = count ?? 0

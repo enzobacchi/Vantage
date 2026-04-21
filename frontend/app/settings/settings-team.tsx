@@ -57,6 +57,9 @@ export function SettingsTeam() {
   const [canManage, setCanManage] = React.useState(false)
   const [currentUserId, setCurrentUserId] = React.useState<string | null>(null)
   const [currentRole, setCurrentRole] = React.useState<string>("")
+  const [gmailByUser, setGmailByUser] = React.useState<
+    Map<string, { email: string; needsReauth: boolean }>
+  >(new Map())
   const [loading, setLoading] = React.useState(true)
   const [inviteOpen, setInviteOpen] = React.useState(false)
   const [inviteEmail, setInviteEmail] = React.useState("")
@@ -79,6 +82,26 @@ export function SettingsTeam() {
       setCanManage(can)
       setCurrentUserId(me?.userId ?? null)
       setCurrentRole(me?.role ?? "")
+
+      if (can) {
+        try {
+          const res = await fetch("/api/gmail/team-status")
+          if (res.ok) {
+            const data = (await res.json()) as {
+              members: { userId: string; gmailEmail: string | null; needsReauth: boolean }[]
+            }
+            const next = new Map<string, { email: string; needsReauth: boolean }>()
+            for (const row of data.members ?? []) {
+              if (row.gmailEmail) {
+                next.set(row.userId, { email: row.gmailEmail, needsReauth: row.needsReauth })
+              }
+            }
+            setGmailByUser(next)
+          }
+        } catch {
+          // non-blocking
+        }
+      }
     } catch {
       toast.error("Failed to load team")
     } finally {
@@ -232,19 +255,20 @@ export function SettingsTeam() {
               <TableHead className="font-medium">Name</TableHead>
               <TableHead className="font-medium">Email</TableHead>
               <TableHead className="font-medium">Role</TableHead>
+              {canManage && <TableHead className="font-medium">Gmail</TableHead>}
               <TableHead className="font-medium">Joined</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={4} className="text-muted-foreground text-sm py-8">
+                <TableCell colSpan={canManage ? 5 : 4} className="text-muted-foreground text-sm py-8">
                   Loading…
                 </TableCell>
               </TableRow>
             ) : members.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="text-muted-foreground text-sm py-8">
+                <TableCell colSpan={canManage ? 5 : 4} className="text-muted-foreground text-sm py-8">
                   No members yet.
                 </TableCell>
               </TableRow>
@@ -252,6 +276,7 @@ export function SettingsTeam() {
               members.map((m) => {
                 const isSelf = m.user_id === currentUserId
                 const canChangeRole = isOwner && !isSelf
+                const gmail = gmailByUser.get(m.user_id)
                 return (
                   <TableRow key={m.id}>
                     <TableCell className="font-medium">
@@ -279,6 +304,25 @@ export function SettingsTeam() {
                         <span className="capitalize text-sm">{m.role}</span>
                       )}
                     </TableCell>
+                    {canManage && (
+                      <TableCell className="text-sm">
+                        {gmail ? (
+                          gmail.needsReauth ? (
+                            <span className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+                              <span className="size-2 rounded-full bg-amber-500" />
+                              Reauth required
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+                              <span className="size-2 rounded-full bg-emerald-500" />
+                              <span className="text-foreground">{gmail.email}</span>
+                            </span>
+                          )
+                        ) : (
+                          <span className="text-muted-foreground">Not connected</span>
+                        )}
+                      </TableCell>
+                    )}
                     <TableCell className="text-muted-foreground text-sm">
                       {new Date(m.created_at).toLocaleDateString(undefined, {
                         month: "short",

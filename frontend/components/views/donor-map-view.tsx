@@ -84,6 +84,7 @@ export interface DonorFilterParams {
   status?: string
   minGiving?: number
   maxGiving?: number
+  assignedTo?: string
 }
 
 type DonorMapPoint = {
@@ -188,6 +189,9 @@ function buildMapUrl(params: DonorFilterParams): string {
   if (params.maxGiving != null && Number.isFinite(params.maxGiving)) {
     search.set("maxGiving", String(params.maxGiving))
   }
+  if (params.assignedTo && params.assignedTo !== "all") {
+    search.set("assignedTo", params.assignedTo)
+  }
   const q = search.toString()
   return q ? `/api/donors/map?${q}` : "/api/donors/map"
 }
@@ -271,6 +275,15 @@ export function DonorMapView() {
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [minGivingInput, setMinGivingInput] = useState<string>("")
   const [maxGivingInput, setMaxGivingInput] = useState<string>("")
+  const [assigneeFilter, setAssigneeFilter] = useState<string>("all")
+  const [orgAssignees, setOrgAssignees] = useState<{ user_id: string; name: string }[]>([])
+
+  useEffect(() => {
+    import("@/app/actions/team")
+      .then((m) => m.getOrgAssignees())
+      .then((list) => setOrgAssignees(list.map((a) => ({ user_id: a.user_id, name: a.name }))))
+      .catch(() => {})
+  }, [])
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [prefsLoaded, setPrefsLoaded] = useState(false)
@@ -347,8 +360,9 @@ export function DonorMapView() {
       status: statusFilter === "all" ? undefined : statusFilter,
       minGiving: minGivingNum,
       maxGiving: maxGivingNum,
+      assignedTo: assigneeFilter === "all" ? undefined : assigneeFilter,
     }),
-    [statusFilter, minGivingNum, maxGivingNum]
+    [statusFilter, minGivingNum, maxGivingNum, assigneeFilter]
   )
 
   const fetchMap = useCallback(
@@ -874,6 +888,22 @@ export function DonorMapView() {
             {STATUS_OPTIONS.map((opt) => (
               <SelectItem key={opt.value} value={opt.value}>
                 {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
+          <SelectTrigger size="sm" className="h-9 w-40">
+            <SelectValue placeholder="Assigned To" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All assignees</SelectItem>
+            <SelectItem value="unassigned">
+              <span className="italic text-muted-foreground">Unassigned</span>
+            </SelectItem>
+            {orgAssignees.map((a) => (
+              <SelectItem key={a.user_id} value={a.user_id}>
+                {a.name}
               </SelectItem>
             ))}
           </SelectContent>

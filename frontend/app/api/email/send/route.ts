@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server"
-import { Resend } from "resend"
 import { requireUserOrg } from "@/lib/auth"
 import { createAdminClient } from "@/lib/supabase/admin"
+import {
+  GmailNeedsReauthError,
+  GmailNotConnectedError,
+  GmailSendError,
+  sendGmailMessage,
+} from "@/lib/gmail/send"
 
-const FROM_EMAIL = "Vantage <notifications@vantagedonorai.com>"
+export const runtime = "nodejs"
+
+const HOURLY_LIMIT = 50
 
 export async function POST(request: Request) {
   const auth = await requireUserOrg()
@@ -28,7 +35,6 @@ export async function POST(request: Request) {
       { status: 400 }
     )
   }
-  // Validate email format (RFC 5322 simplified)
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
   if (!emailRegex.test(donorEmail.trim())) {
     return NextResponse.json(
@@ -61,7 +67,7 @@ export async function POST(request: Request) {
   const { count, error: rateLimitError } = await supabase
     .from("email_send_log")
     .select("id", { count: "exact", head: true })
-    .eq("org_id", auth.orgId)
+    .eq("user_id", auth.userId)
     .gte("sent_at", oneHourAgo)
 
   if (rateLimitError) {
@@ -70,10 +76,10 @@ export async function POST(request: Request) {
       { status: 500 }
     )
   }
-  if ((count ?? 0) >= 10) {
+  if ((count ?? 0) >= HOURLY_LIMIT) {
     return NextResponse.json(
       {
-        error: "Email rate limit exceeded. Your organization can send up to 10 emails per hour. Please try again later.",
+        error: `Email rate limit exceeded. You can send up to ${HOURLY_LIMIT} emails per hour. Please try again later.`,
         code: "RATE_LIMIT_EXCEEDED",
       },
       { status: 429 }
@@ -94,32 +100,57 @@ export async function POST(request: Request) {
     )
   }
 
-  const apiKey = process.env.RESEND_API_KEY
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: "Email sending is not configured (RESEND_API_KEY)" },
-      { status: 503 }
-    )
-  }
+  const html = `<p>${message
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\n/g, "<br>")}</p>`
 
-  const resend = new Resend(apiKey)
-  const { data: sendData, error: sendError } = await resend.emails.send({
-    from: FROM_EMAIL,
-    to: donorEmail.trim(),
-    subject: subject.trim(),
-    html: `<p>${message.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>")}</p>`,
-  })
-
-  if (sendError) {
-    console.error("[email/send] Resend API error:", sendError.message)
+  let sendResult
+  try {
+    sendResult = await sendGmailMessage({
+      userId: auth.userId,
+      orgId: auth.orgId,
+      to: donorEmail.trim(),
+      subject: subject.trim(),
+      html,
+    })
+  } catch (err) {
+    if (err instanceof GmailNotConnectedError) {
+      return NextResponse.json(
+        {
+          error: "Connect Gmail to send email as your ministry.",
+          code: "gmail_not_connected",
+        },
+        { status: 412 }
+      )
+    }
+    if (err instanceof GmailNeedsReauthError) {
+      return NextResponse.json(
+        {
+          error: "Gmail access expired. Please reconnect.",
+          code: "gmail_needs_reauth",
+        },
+        { status: 412 }
+      )
+    }
+    if (err instanceof GmailSendError) {
+      console.error("[email/send] Gmail API error:", err.status, err.body)
+      return NextResponse.json(
+        { error: "Failed to send email via Gmail. Please try again." },
+        { status: 502 }
+      )
+    }
+    const msg = err instanceof Error ? err.message : "Unknown send error"
+    console.error("[email/send] Unexpected error:", msg)
     return NextResponse.json(
-      { error: "Failed to send email. Please try again later." },
-      { status: 502 }
+      { error: "Failed to send email." },
+      { status: 500 }
     )
   }
 
   const { error: logError } = await supabase.from("email_send_log").insert({
     org_id: auth.orgId,
+    user_id: auth.userId,
     sent_at: new Date().toISOString(),
   })
   if (logError) {
@@ -143,5 +174,9 @@ export async function POST(request: Request) {
     )
   }
 
-  return NextResponse.json({ success: true, id: sendData?.id })
+  return NextResponse.json({
+    success: true,
+    id: sendResult.messageId,
+    fromEmail: sendResult.fromEmail,
+  })
 }

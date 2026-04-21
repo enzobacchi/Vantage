@@ -219,8 +219,9 @@ export async function POST(request: Request) {
       )
     }
 
-    // For preview/empty-allowed callers (the chat tool), don't persist — caller
-    // saves explicitly via the saveCustomReport action when the user confirms.
+    // For preview/empty-allowed callers, don't persist — caller decides
+    // whether to save (the chat path uses create_custom_report which persists
+    // directly).
     if (allowEmpty) {
       return NextResponse.json({
         success: true,

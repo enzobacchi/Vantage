@@ -424,6 +424,7 @@ export type Database = {
       donors: {
         Row: {
           acquisition_source: string | null
+          assigned_to: string | null
           billing_address: string | null
           city: string | null
           created_at: string
@@ -453,6 +454,7 @@ export type Database = {
         }
         Insert: {
           acquisition_source?: string | null
+          assigned_to?: string | null
           billing_address?: string | null
           city?: string | null
           created_at?: string
@@ -482,6 +484,7 @@ export type Database = {
         }
         Update: {
           acquisition_source?: string | null
+          assigned_to?: string | null
           billing_address?: string | null
           city?: string | null
           created_at?: string
@@ -512,6 +515,35 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "donors_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      email_send_log: {
+        Row: {
+          id: string
+          org_id: string
+          sent_at: string
+          user_id: string | null
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          sent_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          sent_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_send_log_org_id_fkey"
             columns: ["org_id"]
             isOneToOne: false
             referencedRelation: "organizations"
@@ -618,6 +650,59 @@ export type Database = {
           {
             foreignKeyName: "gift_funds_organization_id_fkey"
             columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      gmail_credentials: {
+        Row: {
+          access_token_encrypted: string
+          access_token_expires_at: string | null
+          created_at: string
+          google_email: string
+          id: string
+          last_send_at: string | null
+          needs_reauth: boolean
+          org_id: string
+          refresh_token_encrypted: string
+          scope: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_token_encrypted: string
+          access_token_expires_at?: string | null
+          created_at?: string
+          google_email: string
+          id?: string
+          last_send_at?: string | null
+          needs_reauth?: boolean
+          org_id: string
+          refresh_token_encrypted: string
+          scope?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_token_encrypted?: string
+          access_token_expires_at?: string | null
+          created_at?: string
+          google_email?: string
+          id?: string
+          last_send_at?: string | null
+          needs_reauth?: boolean
+          org_id?: string
+          refresh_token_encrypted?: string
+          scope?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gmail_credentials_org_id_fkey"
+            columns: ["org_id"]
             isOneToOne: false
             referencedRelation: "organizations"
             referencedColumns: ["id"]

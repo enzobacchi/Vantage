@@ -56,6 +56,16 @@ export async function deleteFolder(id: string): Promise<void> {
   if (!org) throw new Error("Unauthorized")
 
   const supabase = createAdminClient()
+
+  // Unfile any reports in this folder so the FK doesn't block deletion
+  // and the reports themselves remain.
+  const { error: unfileError } = await supabase
+    .from("saved_reports")
+    .update({ folder_id: null })
+    .eq("folder_id", id)
+    .eq("organization_id", org.orgId)
+  if (unfileError) throw new Error(unfileError.message)
+
   const { error } = await supabase
     .from("report_folders")
     .delete()

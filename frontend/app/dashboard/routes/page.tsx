@@ -1,13 +1,27 @@
 "use client"
 
 import * as React from "react"
+import { useRouter } from "next/navigation"
+import { toast } from "sonner"
 import {
   RouteDonorWithCoords,
   RouteDonorWithIcebreaker,
   getDonorsForRoute,
   optimizeRoute,
+  saveRouteReport,
 } from "./actions"
+import { toCsv } from "@/lib/csv"
+import { DEFAULT_REPORT_COLUMNS } from "@/lib/report-columns"
+import { ReportColumnsPicker } from "@/components/reports/report-columns-picker"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Slider } from "@/components/ui/slider"
@@ -18,7 +32,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { ExternalLink, ChevronLeft, ChevronRight, Bookmark, Trash2 } from "lucide-react"
+import {
+  ExternalLink,
+  ChevronLeft,
+  ChevronRight,
+  Bookmark,
+  Trash2,
+  Download,
+  FilePlus,
+} from "lucide-react"
 
 const RECENT_ROUTES_KEY = "vantage-recent-routes"
 const MAX_RECENT_ROUTES = 10
@@ -109,6 +131,7 @@ function generateGoogleMapsUrl(
 }
 
 export default function RoutesPage() {
+  const router = useRouter()
   const [startLocation, setStartLocation] = React.useState("")
   const [radius, setRadius] = React.useState(15)
   const [minDonation, setMinDonation] = React.useState<string>("")
@@ -120,6 +143,10 @@ export default function RoutesPage() {
   const [error, setError] = React.useState<string | null>(null)
   const [recentRoutes, setRecentRoutes] = React.useState<SavedRoute[]>([])
   const [listPage, setListPage] = React.useState(1)
+  const [reportDialogOpen, setReportDialogOpen] = React.useState(false)
+  const [reportName, setReportName] = React.useState("")
+  const [reportColumns, setReportColumns] = React.useState<string[]>([...DEFAULT_REPORT_COLUMNS])
+  const [savingReport, setSavingReport] = React.useState(false)
 
   React.useEffect(() => {
     setRecentRoutes(getRecentRoutes())
@@ -243,6 +270,97 @@ export default function RoutesPage() {
     setRecentRoutes(getRecentRoutes())
   }
 
+  const slugForFile = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40) || "route"
+
+  const handleExportCsv = () => {
+    if (displayList.length === 0) return
+    const hasIcebreaker =
+      isItinerary &&
+      optimizedDonors?.some((d) => d.icebreaker && d.icebreaker.trim().length > 0)
+
+    const headers = ["Step", "Name", "Address", "Last Gift"]
+    if (hasIcebreaker) headers.push("Icebreaker")
+
+    const rows = displayList.map((d, i) => {
+      const row: (string | number | null | undefined)[] = [
+        isItinerary ? i + 1 : "",
+        d.display_name ?? "",
+        d.billing_address ?? "",
+        d.last_donation_date ?? "",
+      ]
+      if (hasIcebreaker) {
+        const ic = "icebreaker" in d ? d.icebreaker : ""
+        row.push(ic ?? "")
+      }
+      return row
+    })
+
+    const csv = toCsv(headers, rows)
+    const today = new Date().toISOString().slice(0, 10)
+    const filename = `vantage-route-${slugForFile(startLocation.trim())}-${today}.csv`
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    toast.success("CSV downloaded", { description: `${displayList.length} donor${displayList.length === 1 ? "" : "s"} exported.` })
+  }
+
+  const openReportDialog = () => {
+    if (displayList.length === 0 || !startLocation.trim()) return
+    const stops = displayList.length
+    setReportName(`${startLocation.trim()} — ${stops} stop${stops === 1 ? "" : "s"}`)
+    setReportColumns((prev) => (prev.length ? prev : [...DEFAULT_REPORT_COLUMNS]))
+    setReportDialogOpen(true)
+  }
+
+  const handleSaveReport = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const title = reportName.trim()
+    if (!title) {
+      toast.error("Enter a report name.")
+      return
+    }
+    if (displayList.length === 0) {
+      toast.error("No donors to save.")
+      return
+    }
+    if (reportColumns.length === 0) {
+      toast.error("Select at least one column.")
+      return
+    }
+    setSavingReport(true)
+    try {
+      const { id } = await saveRouteReport({
+        name: title,
+        startLocation: startLocation.trim(),
+        radius,
+        minDonation: minDonationNum,
+        isOptimized: isItinerary,
+        donorIds: displayList.map((d) => d.id),
+        selectedColumns: reportColumns,
+      })
+      toast.success("Report saved", { description: `"${title}" created.` })
+      setReportDialogOpen(false)
+      setReportName("")
+      router.push(`/dashboard?view=saved-reports&reportId=${encodeURIComponent(id)}`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save report.")
+    } finally {
+      setSavingReport(false)
+    }
+  }
+
   return (
     <div className="@container/main flex flex-1 flex-col gap-2">
       <div className="flex flex-col gap-4 px-4 py-4 md:gap-6 md:px-6 md:py-6">
@@ -281,8 +399,8 @@ export default function RoutesPage() {
                   <div className="flex items-center gap-3">
                     <Slider
                       min={5}
-                      max={50}
-                      step={1}
+                      max={100}
+                      step={5}
                       value={[radius]}
                       onValueChange={(v) => setRadius(v[0] ?? 15)}
                       className="flex-1"
@@ -366,6 +484,50 @@ export default function RoutesPage() {
             </Card>
           </div>
 
+          {/* Save as Report dialog */}
+          <Dialog open={reportDialogOpen} onOpenChange={setReportDialogOpen}>
+            <DialogContent className="sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Save as Report</DialogTitle>
+                <DialogDescription>
+                  Save this route as a Report in Vantage. It will appear in your Reports list with a snapshot of the current stops.
+                </DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleSaveReport} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="route-report-name">Report name</Label>
+                  <Input
+                    id="route-report-name"
+                    placeholder="e.g. Troy, MI — 10 stops"
+                    value={reportName}
+                    onChange={(e) => setReportName(e.target.value)}
+                    autoFocus
+                  />
+                  <p className="text-muted-foreground text-xs">
+                    {displayList.length} stop{displayList.length === 1 ? "" : "s"} · {radius}mi radius
+                    {isItinerary ? " · optimized" : ""}
+                  </p>
+                </div>
+                <ReportColumnsPicker value={reportColumns} onChange={setReportColumns} />
+                <DialogFooter>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setReportDialogOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={savingReport || !reportName.trim() || reportColumns.length === 0}
+                  >
+                    {savingReport ? "Saving…" : "Save report"}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+
           {/* Right: Results & Map (2/3) */}
           <div className="flex min-h-0 flex-col gap-4 lg:col-span-2">
             {!hasSearched ? (
@@ -400,7 +562,27 @@ export default function RoutesPage() {
                         title="Save this route to Recent Routes"
                       >
                         <Bookmark className="mr-1.5 size-4" />
-                        Save route
+                        Pin to Recent
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleExportCsv}
+                        disabled={displayList.length === 0}
+                        title="Download the filtered donors as a CSV file"
+                      >
+                        <Download className="mr-1.5 size-4" />
+                        Export CSV
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={openReportDialog}
+                        disabled={displayList.length === 0}
+                        title="Save this route as a Report in Vantage"
+                      >
+                        <FilePlus className="mr-1.5 size-4" />
+                        Save as Report
                       </Button>
                       {isItinerary && optimizedDonors && (
                         <Button variant="outline" size="sm" asChild>

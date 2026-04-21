@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { TextShimmerWave } from "@/components/ui/text-shimmer-wave"
 import { useDonorPopup } from "@/components/donors/donor-popup"
+import { BuildCustomReportCard } from "@/components/chat/build-custom-report-card"
 
 /* ───────── Markdown-lite renderer ───────── */
 
@@ -197,7 +198,11 @@ function MessageBubble({ message, onDonorClick }: { message: UIMessage; onDonorC
             )
           }
           if (part.type.startsWith("tool-")) {
-            return <ToolPart key={i} part={part as { type: string; state?: string; toolCallId?: string; output?: unknown }} />
+            const tp = part as { type: string; state?: string; toolCallId?: string; output?: unknown }
+            if (tp.type === "tool-create_custom_report") {
+              return <BuildCustomReportCard key={i} part={tp} />
+            }
+            return <ToolPart key={i} part={tp} />
           }
           return null
         })}
@@ -331,7 +336,7 @@ function ChatInputBox({
   const inputContent = (
     <div className={cn(
       "relative flex items-end rounded-2xl bg-card shadow-sm transition-colors",
-      !animatedBorder && "border border-border/60 focus-within:border-border focus-within:shadow-md"
+      !animatedBorder && "border border-border/60 focus-within:border-border focus-within:shadow-sm"
     )}>
       <textarea
         ref={textareaRef}
@@ -354,7 +359,7 @@ function ChatInputBox({
               : "bg-muted text-muted-foreground cursor-not-allowed"
           )}
         >
-          <ArrowUp className="size-4" strokeWidth={2} />
+          <ArrowUp className="size-4" strokeWidth={1.5} />
         </button>
       </div>
     </div>

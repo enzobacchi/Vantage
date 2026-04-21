@@ -9,6 +9,7 @@ export type OrganizationProfile = {
   logo_url: string | null
   tax_id: string | null
   legal_501c3_wording: string | null
+  fiscal_year_start_month: number
 }
 
 export async function getOrganization(): Promise<OrganizationProfile | null> {
@@ -18,13 +19,14 @@ export async function getOrganization(): Promise<OrganizationProfile | null> {
   const supabase = createAdminClient()
   const { data, error } = await supabase
     .from("organizations")
-    .select("name,website_url,logo_url,tax_id,legal_501c3_wording")
+    .select("name,website_url,logo_url,tax_id,legal_501c3_wording,fiscal_year_start_month")
     .eq("id", org.orgId)
     .maybeSingle()
 
   if (error) throw new Error(error.message)
   if (!data) return null
-  return data as OrganizationProfile
+  const row = data as OrganizationProfile & { fiscal_year_start_month: number | null }
+  return { ...row, fiscal_year_start_month: row.fiscal_year_start_month ?? 1 }
 }
 
 export async function getOrganizationRole(): Promise<string | null> {
@@ -38,21 +40,31 @@ export async function updateOrganization(form: {
   logo_url: string
   tax_id: string
   legal_501c3_wording: string
+  fiscal_year_start_month?: number
 }): Promise<void> {
   const org = await getCurrentUserOrgWithRole()
   if (!org) throw new Error("Unauthorized")
   if (org.role !== "owner") throw new Error("Only the organization owner can update these settings.")
 
+  const update: Record<string, string | number | null> = {
+    name: form.name.trim() || null,
+    website_url: form.website_url.trim() || null,
+    logo_url: form.logo_url.trim() || null,
+    tax_id: form.tax_id.trim() || null,
+    legal_501c3_wording: form.legal_501c3_wording.trim() || null,
+  }
+  if (form.fiscal_year_start_month !== undefined) {
+    const m = form.fiscal_year_start_month
+    if (!Number.isInteger(m) || m < 1 || m > 12) {
+      throw new Error("Fiscal year start month must be 1–12.")
+    }
+    update.fiscal_year_start_month = m
+  }
+
   const supabase = createAdminClient()
   const { error } = await supabase
     .from("organizations")
-    .update({
-      name: form.name.trim() || null,
-      website_url: form.website_url.trim() || null,
-      logo_url: form.logo_url.trim() || null,
-      tax_id: form.tax_id.trim() || null,
-      legal_501c3_wording: form.legal_501c3_wording.trim() || null,
-    })
+    .update(update)
     .eq("id", org.orgId)
 
   if (error) throw new Error(error.message)

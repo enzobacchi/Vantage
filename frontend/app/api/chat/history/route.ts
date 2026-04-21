@@ -20,8 +20,9 @@ export async function GET() {
     .limit(50)
 
   if (error) {
+    console.error("[chat/history] GET:", error.message);
     return NextResponse.json(
-      { error: "Failed to load chat history.", details: error.message },
+      { error: "Failed to load chat history." },
       { status: 500 }
     )
   }
@@ -42,8 +43,9 @@ export async function DELETE() {
     .eq("user_id", auth.userId)
 
   if (error) {
+    console.error("[chat/history] DELETE:", error.message);
     return NextResponse.json(
-      { error: "Failed to clear chat history.", details: error.message },
+      { error: "Failed to clear chat history." },
       { status: 500 }
     )
   }

@@ -11,8 +11,7 @@ import {
 } from "@dnd-kit/core"
 import { arrayMove, horizontalListSortingStrategy, SortableContext, useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
-import { IconFileText, IconFolder, IconFolderPlus, IconFilter, IconUpload } from "@tabler/icons-react"
-import { PanelLeft, PanelLeftClose } from "lucide-react"
+import { FileText, Folder, FolderPlus, Filter, Upload, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from '@/components/ui/button'
@@ -23,7 +22,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { createFolder, getFolders, moveReportToFolder, type ReportFolder } from "@/app/actions/folders"
+import { createFolder, deleteFolder, getFolders, moveReportToFolder, type ReportFolder } from "@/app/actions/folders"
 import {
   Dialog,
   DialogContent,
@@ -39,6 +38,8 @@ import {
   ReportFilterBuilder,
   type FilterRow,
 } from "@/components/report-filter-builder"
+import { TemplatesSection } from "@/components/views/saved-reports/templates-tab"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Label } from "@/components/ui/label"
 import {
   Select,
@@ -151,6 +152,73 @@ function SortableTableHead({
   )
 }
 
+function FolderChip({
+  active,
+  isDragOver,
+  onClick,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  icon,
+  label,
+  onDelete,
+}: {
+  active: boolean
+  isDragOver: boolean
+  onClick: () => void
+  onDragOver: (e: React.DragEvent<HTMLDivElement>) => void
+  onDragLeave: () => void
+  onDrop: (e: React.DragEvent<HTMLDivElement>) => void
+  icon: React.ReactNode
+  label: string
+  onDelete?: () => void
+}) {
+  const [hover, setHover] = React.useState(false)
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault()
+          onClick()
+        }
+      }}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      className={`group inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-all select-none ${
+        active
+          ? "border-primary/40 bg-primary/10 text-primary"
+          : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
+      } ${
+        isDragOver
+          ? "border-primary bg-primary/15 text-primary ring-2 ring-primary/30 scale-[1.03]"
+          : ""
+      }`}
+    >
+      {icon}
+      <span className="truncate max-w-[160px]">{label}</span>
+      {onDelete && (hover || isDragOver) && (
+        <button
+          type="button"
+          aria-label={`Delete folder ${label}`}
+          className="ml-0.5 -mr-1 inline-flex size-4 items-center justify-center rounded-full text-muted-foreground/70 hover:bg-muted hover:text-foreground"
+          onClick={(e) => {
+            e.stopPropagation()
+            onDelete()
+          }}
+        >
+          <X className="size-3" />
+        </button>
+      )}
+    </div>
+  )
+}
+
 export function SavedReportsView() {
   const { openDonor } = useNav()
   const searchParams = useSearchParams()
@@ -166,7 +234,14 @@ export function SavedReportsView() {
   const [bulkMoveIds, setBulkMoveIds] = React.useState<string[] | null>(null)
   const [bulkDeleteIds, setBulkDeleteIds] = React.useState<string[] | null>(null)
   const [selectedReports, setSelectedReports] = React.useState<SavedReport[]>([])
-  const [sidebarOpen, setSidebarOpen] = React.useState(false)
+  const [view, setView] = React.useState<"templates" | "saved">("saved")
+  const [dragOverFolderId, setDragOverFolderId] = React.useState<string | "all" | null>(null)
+  const [folderToDelete, setFolderToDelete] = React.useState<ReportFolder | null>(null)
+  const [isDeletingFolder, setIsDeletingFolder] = React.useState(false)
+  const selectedReportsRef = React.useRef<SavedReport[]>([])
+  React.useEffect(() => {
+    selectedReportsRef.current = selectedReports
+  }, [selectedReports])
   const dataTableRef = React.useRef<DataTableRef<SavedReport> | null>(null)
 
   const [generateDialogOpen, setGenerateDialogOpen] = React.useState(false)
@@ -204,6 +279,8 @@ export function SavedReportsView() {
   const [regenerateTitle, setRegenerateTitle] = React.useState("")
   const [regenerateVisibility, setRegenerateVisibility] = React.useState<"private" | "shared" | "specific">("private")
   const [regenerateSharedWith, setRegenerateSharedWith] = React.useState<string[]>([])
+  const [editReportId, setEditReportId] = React.useState<string | null>(null)
+  const [isLoadingEdit, setIsLoadingEdit] = React.useState(false)
   const [isRegenerating, setIsRegenerating] = React.useState(false)
   const [previewLoading, setPreviewLoading] = React.useState(false)
 
@@ -386,7 +463,7 @@ export function SavedReportsView() {
       return
     }
     const typeUpper = (previewData.type ?? "").toUpperCase()
-    if (typeUpper === "CSV" || typeUpper === "CRM") {
+    if (typeUpper === "CSV" || typeUpper === "CRM" || typeUpper === "ROUTE") {
       const rows = parseCsvToRows(previewData.content)
       setPreviewTableRows(rows)
       setColumnOrder(rows[0] ? rows[0].map((_, i) => i) : [])
@@ -485,15 +562,58 @@ export function SavedReportsView() {
     setRegenerateOpen(true)
   }
 
+  const handleEditReport = async (reportId: string) => {
+    if (isLoadingEdit) return
+    setIsLoadingEdit(true)
+    try {
+      const res = await fetch(`/api/reports/${encodeURIComponent(reportId)}`)
+      const data = (await res.json().catch(() => null)) as {
+        title?: string
+        visibility?: string | null
+        reportParams?: { filters: FilterRow[]; selectedColumns: string[]; visibility: string } | null
+        shares?: Array<{ user_id: string }>
+        error?: string
+      } | null
+      if (!res.ok) {
+        throw new Error(data?.error ?? `Failed (HTTP ${res.status})`)
+      }
+      if (!data?.reportParams) {
+        toast.error("This report can't be edited", {
+          description: "Filters aren't stored for this report.",
+        })
+        return
+      }
+      setRegenerateFilters(data.reportParams.filters ?? [])
+      setRegenerateColumns(data.reportParams.selectedColumns ?? [])
+      setRegenerateTitle(typeof data.title === "string" ? data.title : "")
+      const vis = data.reportParams.visibility
+      setRegenerateVisibility(vis === "shared" ? "shared" : vis === "specific" ? "specific" : "private")
+      setRegenerateSharedWith(
+        vis === "specific" && Array.isArray(data.shares)
+          ? data.shares.map((s) => s.user_id).filter((id): id is string => typeof id === "string")
+          : []
+      )
+      setEditReportId(reportId)
+      setRegenerateOpen(true)
+    } catch (e) {
+      toast.error("Failed to load report", {
+        description: e instanceof Error ? e.message : "Unknown error",
+      })
+    } finally {
+      setIsLoadingEdit(false)
+    }
+  }
+
   const handleRegenerate = async () => {
-    if (!previewReportId || !regenerateTitle.trim() || regenerateColumns.length === 0) return
+    const targetReportId = previewReportId ?? editReportId
+    if (!targetReportId || !regenerateTitle.trim() || regenerateColumns.length === 0) return
     setIsRegenerating(true)
     try {
       const res = await fetch("/api/reports/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          reportId: previewReportId,
+          reportId: targetReportId,
           title: regenerateTitle.trim(),
           filters: regenerateFilters,
           selectedColumns: regenerateColumns,
@@ -507,19 +627,22 @@ export function SavedReportsView() {
       }
       toast.success("Report regenerated")
       setRegenerateOpen(false)
+      setEditReportId(null)
       await refresh()
-      setPreviewLoading(true)
-      const refetch = await fetch(`/api/reports/${encodeURIComponent(previewReportId)}`)
-      const refetchData = (await refetch.json()) as { content?: string; title?: string; summary?: string; type?: string; created_at?: string; records_count?: number; reportParams?: { filters: FilterRow[]; selectedColumns: string[]; visibility: string } | null }
-      setPreviewData({
-        title: typeof refetchData?.title === "string" ? refetchData.title : "Report",
-        summary: typeof refetchData?.summary === "string" ? refetchData.summary : null,
-        type: typeof refetchData?.type === "string" ? refetchData.type : null,
-        content: typeof refetchData?.content === "string" ? refetchData.content : "",
-        created_at: typeof refetchData?.created_at === "string" ? refetchData.created_at : "",
-        reportParams: refetchData?.reportParams ?? null,
-      })
-      setPreviewLoading(false)
+      if (previewReportId) {
+        setPreviewLoading(true)
+        const refetch = await fetch(`/api/reports/${encodeURIComponent(previewReportId)}`)
+        const refetchData = (await refetch.json()) as { content?: string; title?: string; summary?: string; type?: string; created_at?: string; records_count?: number; reportParams?: { filters: FilterRow[]; selectedColumns: string[]; visibility: string } | null }
+        setPreviewData({
+          title: typeof refetchData?.title === "string" ? refetchData.title : "Report",
+          summary: typeof refetchData?.summary === "string" ? refetchData.summary : null,
+          type: typeof refetchData?.type === "string" ? refetchData.type : null,
+          content: typeof refetchData?.content === "string" ? refetchData.content : "",
+          created_at: typeof refetchData?.created_at === "string" ? refetchData.created_at : "",
+          reportParams: refetchData?.reportParams ?? null,
+        })
+        setPreviewLoading(false)
+      }
     } catch (e) {
       toast.error("Regenerate failed", {
         description: e instanceof Error ? e.message : "Unknown error",
@@ -738,114 +861,216 @@ export function SavedReportsView() {
     )
   }
 
+  const DRAG_MIME = "application/x-vantage-reports"
+
+  const handleRowDragStart = React.useCallback(
+    (report: SavedReport) => (e: React.DragEvent<HTMLTableRowElement>) => {
+      const selected = selectedReportsRef.current
+      const isInSelection = selected.some((r) => r.id === report.id)
+      const ids = isInSelection && selected.length > 1
+        ? selected.map((r) => r.id)
+        : [report.id]
+      e.dataTransfer.effectAllowed = "move"
+      e.dataTransfer.setData(DRAG_MIME, JSON.stringify(ids))
+      const ghost = document.createElement("div")
+      ghost.style.position = "absolute"
+      ghost.style.top = "-1000px"
+      ghost.style.left = "-1000px"
+      ghost.className = "pointer-events-none rounded-md border bg-card px-3 py-1.5 text-sm font-medium shadow-md"
+      ghost.textContent = ids.length === 1 ? "1 report" : `${ids.length} reports`
+      document.body.appendChild(ghost)
+      e.dataTransfer.setDragImage(ghost, 12, 12)
+      setTimeout(() => ghost.remove(), 0)
+    },
+    []
+  )
+
+  const handleChipDragOver = (folderKey: string | "all") =>
+    (e: React.DragEvent<HTMLDivElement>) => {
+      if (!Array.from(e.dataTransfer.types).includes(DRAG_MIME)) return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = "move"
+      if (dragOverFolderId !== folderKey) setDragOverFolderId(folderKey)
+    }
+
+  const handleChipDragLeave = () => {
+    setDragOverFolderId(null)
+  }
+
+  const handleChipDrop = (folderId: string | null) =>
+    async (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault()
+      setDragOverFolderId(null)
+      const raw = e.dataTransfer.getData(DRAG_MIME)
+      if (!raw) return
+      let ids: string[] = []
+      try {
+        ids = JSON.parse(raw) as string[]
+      } catch {
+        return
+      }
+      if (!Array.isArray(ids) || ids.length === 0) return
+
+      const previousReports = reports
+      const idSet = new Set(ids)
+      // Optimistic: if we're filtered into a specific folder and moving away, remove rows.
+      if (selectedFolderId !== null && selectedFolderId !== folderId) {
+        setReports((prev) => prev.filter((r) => !idSet.has(r.id)))
+      } else {
+        setReports((prev) =>
+          prev.map((r) => (idSet.has(r.id) ? { ...r, folder_id: folderId } : r))
+        )
+      }
+
+      try {
+        await Promise.all(ids.map((id) => moveReportToFolder(id, folderId)))
+        const folderName = folderId
+          ? folders.find((f) => f.id === folderId)?.name ?? "folder"
+          : "All Reports"
+        toast.success(
+          ids.length === 1
+            ? `Moved to ${folderName}`
+            : `Moved ${ids.length} reports to ${folderName}`
+        )
+        dataTableRef.current?.clearSelection()
+        await refresh()
+      } catch (err) {
+        setReports(previousReports)
+        toast.error("Failed to move", {
+          description: err instanceof Error ? err.message : "Unknown error",
+        })
+      }
+    }
+
+  const handleDeleteFolder = async () => {
+    if (!folderToDelete) return
+    setIsDeletingFolder(true)
+    try {
+      await deleteFolder(folderToDelete.id)
+      toast.success(`Folder "${folderToDelete.name}" deleted`)
+      if (selectedFolderId === folderToDelete.id) setSelectedFolderId(null)
+      setFolderToDelete(null)
+      await loadFolders()
+      await refresh()
+    } catch (err) {
+      toast.error("Failed to delete folder", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      })
+    } finally {
+      setIsDeletingFolder(false)
+    }
+  }
+
   return (
     <div className="flex flex-1 flex-col h-full py-4 md:py-6">
       <div className="flex flex-1 min-h-0 w-full">
-        {/* Collapsible Folders sidebar */}
-        <aside
-          className={`flex shrink-0 flex-col border-r bg-muted/30 transition-[width] duration-200 ease-out ${
-            sidebarOpen ? "w-52" : "w-0 overflow-hidden border-0"
-          }`}
-        >
-          <nav className="flex flex-col gap-0.5 p-2 lg:p-3">
-            <button
-              type="button"
-              onClick={() => setSelectedFolderId(null)}
-              className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                selectedFolderId === null
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              }`}
-            >
-              <IconFileText className="size-4 shrink-0" />
-              All Reports
-            </button>
-            {folders.map((folder) => (
-              <button
-                key={folder.id}
-                type="button"
-                onClick={() => setSelectedFolderId(folder.id)}
-                className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                  selectedFolderId === folder.id
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`}
-              >
-                <IconFolder className="size-4 shrink-0" />
-                <span className="truncate">{folder.name}</span>
-              </button>
-            ))}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="mt-2 justify-start gap-2 text-muted-foreground hover:text-foreground"
-              onClick={() => setCreateFolderOpen(true)}
-            >
-              <IconFolderPlus className="size-4" />
-              Create Folder
-            </Button>
-          </nav>
-        </aside>
-
         {/* Main content */}
         <div className="flex flex-1 flex-col min-w-0 items-start">
-          <div className="flex w-full items-center justify-between px-4 lg:px-6 mb-4">
-            <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="shrink-0"
-                onClick={() => setSidebarOpen((o) => !o)}
-                aria-label={sidebarOpen ? "Hide folders" : "Show folders"}
-              >
-                {sidebarOpen ? (
-                  <PanelLeftClose className="size-5 text-slate-900 dark:text-white" />
-                ) : (
-                  <PanelLeft className="size-5 text-slate-900 dark:text-white" />
-                )}
-              </Button>
-              <IconFileText className="size-5 text-slate-900 dark:text-white" />
-              <h1 className="text-xl font-semibold">Saved Reports</h1>
+          <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-2 px-4 lg:px-6 mb-4">
+            <div className="flex items-center gap-2 min-w-0 justify-self-start">
+              <FileText className="size-5 text-slate-900 dark:text-white shrink-0" />
+              <h1 className="text-xl font-semibold truncate">Reports</h1>
             </div>
-            <div className="flex items-center gap-2">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv"
-                className="hidden"
-                aria-hidden
-                onChange={handleFileChange}
-              />
-              <Button
-                variant="outline"
-                className="bg-transparent"
-                onClick={handleUploadClick}
-                disabled={uploading}
-              >
-                <IconUpload className="size-4" />
-                {uploading ? "Uploading…" : "Upload External File"}
-              </Button>
-              <Button
-                variant="outline"
-                className="bg-transparent"
-                onClick={() => {
-                  setGenerateDialogOpen(true)
-                  setReportName("")
-                  setFilters([])
-                }}
-              >
-                <IconFilter className="size-4" />
-                Create Report
-              </Button>
+            <Tabs
+              value={view}
+              onValueChange={(v) => setView(v as "templates" | "saved")}
+              className="justify-self-center"
+            >
+              <TabsList>
+                <TabsTrigger value="saved">Saved Reports</TabsTrigger>
+                <TabsTrigger value="templates">Templates</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <div className="flex items-center gap-2 justify-self-end">
+              {view === "saved" && (
+                <>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv"
+                    className="hidden"
+                    aria-hidden
+                    onChange={handleFileChange}
+                  />
+                  <Button
+                    variant="outline"
+                    className="bg-transparent"
+                    onClick={handleUploadClick}
+                    disabled={uploading}
+                  >
+                    <Upload className="size-4" />
+                    {uploading ? "Uploading…" : "Upload External File"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="bg-transparent"
+                    onClick={() => {
+                      setGenerateDialogOpen(true)
+                      setReportName("")
+                      setFilters([])
+                    }}
+                  >
+                    <Filter className="size-4" />
+                    Create Report
+                  </Button>
+                </>
+              )}
             </div>
           </div>
 
-          <Card className="mx-4 lg:mx-6 w-full flex flex-col">
+          <div className="w-full px-4 lg:px-6 space-y-6">
+            {view === "templates" && (
+              <TemplatesSection
+                onSavedReport={() => {
+                  void refresh()
+                  setView("saved")
+                }}
+              />
+            )}
+
+            {view === "saved" && (
+              <>
+              <div className="flex w-full flex-wrap items-center gap-2">
+                <FolderChip
+                  active={selectedFolderId === null}
+                  isDragOver={dragOverFolderId === "all"}
+                  onClick={() => setSelectedFolderId(null)}
+                  onDragOver={handleChipDragOver("all")}
+                  onDragLeave={handleChipDragLeave}
+                  onDrop={handleChipDrop(null)}
+                  icon={<FileText className="size-3.5 shrink-0" />}
+                  label="All Reports"
+                />
+                {folders.map((folder) => (
+                  <FolderChip
+                    key={folder.id}
+                    active={selectedFolderId === folder.id}
+                    isDragOver={dragOverFolderId === folder.id}
+                    onClick={() => setSelectedFolderId(folder.id)}
+                    onDragOver={handleChipDragOver(folder.id)}
+                    onDragLeave={handleChipDragLeave}
+                    onDrop={handleChipDrop(folder.id)}
+                    icon={<Folder className="size-3.5 shrink-0" />}
+                    label={folder.name}
+                    onDelete={() => setFolderToDelete(folder)}
+                  />
+                ))}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 gap-1.5 px-2.5 text-muted-foreground hover:text-foreground"
+                  onClick={() => setCreateFolderOpen(true)}
+                >
+                  <FolderPlus className="size-3.5" />
+                  New folder
+                </Button>
+              </div>
+              <Card className="w-full flex flex-col">
             <CardHeader>
               <CardTitle>Generated Reports</CardTitle>
               <CardDescription>
                 {selectedFolderId === null
-                  ? "Access and download your saved reports"
+                  ? "Access and download your saved reports — drag a row onto a folder to organize."
                   : `Reports in "${folders.find((f) => f.id === selectedFolderId)?.name ?? "folder"}"`}
               </CardDescription>
             </CardHeader>
@@ -910,6 +1135,7 @@ export function SavedReportsView() {
                 <DataTable<SavedReport, unknown>
                   columns={createReportColumns({
                     onView: setPreviewReportId,
+                    onEdit: handleEditReport,
                     onDownloadCsv: handleDownloadCsv,
                     onMove: (id) => setMoveReportId(id),
                     onRename: (id, title) => {
@@ -926,10 +1152,18 @@ export function SavedReportsView() {
                   onRowSelectionChange={setSelectedReports}
                   onRowClick={(row) => setPreviewReportId(row.id)}
                   tableRef={dataTableRef}
+                  getRowProps={(row) => ({
+                    draggable: true,
+                    onDragStart: handleRowDragStart(row),
+                    className: "active:cursor-grabbing",
+                  })}
                 />
               </div>
             </CardContent>
           </Card>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1002,7 +1236,7 @@ export function SavedReportsView() {
                   setBulkMoveIds(null)
                 }}
               >
-                <IconFolder className="size-4 mr-2 shrink-0" />
+                <Folder className="size-4 mr-2 shrink-0" />
                 {folder.name}
               </Button>
             ))}
@@ -1014,6 +1248,35 @@ export function SavedReportsView() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={!!folderToDelete}
+        onOpenChange={(open) => !open && setFolderToDelete(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete folder?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {folderToDelete
+                ? `"${folderToDelete.name}" will be removed. Reports in this folder will move to All Reports — they won't be deleted.`
+                : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingFolder}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                void handleDeleteFolder()
+              }}
+              disabled={isDeletingFolder}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeletingFolder ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={generateDialogOpen} onOpenChange={setGenerateDialogOpen}>
         <DialogContent className="flex max-h-[90vh] w-[calc(100vw-2rem)] max-w-[520px] flex-col sm:w-full">
@@ -1199,7 +1462,7 @@ export function SavedReportsView() {
             ) : previewData?.content ? (
               (() => {
                 const typeUpper = (previewData.type ?? "").toUpperCase()
-                const isCsv = typeUpper === "CSV" || typeUpper === "CRM"
+                const isCsv = typeUpper === "CSV" || typeUpper === "CRM" || typeUpper === "ROUTE"
                 const rows = isCsv ? parseCsvToRows(previewData.content) : null
                 const headers = rows?.[0] ?? []
                 const orderedIndices = columnOrder.length === headers.length ? columnOrder : headers.map((_, i) => i)
@@ -1309,7 +1572,7 @@ export function SavedReportsView() {
                 Edit & Regenerate
               </Button>
             )}
-            {previewReportId && previewData && ((previewData.type ?? "").toUpperCase() === "CSV" || (previewData.type ?? "").toUpperCase() === "CRM") && (
+            {previewReportId && previewData && ((previewData.type ?? "").toUpperCase() === "CSV" || (previewData.type ?? "").toUpperCase() === "CRM" || (previewData.type ?? "").toUpperCase() === "ROUTE") && (
               <>
                 <Button
                   variant="outline"
@@ -1340,7 +1603,13 @@ export function SavedReportsView() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={regenerateOpen} onOpenChange={setRegenerateOpen}>
+      <Dialog
+        open={regenerateOpen}
+        onOpenChange={(open) => {
+          setRegenerateOpen(open)
+          if (!open) setEditReportId(null)
+        }}
+      >
         <DialogContent className="flex max-h-[90vh] w-[calc(100vw-2rem)] max-w-[520px] flex-col sm:w-full">
           <DialogHeader className="flex-shrink-0">
             <DialogTitle>Edit & Regenerate Report</DialogTitle>

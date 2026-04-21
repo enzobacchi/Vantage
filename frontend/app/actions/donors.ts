@@ -102,6 +102,22 @@ export type UpdateDonorInput = {
   donor_type?: "individual" | "corporate" | "school" | "church"
   first_name?: string | null
   last_name?: string | null
+  acquisition_source?: string | null
+  assigned_to?: string | null
+}
+
+async function assertUserInOrg(
+  supabase: ReturnType<typeof createAdminClient>,
+  userId: string,
+  orgId: string
+): Promise<void> {
+  const { data } = await supabase
+    .from("organization_members")
+    .select("user_id")
+    .eq("user_id", userId)
+    .eq("organization_id", orgId)
+    .maybeSingle()
+  if (!data) throw new Error("Assigned user is not a member of this organization")
 }
 
 /**
@@ -130,6 +146,17 @@ export async function updateDonor(donorId: string, input: UpdateDonorInput): Pro
   if (input.donor_type !== undefined) {
     if (["individual", "corporate", "school", "church"].includes(input.donor_type)) {
       updates.donor_type = input.donor_type
+    }
+  }
+  if (input.acquisition_source !== undefined) {
+    updates.acquisition_source = input.acquisition_source?.trim() || null
+  }
+  if (input.assigned_to !== undefined) {
+    if (input.assigned_to) {
+      await assertUserInOrg(supabase, input.assigned_to, org.orgId)
+      updates.assigned_to = input.assigned_to
+    } else {
+      updates.assigned_to = null
     }
   }
 
@@ -352,4 +379,70 @@ export async function mergeDonors(
   revalidatePath(`/donors/${keepDonorId}`)
 
   return { donations_moved: donationsMoved, interactions_moved: interactionsMoved, notes_moved: notesMoved, tags_moved: tagsMoved }
+}
+
+/**
+ * Bulk assign (or unassign) donors to a single user within the current org.
+ * Pass null for assignedTo to unassign. Validates that the target user is a
+ * member of the current org. Donor IDs outside the org are silently skipped.
+ */
+export async function bulkAssignDonors(
+  donorIds: string[],
+  assignedTo: string | null
+): Promise<number> {
+  const org = await getCurrentUserOrg()
+  if (!org) throw new Error("Unauthorized")
+  if (donorIds.length === 0) return 0
+
+  const supabase = createAdminClient()
+
+  if (assignedTo) {
+    await assertUserInOrg(supabase, assignedTo, org.orgId)
+  }
+
+  const { data: orgDonors } = await supabase
+    .from("donors")
+    .select("id")
+    .eq("org_id", org.orgId)
+    .in("id", donorIds)
+
+  const validIds = (orgDonors ?? []).map((d) => d.id)
+  if (validIds.length === 0) return 0
+
+  const { error } = await supabase
+    .from("donors")
+    .update({ assigned_to: assignedTo })
+    .in("id", validIds)
+    .eq("org_id", org.orgId)
+
+  if (error) throw new Error(error.message)
+
+  let assigneeName = "Unassigned"
+  if (assignedTo) {
+    const { data: user } = await supabase.auth.admin.getUserById(assignedTo)
+    const email = user?.user?.email ?? ""
+    assigneeName =
+      (user?.user?.user_metadata?.full_name as string) ??
+      (user?.user?.user_metadata?.name as string) ??
+      email?.split("@")[0] ??
+      "user"
+  }
+
+  await logAuditEvent({
+    orgId: org.orgId,
+    userId: org.userId,
+    action: "bulk_assign",
+    entityType: "donor",
+    summary: assignedTo
+      ? `Assigned ${validIds.length} donor${validIds.length === 1 ? "" : "s"} to ${assigneeName}`
+      : `Unassigned ${validIds.length} donor${validIds.length === 1 ? "" : "s"}`,
+    details: {
+      donorIds: validIds,
+      assignedTo,
+    },
+  })
+
+  revalidatePath("/dashboard")
+  revalidatePath("/dashboard?view=donor-crm")
+  return validIds.length
 }

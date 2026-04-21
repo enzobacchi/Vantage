@@ -63,10 +63,11 @@ export async function GET() {
         .order("amount", { ascending: false })
         .limit(50),
 
-      // All interactions for scoring (last 24 months)
+      // All interactions for scoring (last 24 months) — scoped via donor join (interactions has no org_id)
       supabase
         .from("interactions")
-        .select("donor_id,date,type")
+        .select("donor_id,date,type,donors!inner(org_id)")
+        .eq("donors.org_id", auth.orgId)
         .gte(
           "date",
           new Date(Date.now() - 730 * 24 * 60 * 60 * 1000)
@@ -83,10 +84,11 @@ export async function GET() {
         .order("expected_date", { ascending: true })
         .limit(20),
 
-      // Overdue tasks
+      // Overdue tasks — scoped via donor join (interactions has no org_id)
       supabase
         .from("interactions")
-        .select("id,donor_id,subject,content,date")
+        .select("id,donor_id,subject,content,date,donors!inner(org_id)")
+        .eq("donors.org_id", auth.orgId)
         .eq("type", "task")
         .eq("status", "pending"),
     ])

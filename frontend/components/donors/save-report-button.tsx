@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { IconFilePlus } from "@tabler/icons-react"
+import { FilePlus } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
@@ -127,7 +127,7 @@ export function SaveReportButton({
         className="gap-2 h-9"
         onClick={() => setOpen(true)}
       >
-        <IconFilePlus className="size-4 shrink-0" />
+        <FilePlus className="size-4 shrink-0" />
         Save as Report
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>

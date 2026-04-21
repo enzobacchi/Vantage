@@ -34,9 +34,9 @@ export function ChatBar() {
     <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 w-full max-w-xl px-4">
       <div
         className={cn(
-          "group flex w-full items-center gap-3 rounded-xl border border-border/50 bg-card/90 backdrop-blur-sm px-4 py-1.5 shadow-lg transition-all",
-          "hover:border-border hover:shadow-xl hover:bg-card",
-          "focus-within:border-border focus-within:shadow-xl focus-within:bg-card"
+          "group flex w-full items-center gap-3 rounded-xl border border-border/50 bg-card/90 backdrop-blur-sm px-4 py-1.5 shadow-sm transition-all",
+          "hover:border-border hover:shadow-sm hover:bg-card",
+          "focus-within:border-border focus-within:shadow-sm focus-within:bg-card"
         )}
         onClick={() => inputRef.current?.focus()}
       >
@@ -70,7 +70,7 @@ export function ChatBar() {
                 : "bg-muted/50 text-muted-foreground/50 group-hover:bg-muted group-hover:text-muted-foreground"
             )}
           >
-            <ArrowUp className="size-3.5" strokeWidth={2} />
+            <ArrowUp className="size-3.5" strokeWidth={1.5} />
           </button>
         </div>
       </div>

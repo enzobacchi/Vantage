@@ -38,8 +38,9 @@ export async function POST() {
     );
 
   if (error) {
+    console.error("[auth/link-pending-org]", error.message);
     return NextResponse.json(
-      { error: "Failed to link QuickBooks organization.", details: error.message },
+      { error: "Failed to link QuickBooks organization." },
       { status: 500 }
     );
   }

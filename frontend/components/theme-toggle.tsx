@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useTheme } from "next-themes"
-import { IconMoon, IconSun } from "@tabler/icons-react"
+import { Moon, Sun } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -27,7 +27,7 @@ export function ThemeToggle() {
         className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground size-8 shrink-0"
         aria-label="Toggle theme"
       >
-        <IconSun className="size-4" />
+        <Sun className="size-4" />
       </Button>
     )
   }
@@ -45,9 +45,9 @@ export function ThemeToggle() {
           aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
         >
           {isDark ? (
-            <IconSun className="size-4" />
+            <Sun className="size-4" />
           ) : (
-            <IconMoon className="size-4" />
+            <Moon className="size-4" />
           )}
         </Button>
       </TooltipTrigger>

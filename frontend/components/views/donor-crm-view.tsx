@@ -1,10 +1,9 @@
 "use client"
 
 import * as React from "react"
-import { IconSearch, IconUsers } from "@tabler/icons-react"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { toast } from "sonner"
-import { Download, ExternalLink, GitMerge, Mail, MapPin, Phone, Trash2 } from "lucide-react"
+import { Download, ExternalLink, GitMerge, Mail, MapPin, Phone, Search, Trash2, UserCircle2, Users } from "lucide-react"
 
 import { getDonorProfile, type DonorProfileDonor, type DonorProfileDonation } from "@/app/donors/[id]/actions"
 import { listReceiptTemplates, type ReceiptTemplate } from "@/app/actions/receipt-templates"
@@ -13,8 +12,13 @@ import { getDonorInteractions, logInteraction } from "@/app/actions/crm"
 import { DEFAULT_LIFECYCLE_CONFIG } from "@/lib/donor-lifecycle"
 import type { Interaction } from "@/types/database"
 import { bulkAssignTag, bulkRemoveTag, getOrganizationTags } from "@/app/actions/tags"
-import { bulkDeleteDonors, mergeDonors } from "@/app/actions/donors"
+import { bulkAssignDonors, bulkDeleteDonors, mergeDonors } from "@/app/actions/donors"
+import { getOrgAssignees, getCurrentMemberInfo, type OrgAssignee } from "@/app/actions/team"
 import { DonorTagFilter, type TagForFilter } from "@/components/donors/donor-filters"
+import {
+  DonorAssigneeFilter,
+  UNASSIGNED_VALUE,
+} from "@/components/donors/donor-assignee-filter"
 import { DateRangeFilter, getDateRangeFromSearchParams } from "@/components/date-range-filter"
 import { format } from "date-fns"
 import { SaveReportButton } from "@/components/donors/save-report-button"
@@ -368,9 +372,30 @@ export function DonorCRMView() {
   const [selectedTagIds, setSelectedTagIds] = React.useState<Set<string>>(new Set())
   const [tagFilterPopoverOpen, setTagFilterPopoverOpen] = React.useState(false)
 
+  const [orgAssignees, setOrgAssignees] = React.useState<OrgAssignee[]>([])
+  const [currentUserId, setCurrentUserId] = React.useState<string | null>(null)
+  const [selectedAssigneeIds, setSelectedAssigneeIds] = React.useState<Set<string>>(new Set())
+  const [savedAssigneeIds, setSavedAssigneeIds] = React.useState<Set<string>>(new Set())
+  const [myDonorsActive, setMyDonorsActive] = React.useState(false)
+  const [assigneeFilterPopoverOpen, setAssigneeFilterPopoverOpen] = React.useState(false)
+  const [bulkAssignOpen, setBulkAssignOpen] = React.useState(false)
+  const [bulkAssignSaving, setBulkAssignSaving] = React.useState(false)
+  const [bulkAssignConfirm, setBulkAssignConfirm] = React.useState<{
+    userId: string | null
+    label: string
+  } | null>(null)
+
   React.useEffect(() => {
     getOrganizationTags().then(setOrgTags).catch(() => {})
+    getOrgAssignees().then(setOrgAssignees).catch(() => {})
+    getCurrentMemberInfo().then((info) => setCurrentUserId(info?.userId ?? null)).catch(() => {})
   }, [])
+
+  const assigneeMap = React.useMemo(() => {
+    const m = new Map<string, string>()
+    for (const a of orgAssignees) m.set(a.user_id, a.name)
+    return m
+  }, [orgAssignees])
 
   const [sheetOpen, setSheetOpen] = React.useState(false)
   const [sheetDonorId, setSheetDonorId] = React.useState<string | null>(null)
@@ -411,6 +436,7 @@ export function DonorCRMView() {
     currentPage?: number,
     search?: string,
     sort?: SortOption,
+    assigneeIds?: Set<string>,
   ) => {
     try {
       setLoading(true)
@@ -421,6 +447,9 @@ export function DonorCRMView() {
       if (dateRange?.to) params.set("to", dateRange.to)
       if (search?.trim()) params.set("search", search.trim())
       if (sort) params.set("sort", sort)
+      if (assigneeIds && assigneeIds.size > 0) {
+        params.set("assignedTo", [...assigneeIds].join(","))
+      }
       params.set("page", String(currentPage ?? 0))
       params.set("limit", String(PAGE_SIZE))
       const res = await fetch(`/api/donors?${params.toString()}`)
@@ -448,9 +477,9 @@ export function DonorCRMView() {
   const dateRange = React.useMemo(() => getDateRangeFromSearchParams(searchParams), [searchParams])
 
   React.useEffect(() => {
-    loadDonors(selectedTagIds, dateRange, page, searchQuery, sortBy)
+    loadDonors(selectedTagIds, dateRange, page, searchQuery, sortBy, selectedAssigneeIds)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTagIds, dateRange.from, dateRange.to, page, sortBy, loadDonors])
+  }, [selectedTagIds, dateRange.from, dateRange.to, page, sortBy, selectedAssigneeIds, loadDonors])
 
   // When search query changes, reset to page 0 and reload
   const searchTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -458,7 +487,7 @@ export function DonorCRMView() {
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
     searchTimeoutRef.current = setTimeout(() => {
       setPage(0)
-      loadDonors(selectedTagIds, dateRange, 0, searchQuery, sortBy)
+      loadDonors(selectedTagIds, dateRange, 0, searchQuery, sortBy, selectedAssigneeIds)
     }, 300)
     return () => {
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
@@ -474,6 +503,83 @@ export function DonorCRMView() {
     []
   )
 
+  const handleAssigneeFilterChange = React.useCallback(
+    (next: Set<string>) => {
+      setPage(0)
+      setSelectedAssigneeIds(next)
+      setSavedAssigneeIds(next)
+    },
+    []
+  )
+
+  const toggleMyDonors = React.useCallback(() => {
+    if (!currentUserId) {
+      toast.error("Could not determine your account")
+      return
+    }
+    setPage(0)
+    if (myDonorsActive) {
+      setMyDonorsActive(false)
+      setSelectedAssigneeIds(new Set(savedAssigneeIds))
+    } else {
+      setSavedAssigneeIds(selectedAssigneeIds)
+      setMyDonorsActive(true)
+      setSelectedAssigneeIds(new Set([currentUserId]))
+    }
+  }, [currentUserId, myDonorsActive, savedAssigneeIds, selectedAssigneeIds])
+
+  const runBulkAssign = React.useCallback(
+    async (assignedTo: string | null) => {
+      if (selectedDonors.length === 0) return
+      setBulkAssignSaving(true)
+      try {
+        const count = await bulkAssignDonors(
+          selectedDonors.map((d) => d.id),
+          assignedTo
+        )
+        const assigneeName = assignedTo
+          ? orgAssignees.find((a) => a.user_id === assignedTo)?.name ?? "user"
+          : null
+        toast.success(
+          assigneeName
+            ? `Assigned ${count} donor${count === 1 ? "" : "s"} to ${assigneeName}`
+            : `Unassigned ${count} donor${count === 1 ? "" : "s"}`
+        )
+        setBulkAssignOpen(false)
+        setBulkAssignConfirm(null)
+        dataTableRef.current?.clearSelection()
+        loadDonors(selectedTagIds, dateRange, page, searchQuery, sortBy, selectedAssigneeIds)
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Failed to assign donors")
+      } finally {
+        setBulkAssignSaving(false)
+      }
+    },
+    [
+      selectedDonors,
+      orgAssignees,
+      selectedTagIds,
+      dateRange,
+      page,
+      searchQuery,
+      sortBy,
+      selectedAssigneeIds,
+      loadDonors,
+    ]
+  )
+
+  const handleBulkAssign = React.useCallback(
+    (assignedTo: string | null, label: string) => {
+      if (selectedDonors.length >= 50) {
+        setBulkAssignConfirm({ userId: assignedTo, label })
+        setBulkAssignOpen(false)
+        return
+      }
+      void runBulkAssign(assignedTo)
+    },
+    [selectedDonors.length, runBulkAssign]
+  )
+
   // Sorting is now handled server-side via the sort query param
 
   const openDonorSheet = React.useCallback((donorId: string) => {
@@ -487,8 +593,13 @@ export function DonorCRMView() {
   }, [])
 
   const donorColumns = React.useMemo(
-    () => createDonorColumns({ onOpenDonorSheet: openDonorSheet, onSendEmail: handleSendEmailFromRow }),
-    [openDonorSheet, handleSendEmailFromRow]
+    () =>
+      createDonorColumns({
+        onOpenDonorSheet: openDonorSheet,
+        onSendEmail: handleSendEmailFromRow,
+        assigneeMap,
+      }),
+    [openDonorSheet, handleSendEmailFromRow, assigneeMap]
   )
 
   const handleBulkAddTag = React.useCallback(
@@ -658,7 +769,7 @@ export function DonorCRMView() {
   return (
     <div className="flex flex-col gap-4 py-4 md:py-6">
       <div className="flex items-center gap-2 px-4 lg:px-6">
-        <IconUsers className="size-5 text-slate-900 dark:text-white" />
+        <Users className="size-5 text-slate-900 dark:text-white" />
         <h1 className="text-xl font-semibold">Donor CRM</h1>
       </div>
 
@@ -672,7 +783,7 @@ export function DonorCRMView() {
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-center gap-4">
             <div className="relative flex-1 min-w-[200px] max-w-sm">
-              <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
               <input
                 type="search"
                 placeholder="Search donors by name…"
@@ -701,6 +812,25 @@ export function DonorCRMView() {
                 setTagFilterPopoverOpen(open)
               }}
             />
+            <DonorAssigneeFilter
+              assignees={orgAssignees.filter((a) => a.user_id !== currentUserId)}
+              selectedAssigneeIds={selectedAssigneeIds}
+              onSelectedAssigneeIdsChange={handleAssigneeFilterChange}
+              disabled={myDonorsActive}
+              open={assigneeFilterPopoverOpen}
+              onOpenChange={setAssigneeFilterPopoverOpen}
+            />
+            {currentUserId && (
+              <Button
+                variant={myDonorsActive ? "default" : "outline"}
+                size="sm"
+                className="gap-2 h-9"
+                onClick={toggleMyDonors}
+              >
+                <UserCircle2 className="size-4 shrink-0" />
+                My Donors
+              </Button>
+            )}
             <SaveReportButton
               searchQuery={searchQuery}
               selectedTagIds={selectedTagIds}
@@ -797,6 +927,50 @@ export function DonorCRMView() {
                   </div>
                 </PopoverContent>
               </Popover>
+              <Popover open={bulkAssignOpen} onOpenChange={setBulkAssignOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    disabled={bulkAssignSaving}
+                  >
+                    <UserCircle2 className="size-3.5" strokeWidth={1.5} />
+                    Assign to…
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-56 p-2" align="start">
+                  <div className="flex flex-col gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="justify-start italic text-muted-foreground"
+                      onClick={() => handleBulkAssign(null, "Unassigned")}
+                      disabled={bulkAssignSaving}
+                    >
+                      Unassigned
+                    </Button>
+                    {orgAssignees.length === 0 ? (
+                      <p className="text-xs text-muted-foreground px-2 py-1.5">
+                        No team members available. Invite teammates from Settings → Team.
+                      </p>
+                    ) : (
+                      orgAssignees.map((a) => (
+                        <Button
+                          key={a.user_id}
+                          variant="ghost"
+                          size="sm"
+                          className="justify-start"
+                          onClick={() => handleBulkAssign(a.user_id, a.name)}
+                          disabled={bulkAssignSaving}
+                        >
+                          {a.name}
+                        </Button>
+                      ))
+                    )}
+                  </div>
+                </PopoverContent>
+              </Popover>
               <Button
                 variant="outline"
                 size="sm"
@@ -850,6 +1024,35 @@ export function DonorCRMView() {
               </Button>
             </div>
           )}
+
+          {/* Bulk Assign Confirmation (only when ≥50 donors) */}
+          <AlertDialog
+            open={bulkAssignConfirm !== null}
+            onOpenChange={(open) => {
+              if (!open) setBulkAssignConfirm(null)
+            }}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  Assign {selectedDonors.length} donors to {bulkAssignConfirm?.label}?
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  You&apos;re about to reassign {selectedDonors.length} donor records.
+                  This change will apply immediately and can be undone by reassigning them again.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={bulkAssignSaving}>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => bulkAssignConfirm && runBulkAssign(bulkAssignConfirm.userId)}
+                  disabled={bulkAssignSaving}
+                >
+                  {bulkAssignSaving ? "Assigning…" : `Assign ${selectedDonors.length} donors`}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
           {/* Bulk Delete Confirmation */}
           <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>

@@ -9,7 +9,13 @@ export async function POST(request: Request) {
   const auth = await requireUserOrg();
   if (!auth.ok) return auth.response;
 
-  const body = await request.json();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+  }
 
   const validTypes = ["email", "call", "meeting", "note", "task"] as const;
   if (!validTypes.includes(body.type)) {
@@ -51,7 +57,8 @@ export async function POST(request: Request) {
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[interactions] POST:", error.message);
+    return NextResponse.json({ error: "Failed to save interaction." }, { status: 500 });
   }
 
   return NextResponse.json(inserted, { status: 201 });

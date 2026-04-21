@@ -3,6 +3,11 @@
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUserOrg } from "@/lib/auth"
 import { logAuditEvent } from "@/app/actions/audit"
+import {
+  GmailNeedsReauthError,
+  GmailNotConnectedError,
+  sendGmailMessage,
+} from "@/lib/gmail/send"
 
 export type YearEndDonorSummary = {
   donorId: string
@@ -104,8 +109,8 @@ export type SendYearEndReceiptsResult = {
 }
 
 /**
- * Send year-end tax receipt emails to selected donors.
- * Uses Resend API and logs each send as an interaction.
+ * Send year-end tax receipt emails to selected donors via the user's
+ * connected Gmail account. Each send is logged as an interaction.
  */
 export async function sendYearEndReceipts(input: {
   year: number
@@ -119,16 +124,10 @@ export async function sendYearEndReceipts(input: {
 
   if (input.donorIds.length === 0) return { sent: 0, skipped: 0, errors: [] }
 
-  const apiKey = process.env.RESEND_API_KEY
-  if (!apiKey) throw new Error("Email sending is not configured (RESEND_API_KEY)")
-
   const supabase = createAdminClient()
   const summaries = await getYearEndSummaries(input.year)
 
   const summaryMap = new Map(summaries.map((s) => [s.donorId, s]))
-
-  const { Resend } = await import("resend")
-  const resend = new Resend(apiKey)
 
   let sent = 0
   let skipped = 0
@@ -147,7 +146,6 @@ export async function sendYearEndReceipts(input: {
       continue
     }
 
-    // Replace template variables
     const body = input.bodyTemplate
       .replace(/\{\{donor_name\}\}/g, summary.displayName)
       .replace(/\{\{org_name\}\}/g, input.orgName)
@@ -163,14 +161,14 @@ export async function sendYearEndReceipts(input: {
       .replace(/\{\{year\}\}/g, String(input.year))
 
     try {
-      await resend.emails.send({
-        from: "Vantage <notifications@vantagedonorai.com>",
+      await sendGmailMessage({
+        userId: org.userId,
+        orgId: org.orgId,
         to: summary.email,
         subject,
         html: `<p>${body.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>")}</p>`,
       })
 
-      // Log as interaction
       await supabase.from("interactions").insert({
         donor_id: donorId,
         type: "email",
@@ -180,14 +178,25 @@ export async function sendYearEndReceipts(input: {
         date: new Date().toISOString(),
       })
 
-      // Log email send for rate limiting
       await supabase.from("email_send_log").insert({
         org_id: org.orgId,
+        user_id: org.userId,
         sent_at: new Date().toISOString(),
       })
 
       sent++
     } catch (e) {
+      // Connection problems are batch-fatal — no point looping if Gmail isn't set up.
+      if (e instanceof GmailNotConnectedError) {
+        throw new Error(
+          "Connect Gmail in Settings → Integrations to send year-end receipts as your ministry."
+        )
+      }
+      if (e instanceof GmailNeedsReauthError) {
+        throw new Error(
+          "Gmail access expired. Reconnect in Settings → Integrations."
+        )
+      }
       errors.push({
         donorName: summary.displayName,
         error: e instanceof Error ? e.message : "Send failed",

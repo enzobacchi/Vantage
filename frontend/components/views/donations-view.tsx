@@ -560,7 +560,7 @@ export function DonationsView() {
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <span className="inline-flex items-center justify-center size-6 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
-                                <Check className="size-3.5" strokeWidth={2} />
+                                <Check className="size-3.5" strokeWidth={1.5} />
                               </span>
                             </TooltipTrigger>
                             <TooltipContent>

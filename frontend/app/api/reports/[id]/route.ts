@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 
 import { requireUserOrg } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  DEFAULT_REPORT_COLUMNS,
+  REPORT_COLUMN_LABELS,
+} from "@/lib/report-columns";
 
 export const runtime = "nodejs";
 
@@ -10,6 +14,16 @@ type CrmCriteria = {
   search?: string;
   tagIds?: string[];
   lifecycleConfig?: Record<string, unknown>;
+  selectedColumns?: string[];
+};
+
+type RouteCriteria = {
+  source?: string;
+  startLocation?: string;
+  radius?: number;
+  minDonation?: number | null;
+  isOptimized?: boolean;
+  donorIds?: string[];
   selectedColumns?: string[];
 };
 
@@ -33,26 +47,9 @@ type DonorRow = {
   last_donation_date: string | null;
 };
 
-const COLUMN_LABELS: Record<string, string> = {
-  first_name: "First Name",
-  last_name: "Last Name",
-  display_name: "Display Name",
-  email: "Email",
-  phone: "Phone",
-  street_address: "Street",
-  city: "City",
-  state: "State",
-  zip: "Zip",
-  mailing_street: "Mailing Street",
-  mailing_city: "Mailing City",
-  mailing_state: "Mailing State",
-  mailing_zip: "Mailing Zip",
-  lifetime_value: "Lifetime Value",
-  last_gift_date: "Last Gift Date",
-  last_gift_amount: "Last Gift Amount",
-};
+const COLUMN_LABELS = REPORT_COLUMN_LABELS;
 
-const DEFAULT_COLUMNS = ["first_name", "last_name", "email", "lifetime_value"];
+const DEFAULT_COLUMNS = DEFAULT_REPORT_COLUMNS;
 
 function escapeCsvCell(value: string | number | null | undefined): string {
   if (value == null) return "";
@@ -100,6 +97,48 @@ function getDonorCellValue(d: DonorRow, columnId: string): string | number | nul
     default:
       return "";
   }
+}
+
+async function generateRouteReportContent(
+  supabase: ReturnType<typeof createAdminClient>,
+  orgId: string,
+  criteria: RouteCriteria
+): Promise<string> {
+  const donorIds = Array.isArray(criteria.donorIds) ? criteria.donorIds.filter((id): id is string => typeof id === "string") : [];
+  const selectedColumns = criteria.selectedColumns?.length ? criteria.selectedColumns : DEFAULT_COLUMNS;
+  const isOptimized = !!criteria.isOptimized;
+
+  const headers = isOptimized
+    ? ["Step", ...selectedColumns.map((c) => COLUMN_LABELS[c] ?? c)]
+    : selectedColumns.map((c) => COLUMN_LABELS[c] ?? c);
+
+  if (donorIds.length === 0) {
+    return headers.join(",") + "\n";
+  }
+
+  const { data: donors, error } = await supabase
+    .from("donors")
+    .select(
+      "id,first_name,last_name,display_name,email,phone,billing_address,city,state,zip,mailing_address,mailing_city,mailing_state,mailing_zip,total_lifetime_value,last_donation_amount,last_donation_date"
+    )
+    .eq("org_id", orgId)
+    .in("id", donorIds);
+
+  if (error) throw new Error(error.message);
+
+  const byId = new Map<string, DonorRow>();
+  for (const d of (donors ?? []) as DonorRow[]) byId.set(d.id, d);
+
+  const ordered: DonorRow[] = donorIds
+    .map((id) => byId.get(id))
+    .filter((d): d is DonorRow => d != null);
+
+  const rows = ordered.map((d, i) => {
+    const donorCells = selectedColumns.map((col) => escapeCsvCell(getDonorCellValue(d, col)));
+    return isOptimized ? [String(i + 1), ...donorCells].join(",") : donorCells.join(",");
+  });
+
+  return [headers.join(","), ...rows].join("\n");
 }
 
 async function generateCrmReportContent(
@@ -166,8 +205,9 @@ export async function GET(
     .single();
 
   if (error) {
+    console.error("[reports/[id]] GET:", error.message);
     return NextResponse.json(
-      { error: "Failed to load report.", details: error.message },
+      { error: "Failed to load report." },
       { status: 500 }
     );
   }
@@ -192,6 +232,14 @@ export async function GET(
     } catch (e) {
       console.error("[reports] CRM content generation failed:", e instanceof Error ? e.message : String(e));
       content = "Display Name,Email,Phone,Last Gift Date,Lifetime Value,Address\n(Unable to generate report. Criteria may be invalid.)";
+    }
+  } else if (reportType.toLowerCase() === "route" && typeof row?.query === "string" && row.query.trim()) {
+    try {
+      const criteria = JSON.parse(row.query) as RouteCriteria;
+      content = await generateRouteReportContent(supabase, auth.orgId, criteria);
+    } catch (e) {
+      console.error("[reports] Route content generation failed:", e instanceof Error ? e.message : String(e));
+      content = "First Name,Last Name,Email,Lifetime Value\n(Unable to generate route report. Criteria may be invalid.)";
     }
   }
 
@@ -283,8 +331,9 @@ export async function PATCH(
     .single();
 
   if (error) {
+    console.error("[reports/[id]] PATCH:", error.message);
     return NextResponse.json(
-      { error: "Failed to rename report.", details: error.message },
+      { error: "Failed to rename report." },
       { status: 500 }
     );
   }
@@ -310,8 +359,9 @@ export async function DELETE(
     .eq("organization_id", auth.orgId);
 
   if (error) {
+    console.error("[reports/[id]] DELETE:", error.message);
     return NextResponse.json(
-      { error: "Failed to delete report.", details: error.message },
+      { error: "Failed to delete report." },
       { status: 500 }
     );
   }

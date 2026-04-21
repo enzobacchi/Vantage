@@ -2,19 +2,9 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
+import { useRouter } from "next/navigation"
 import { useNav } from "@/components/nav-context"
-import {
-  IconFilter,
-  IconMap,
-  IconRefresh,
-  IconSearch,
-  IconSettings2,
-  IconCircle,
-  IconPolygon,
-  IconTrash,
-  IconFileReport,
-} from "@tabler/icons-react"
-import { ExternalLink, MapPin, Navigation, X } from "lucide-react"
+import { ExternalLink, MapPin, Navigation, X, Filter, Map as MapIcon, RefreshCw, Search, Settings2, Circle, Pentagon, Trash2, FileText, Download, FilePlus } from "lucide-react"
 import Map, { Marker, Popup, Source, Layer } from "react-map-gl/mapbox"
 import type { MapRef } from "react-map-gl/mapbox"
 import MapboxDraw from "@mapbox/mapbox-gl-draw"
@@ -25,7 +15,11 @@ import {
   type RouteDonorWithIcebreaker,
   getDonorsForRoute,
   optimizeRoute,
+  saveRouteReport,
 } from "@/app/dashboard/routes/actions"
+import { toCsv } from "@/lib/csv"
+import { DEFAULT_REPORT_COLUMNS } from "@/lib/report-columns"
+import { ReportColumnsPicker } from "@/components/reports/report-columns-picker"
 
 /** Catches WebGL/map init errors and shows a friendly message instead of a blank map. */
 class MapErrorBoundary extends React.Component<
@@ -75,6 +69,14 @@ import {
 } from "@/components/ui/select"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Slider } from "@/components/ui/slider"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { toast } from "sonner"
 
 /** Params sent to the map API; all optional. */
@@ -82,6 +84,7 @@ export interface DonorFilterParams {
   status?: string
   minGiving?: number
   maxGiving?: number
+  assignedTo?: string
 }
 
 type DonorMapPoint = {
@@ -186,6 +189,9 @@ function buildMapUrl(params: DonorFilterParams): string {
   if (params.maxGiving != null && Number.isFinite(params.maxGiving)) {
     search.set("maxGiving", String(params.maxGiving))
   }
+  if (params.assignedTo && params.assignedTo !== "all") {
+    search.set("assignedTo", params.assignedTo)
+  }
   const q = search.toString()
   return q ? `/api/donors/map?${q}` : "/api/donors/map"
 }
@@ -236,6 +242,11 @@ export function DonorMapView() {
   const [routeError, setRouteError] = useState<string | null>(null)
   const [routeDonors, setRouteDonors] = useState<RouteDonorWithCoords[]>([])
   const [routeOptimized, setRouteOptimized] = useState<RouteDonorWithIcebreaker[] | null>(null)
+  const [routeReportDialogOpen, setRouteReportDialogOpen] = useState(false)
+  const [routeReportName, setRouteReportName] = useState("")
+  const [routeReportColumns, setRouteReportColumns] = useState<string[]>([...DEFAULT_REPORT_COLUMNS])
+  const [routeReportSaving, setRouteReportSaving] = useState(false)
+  const router = useRouter()
 
   const INITIAL_DONORS_SHOWN = 10
   const donorsToShow =
@@ -264,6 +275,15 @@ export function DonorMapView() {
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [minGivingInput, setMinGivingInput] = useState<string>("")
   const [maxGivingInput, setMaxGivingInput] = useState<string>("")
+  const [assigneeFilter, setAssigneeFilter] = useState<string>("all")
+  const [orgAssignees, setOrgAssignees] = useState<{ user_id: string; name: string }[]>([])
+
+  useEffect(() => {
+    import("@/app/actions/team")
+      .then((m) => m.getOrgAssignees())
+      .then((list) => setOrgAssignees(list.map((a) => ({ user_id: a.user_id, name: a.name }))))
+      .catch(() => {})
+  }, [])
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [prefsLoaded, setPrefsLoaded] = useState(false)
@@ -340,8 +360,9 @@ export function DonorMapView() {
       status: statusFilter === "all" ? undefined : statusFilter,
       minGiving: minGivingNum,
       maxGiving: maxGivingNum,
+      assignedTo: assigneeFilter === "all" ? undefined : assigneeFilter,
     }),
-    [statusFilter, minGivingNum, maxGivingNum]
+    [statusFilter, minGivingNum, maxGivingNum, assigneeFilter]
   )
 
   const fetchMap = useCallback(
@@ -652,6 +673,118 @@ export function DonorMapView() {
     setRouteMinDonation("")
   }, [])
 
+  const slugForFile = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40) || "route"
+
+  const handleRouteExportCsv = useCallback(() => {
+    if (routeDisplayList.length === 0) return
+    const hasIcebreaker =
+      routeIsOptimized &&
+      routeOptimized?.some((d) => d.icebreaker && d.icebreaker.trim().length > 0)
+
+    const headers = ["Step", "Name", "Address", "Last Gift"]
+    if (hasIcebreaker) headers.push("Icebreaker")
+
+    const rows = routeDisplayList.map((d, i) => {
+      const row: (string | number | null | undefined)[] = [
+        routeIsOptimized ? i + 1 : "",
+        d.display_name ?? "",
+        d.billing_address ?? "",
+        d.last_donation_date ?? "",
+      ]
+      if (hasIcebreaker) {
+        const ic = "icebreaker" in d ? d.icebreaker : ""
+        row.push(ic ?? "")
+      }
+      return row
+    })
+
+    const csv = toCsv(headers, rows)
+    const today = new Date().toISOString().slice(0, 10)
+    const filename = `vantage-route-${slugForFile(routeStartLocation.trim())}-${today}.csv`
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    toast.success("CSV downloaded", {
+      description: `${routeDisplayList.length} donor${routeDisplayList.length === 1 ? "" : "s"} exported.`,
+    })
+  }, [routeDisplayList, routeIsOptimized, routeOptimized, routeStartLocation])
+
+  const openRouteReportDialog = useCallback(() => {
+    if (routeDisplayList.length === 0 || !routeStartLocation.trim()) return
+    const stops = routeDisplayList.length
+    setRouteReportName(
+      `${routeStartLocation.trim()} — ${stops} stop${stops === 1 ? "" : "s"}`
+    )
+    setRouteReportColumns((prev) => (prev.length ? prev : [...DEFAULT_REPORT_COLUMNS]))
+    setRouteReportDialogOpen(true)
+  }, [routeDisplayList.length, routeStartLocation])
+
+  const handleSaveRouteReport = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault()
+      const title = routeReportName.trim()
+      if (!title) {
+        toast.error("Enter a report name.")
+        return
+      }
+      if (routeDisplayList.length === 0) {
+        toast.error("No donors to save.")
+        return
+      }
+      if (routeReportColumns.length === 0) {
+        toast.error("Select at least one column.")
+        return
+      }
+      const minNum = Number(routeMinDonation)
+      const minDonation =
+        routeMinDonation.trim() !== "" && Number.isFinite(minNum) && minNum >= 0
+          ? minNum
+          : undefined
+      setRouteReportSaving(true)
+      try {
+        const { id } = await saveRouteReport({
+          name: title,
+          startLocation: routeStartLocation.trim(),
+          radius: routeRadius,
+          minDonation,
+          isOptimized: routeIsOptimized,
+          donorIds: routeDisplayList.map((d) => d.id),
+          selectedColumns: routeReportColumns,
+        })
+        toast.success("Report saved", { description: `"${title}" created.` })
+        setRouteReportDialogOpen(false)
+        setRouteReportName("")
+        router.push(`/dashboard?view=saved-reports&reportId=${encodeURIComponent(id)}`)
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to save report.")
+      } finally {
+        setRouteReportSaving(false)
+      }
+    },
+    [
+      routeReportName,
+      routeReportColumns,
+      routeDisplayList,
+      routeMinDonation,
+      routeStartLocation,
+      routeRadius,
+      routeIsOptimized,
+      router,
+    ]
+  )
+
   const generateGoogleMapsUrl = useCallback((startZip: string, donors: { billing_address: string | null }[]) => {
     const addresses = donors
       .map((d) => d.billing_address?.trim())
@@ -701,7 +834,7 @@ export function DonorMapView() {
     <div className="flex flex-1 flex-col gap-4 p-4 lg:p-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <IconMap className="size-5 text-primary" />
+          <MapIcon className="size-5 text-primary" />
           <h1 className="text-xl font-semibold">Donor Map</h1>
         </div>
       </div>
@@ -709,7 +842,7 @@ export function DonorMapView() {
       {/* Filter bar above the map */}
       <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-background/95 px-4 py-3 shadow-sm backdrop-blur">
         <div className="flex items-center gap-2">
-          <IconFilter className="size-4 text-muted-foreground" />
+          <Filter className="size-4 text-muted-foreground" />
           <span className="text-sm font-medium">Filters</span>
         </div>
         <Popover open={flyToSearchOpen} onOpenChange={setFlyToSearchOpen}>
@@ -721,7 +854,7 @@ export function DonorMapView() {
               aria-expanded={flyToSearchOpen}
               className="h-9 w-64 justify-start gap-2 font-normal text-muted-foreground"
             >
-              <IconSearch className="size-4 shrink-0" />
+              <Search className="size-4 shrink-0" />
               <span className="truncate">Find donor on map…</span>
             </Button>
           </PopoverTrigger>
@@ -759,6 +892,22 @@ export function DonorMapView() {
             ))}
           </SelectContent>
         </Select>
+        <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
+          <SelectTrigger size="sm" className="h-9 w-40">
+            <SelectValue placeholder="Assigned To" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All assignees</SelectItem>
+            <SelectItem value="unassigned">
+              <span className="italic text-muted-foreground">Unassigned</span>
+            </SelectItem>
+            {orgAssignees.map((a) => (
+              <SelectItem key={a.user_id} value={a.user_id}>
+                {a.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <div className="flex items-center gap-1.5">
           <Input
             type="number"
@@ -788,7 +937,7 @@ export function DonorMapView() {
           disabled={geocodeLoading}
           onClick={runGeocodeBackfill}
         >
-          <IconRefresh className="mr-2 size-4" />
+          <RefreshCw className="mr-2 size-4" />
           {geocodeLoading ? "Geocoding…" : "Load locations"}
         </Button>
         {geocodeMessage && (
@@ -828,7 +977,7 @@ export function DonorMapView() {
           className="h-8"
           onClick={activatePolygonMode}
         >
-          <IconPolygon className="mr-1.5 size-4" />
+          <Pentagon className="mr-1.5 size-4" />
           Polygon
         </Button>
         <Button
@@ -838,12 +987,12 @@ export function DonorMapView() {
           className="h-8"
           onClick={activateCircleMode}
         >
-          <IconCircle className="mr-1.5 size-4" />
+          <Circle className="mr-1.5 size-4" />
           Circle
         </Button>
         {(drawMode || selectedByDraw.length > 0) && (
           <Button type="button" variant="ghost" size="sm" className="h-8" onClick={clearDraw}>
-            <IconTrash className="mr-1.5 size-4" />
+            <Trash2 className="mr-1.5 size-4" />
             Clear
           </Button>
         )}
@@ -969,7 +1118,7 @@ export function DonorMapView() {
                       anchor="center"
                     >
                       <div
-                        className="flex items-center justify-center size-7 rounded-full bg-[#007A3F] text-white text-xs font-bold shadow-md border-2 border-white"
+                        className="flex items-center justify-center size-7 rounded-full bg-[#007A3F] text-white text-xs font-bold shadow-sm border-2 border-white"
                         title={d.display_name ?? undefined}
                       >
                         {routeIsOptimized ? i + 1 : ""}
@@ -994,7 +1143,7 @@ export function DonorMapView() {
                         className="flex items-center gap-2 rounded-md border bg-background/95 px-3 py-2 shadow-sm backdrop-blur hover:bg-muted/50"
                         aria-label="Map legend and settings"
                       >
-                        <IconSettings2 className="size-4 text-muted-foreground" />
+                        <Settings2 className="size-4 text-muted-foreground" />
                         <span className="text-xs font-medium text-muted-foreground">
                           Legend &amp; settings
                         </span>
@@ -1082,7 +1231,7 @@ export function DonorMapView() {
                     onClose={() => setSelected(null)}
                     closeButton
                     closeOnClick={false}
-                    className="[&_.mapboxgl-popup-content]:!p-0 [&_.mapboxgl-popup-content]:!bg-background [&_.mapboxgl-popup-content]:!text-foreground [&_.mapboxgl-popup-content]:border [&_.mapboxgl-popup-content]:border-border [&_.mapboxgl-popup-content]:rounded-lg [&_.mapboxgl-popup-content]:shadow-md"
+                    className="[&_.mapboxgl-popup-content]:!p-0 [&_.mapboxgl-popup-content]:!bg-background [&_.mapboxgl-popup-content]:!text-foreground [&_.mapboxgl-popup-content]:border [&_.mapboxgl-popup-content]:border-border [&_.mapboxgl-popup-content]:rounded-lg [&_.mapboxgl-popup-content]:shadow-sm"
                   >
                     <div className="min-w-56 rounded-lg border bg-card p-3 text-card-foreground shadow-sm">
                       <button
@@ -1195,7 +1344,7 @@ export function DonorMapView() {
               disabled={generateReportLoading}
               onClick={handleGenerateReport}
             >
-              <IconFileReport className="mr-2 size-4" />
+              <FileText className="mr-2 size-4" />
               {generateReportLoading ? "Creating…" : "Generate Report"}
             </Button>
           </div>
@@ -1239,8 +1388,8 @@ export function DonorMapView() {
                 <div className="flex items-center gap-3">
                   <Slider
                     min={5}
-                    max={50}
-                    step={1}
+                    max={100}
+                    step={5}
                     value={[routeRadius]}
                     onValueChange={(v) => setRouteRadius(v[0] ?? 15)}
                     className="flex-1"
@@ -1329,6 +1478,28 @@ export function DonorMapView() {
               >
                 {routeOptimizing ? "Optimizing…" : "Optimize Route"}
               </Button>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRouteExportCsv}
+                  disabled={routeDisplayList.length === 0}
+                  title="Download the filtered donors as a CSV file"
+                >
+                  <Download className="mr-1.5 size-4" />
+                  Export CSV
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={openRouteReportDialog}
+                  disabled={routeDisplayList.length === 0}
+                  title="Save this route as a Report in Vantage"
+                >
+                  <FilePlus className="mr-1.5 size-4" />
+                  Save as Report
+                </Button>
+              </div>
               {routeIsOptimized && routeOptimized && (
                 <Button
                   variant="outline"
@@ -1348,6 +1519,57 @@ export function DonorMapView() {
               )}
             </div>
           )}
+
+          <Dialog open={routeReportDialogOpen} onOpenChange={setRouteReportDialogOpen}>
+            <DialogContent className="sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Save as Report</DialogTitle>
+                <DialogDescription>
+                  Save this route as a Report in Vantage. It will appear in your Reports list with a snapshot of the current stops.
+                </DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleSaveRouteReport} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="map-route-report-name">Report name</Label>
+                  <Input
+                    id="map-route-report-name"
+                    placeholder="e.g. Troy, MI — 10 stops"
+                    value={routeReportName}
+                    onChange={(e) => setRouteReportName(e.target.value)}
+                    autoFocus
+                  />
+                  <p className="text-muted-foreground text-xs">
+                    {routeDisplayList.length} stop
+                    {routeDisplayList.length === 1 ? "" : "s"} · {routeRadius}mi radius
+                    {routeIsOptimized ? " · optimized" : ""}
+                  </p>
+                </div>
+                <ReportColumnsPicker
+                  value={routeReportColumns}
+                  onChange={setRouteReportColumns}
+                />
+                <DialogFooter>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setRouteReportDialogOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={
+                      routeReportSaving ||
+                      !routeReportName.trim() ||
+                      routeReportColumns.length === 0
+                    }
+                  >
+                    {routeReportSaving ? "Saving…" : "Save report"}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
         </div>
       )}
       </div>

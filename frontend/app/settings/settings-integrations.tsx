@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { AlertCircle, AlertTriangle, FileSpreadsheet, Link2 } from "lucide-react"
+import { AlertCircle, AlertTriangle, FileSpreadsheet, Link2, Mail } from "lucide-react"
 import { toast } from "sonner"
 
 import { CSVImportWizard } from "@/components/import/csv-import-wizard"
@@ -18,6 +18,7 @@ import {
 import { Spinner } from "@/components/ui/spinner"
 
 type QBStatus = { connected: boolean; realmId?: string }
+type GmailStatus = { connected: boolean; email?: string; needsReauth?: boolean }
 type SyncState =
   | { status: "idle" }
   | { status: "loading" }
@@ -26,9 +27,12 @@ type SyncState =
 
 export function SettingsIntegrations() {
   const [qbStatus, setQbStatus] = React.useState<QBStatus>({ connected: false })
+  const [gmailStatus, setGmailStatus] = React.useState<GmailStatus>({ connected: false })
+  const [gmailDisconnecting, setGmailDisconnecting] = React.useState(false)
   const [syncState, setSyncState] = React.useState<SyncState>({ status: "idle" })
   const searchParams = useSearchParams()
   const qbError = searchParams.get("qb_error")
+  const gmailError = searchParams.get("gmail_error")
 
   const fetchStatus = React.useCallback(async () => {
     try {
@@ -43,9 +47,59 @@ export function SettingsIntegrations() {
     }
   }, [])
 
+  const fetchGmailStatus = React.useCallback(async () => {
+    try {
+      const res = await fetch("/api/gmail/status")
+      const data = (await res.json()) as { connected?: boolean; email?: string; needsReauth?: boolean }
+      setGmailStatus({
+        connected: !!data?.connected,
+        email: data?.email,
+        needsReauth: data?.needsReauth,
+      })
+    } catch {
+      setGmailStatus({ connected: false })
+    }
+  }, [])
+
   React.useEffect(() => {
     fetchStatus()
-  }, [fetchStatus])
+    fetchGmailStatus()
+  }, [fetchStatus, fetchGmailStatus])
+
+  // Toast on Gmail connect/error callback params
+  const gmailToastShown = React.useRef(false)
+  React.useEffect(() => {
+    if (gmailToastShown.current) return
+    if (searchParams.get("gmail") === "connected") {
+      gmailToastShown.current = true
+      toast.success("Gmail connected", {
+        description: "You can now send donor emails from your Gmail account.",
+      })
+      fetchGmailStatus()
+    } else if (gmailError) {
+      gmailToastShown.current = true
+      toast.error("Gmail connection failed", { description: gmailError })
+    }
+  }, [searchParams, gmailError, fetchGmailStatus])
+
+  async function handleGmailDisconnect() {
+    setGmailDisconnecting(true)
+    try {
+      const res = await fetch("/api/gmail/disconnect", { method: "POST" })
+      if (!res.ok) {
+        const text = await res.text()
+        toast.error("Failed to disconnect Gmail", { description: text })
+        return
+      }
+      setGmailStatus({ connected: false })
+      toast.success("Gmail disconnected")
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Disconnect failed"
+      toast.error("Failed to disconnect Gmail", { description: msg })
+    } finally {
+      setGmailDisconnecting(false)
+    }
+  }
 
   // Handle QB OAuth callback params: show toast and auto-trigger full sync
   const autoSyncTriggered = React.useRef(false)
@@ -231,6 +285,82 @@ export function SettingsIntegrations() {
               </pre>
             </details>
           )}
+        </CardContent>
+      </Card>
+
+      <Card className="max-w-2xl">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Mail className="size-5" strokeWidth={1.5} />
+            Gmail
+          </CardTitle>
+          <CardDescription>
+            Send donor emails from your own Gmail account so replies return to your inbox and recipients see your ministry as the sender.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground">
+            Vantage can <strong>send email as you</strong>. Vantage cannot read, delete, or search your inbox.
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="flex size-10 items-center justify-center rounded-lg bg-muted font-semibold text-sm">
+                <Mail className="size-5" strokeWidth={1.5} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">Gmail</span>
+                  {gmailStatus.needsReauth ? (
+                    <span className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+                      <span className="size-2 rounded-full bg-amber-500" />
+                      Reconnect required
+                    </span>
+                  ) : (
+                    <span
+                      className={gmailStatus.connected ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}
+                    >
+                      <span className="inline-flex items-center gap-1.5">
+                        <span
+                          className={`size-2 rounded-full ${
+                            gmailStatus.connected ? "bg-emerald-500" : "bg-gray-400 dark:bg-gray-500"
+                          }`}
+                        />
+                        {gmailStatus.connected ? "Connected" : "Not connected"}
+                      </span>
+                    </span>
+                  )}
+                </div>
+                {gmailStatus.connected && gmailStatus.email && (
+                  <p className="text-xs text-muted-foreground mt-0.5">{gmailStatus.email}</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            {gmailStatus.connected && !gmailStatus.needsReauth ? (
+              <Button
+                variant="outline"
+                onClick={handleGmailDisconnect}
+                disabled={gmailDisconnecting}
+              >
+                {gmailDisconnecting ? (
+                  <>
+                    <Spinner className="mr-2 size-4" />
+                    Disconnecting…
+                  </>
+                ) : (
+                  "Disconnect"
+                )}
+              </Button>
+            ) : (
+              <Button asChild>
+                <Link href="/api/gmail/auth">
+                  {gmailStatus.needsReauth ? "Reconnect Gmail" : "Connect Gmail"}
+                </Link>
+              </Button>
+            )}
+          </div>
         </CardContent>
       </Card>
 

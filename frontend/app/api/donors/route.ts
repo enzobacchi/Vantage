@@ -20,7 +20,29 @@ export type DonorListItem = {
   state: string | null;
   notes: string | null;
   tags: DonorTag[];
+  assigned_to: string | null;
 };
+
+const UNASSIGNED = "unassigned";
+
+function parseAssigneeFilter(raw: string | null): {
+  userIds: string[];
+  includeUnassigned: boolean;
+} | null {
+  if (!raw) return null;
+  const parts = raw.split(",").map((s) => s.trim()).filter(Boolean);
+  if (parts.length === 0) return null;
+  const userIds: string[] = [];
+  let includeUnassigned = false;
+  for (const p of parts) {
+    if (p === UNASSIGNED || p === "__unassigned__") {
+      includeUnassigned = true;
+    } else {
+      userIds.push(p);
+    }
+  }
+  return { userIds, includeUnassigned };
+}
 
 /** Valid sort options accepted via ?sort= query param. */
 type SortOption = "recent" | "highest" | "lowest" | "lifetime_highest" | "lifetime_lowest";
@@ -108,6 +130,7 @@ export async function GET(request: Request) {
   const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 200) : 50;
   const searchQuery = searchParams.get("search")?.trim() ?? "";
   const sortParam = (searchParams.get("sort")?.trim() ?? "lifetime_highest") as SortOption;
+  const assigneeFilter = parseAssigneeFilter(searchParams.get("assignedTo"));
 
   const supabase = createAdminClient();
 
@@ -155,12 +178,24 @@ export async function GET(request: Request) {
     }
 
     // Step 2: Fetch donor details and extras in parallel
+    let donorsQueryInRange = supabase
+      .from("donors")
+      .select("id, display_name, email, total_lifetime_value, last_donation_amount, last_donation_date, billing_address, state, notes, assigned_to")
+      .in("id", donorIdsInRange)
+      .eq("org_id", auth.orgId);
+    if (assigneeFilter) {
+      const clauses: string[] = [];
+      if (assigneeFilter.userIds.length > 0) {
+        clauses.push(`assigned_to.in.(${assigneeFilter.userIds.join(",")})`);
+      }
+      if (assigneeFilter.includeUnassigned) clauses.push("assigned_to.is.null");
+      if (clauses.length === 0) {
+        return NextResponse.json({ donors: [] as DonorListItem[], total: 0 } satisfies DonorListResponse);
+      }
+      donorsQueryInRange = donorsQueryInRange.or(clauses.join(","));
+    }
     const [donorsRes, extras] = await Promise.all([
-      supabase
-        .from("donors")
-        .select("id, display_name, email, total_lifetime_value, last_donation_amount, last_donation_date, billing_address, state, notes")
-        .in("id", donorIdsInRange)
-        .eq("org_id", auth.orgId),
+      donorsQueryInRange,
       fetchDonorExtras(supabase, donorIdsInRange),
     ]);
 
@@ -248,6 +283,17 @@ export async function GET(request: Request) {
     .eq("org_id", auth.orgId);
   if (tagFilteredIds) countQuery = countQuery.in("id", tagFilteredIds);
   if (searchQuery) countQuery = countQuery.ilike("display_name", `%${searchQuery}%`);
+  if (assigneeFilter) {
+    const clauses: string[] = [];
+    if (assigneeFilter.userIds.length > 0) {
+      clauses.push(`assigned_to.in.(${assigneeFilter.userIds.join(",")})`);
+    }
+    if (assigneeFilter.includeUnassigned) clauses.push("assigned_to.is.null");
+    if (clauses.length === 0) {
+      return NextResponse.json({ donors: [] as DonorListItem[], total: 0 } satisfies DonorListResponse);
+    }
+    countQuery = countQuery.or(clauses.join(","));
+  }
   const { count: totalCount } = await countQuery;
   const total = totalCount ?? 0;
 
@@ -272,19 +318,28 @@ export async function GET(request: Request) {
   // Data query with offset pagination
   let query = supabase
     .from("donors")
-    .select("id, display_name, email, total_lifetime_value, last_donation_amount, last_donation_date, billing_address, state, notes")
+    .select("id, display_name, email, total_lifetime_value, last_donation_amount, last_donation_date, billing_address, state, notes, assigned_to")
     .eq("org_id", auth.orgId)
     .order(orderColumn, { ascending, nullsFirst: false })
     .range(page * limit, page * limit + limit - 1);
 
   if (tagFilteredIds) query = query.in("id", tagFilteredIds);
   if (searchQuery) query = query.ilike("display_name", `%${searchQuery}%`);
+  if (assigneeFilter) {
+    const clauses: string[] = [];
+    if (assigneeFilter.userIds.length > 0) {
+      clauses.push(`assigned_to.in.(${assigneeFilter.userIds.join(",")})`);
+    }
+    if (assigneeFilter.includeUnassigned) clauses.push("assigned_to.is.null");
+    if (clauses.length > 0) query = query.or(clauses.join(","));
+  }
 
   const { data: donors, error } = await query;
 
   if (error) {
+    console.error("[donors] GET:", error.message);
     return NextResponse.json(
-      { error: "Failed to load donors.", details: error.message },
+      { error: "Failed to load donors." },
       { status: 500 }
     );
   }
@@ -350,7 +405,8 @@ export async function POST(request: Request) {
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[donors] POST:", error.message);
+    return NextResponse.json({ error: "Failed to create donor." }, { status: 500 });
   }
 
   return NextResponse.json({ id: data.id }, { status: 201 });

@@ -67,7 +67,7 @@ Key tables: `organizations`, `organization_members`, `donors`, `donations`, `don
 
 RLS is enabled but the admin client bypasses it — **always scope queries manually by `org_id`**.
 
-Generated TypeScript types: `frontend/types/database.ts` — update this when schema changes.
+Generated TypeScript types: `frontend/types/database.ts` — regenerate via the Supabase MCP tool `mcp__supabase__generate_typescript_types` (project: `Vantage`) after any schema change, then re-append the hand-written tail block of aliases and string-literal unions (`Interaction`, `Donation`, `OrgDonationOption`, `PaymentMethod`, `DonorType`, `ReceiptTemplateCategory`, `SubscriptionPlan`, `SubscriptionStatus`, `UsageMetric`, `Subscription`, `SubscriptionUsage`, `AuditLog`, `NotificationPreferences`, `DonorMergeHistory`) — the generator can't reproduce the narrow unions because the underlying DB columns are typed `text`, not Postgres enums.
 
 ### Authentication
 

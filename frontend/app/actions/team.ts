@@ -62,6 +62,22 @@ function canManageTeam(role: string): boolean {
   return role === "owner" || role === "admin"
 }
 
+export type OrgAssignee = {
+  user_id: string
+  name: string
+  email: string
+}
+
+/**
+ * Minimal list of users in the current org for assignee pickers (donor
+ * "Assigned To", bulk assign, map filter, etc.). Same resolution rules as
+ * getOrganizationMembers but without role/membership metadata.
+ */
+export async function getOrgAssignees(): Promise<OrgAssignee[]> {
+  const members = await getOrganizationMembers()
+  return members.map((m) => ({ user_id: m.user_id, name: m.name, email: m.email }))
+}
+
 export async function createInvitation(
   email: string,
   role: "admin" | "member"

@@ -1,15 +1,26 @@
 import { NextResponse } from "next/server"
-import { Resend } from "resend"
 import { requireUserOrg } from "@/lib/auth"
 import { createAdminClient } from "@/lib/supabase/admin"
+import {
+  GmailNeedsReauthError,
+  GmailNotConnectedError,
+  sendGmailMessage,
+} from "@/lib/gmail/send"
 
-const FROM_EMAIL = "Vantage <notifications@vantagedonorai.com>"
-const HOURLY_LIMIT = 10
+export const runtime = "nodejs"
+
+const HOURLY_LIMIT = 50
 
 type Recipient = {
   donorId: string
   donorEmail: string
   donorName?: string | null
+}
+
+type FailedRecipient = {
+  donorId: string
+  donorEmail: string
+  error: string
 }
 
 export async function POST(request: Request) {
@@ -39,12 +50,12 @@ export async function POST(request: Request) {
 
   const supabase = createAdminClient()
 
-  // Check rate limit
+  // Per-user rate limit
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
   const { count: usedCount, error: rlError } = await supabase
     .from("email_send_log")
     .select("id", { count: "exact", head: true })
-    .eq("org_id", auth.orgId)
+    .eq("user_id", auth.userId)
     .gte("sent_at", oneHourAgo)
 
   if (rlError) {
@@ -56,7 +67,7 @@ export async function POST(request: Request) {
   if (recipients.length > remaining) {
     return NextResponse.json(
       {
-        error: `Rate limit: you can send ${remaining} more email${remaining === 1 ? "" : "s"} this hour (${HOURLY_LIMIT}/hr limit). You selected ${recipients.length} recipients.`,
+        error: `Rate limit: you can send ${remaining} more email${remaining === 1 ? "" : "s"} this hour (${HOURLY_LIMIT}/hr per user). You selected ${recipients.length} recipients.`,
         code: "RATE_LIMIT_EXCEEDED",
       },
       { status: 429 }
@@ -77,17 +88,8 @@ export async function POST(request: Request) {
 
   const validIds = new Set((validDonors ?? []).map((d) => d.id))
 
-  const apiKey = process.env.RESEND_API_KEY
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: "Email sending is not configured (RESEND_API_KEY)" },
-      { status: 503 }
-    )
-  }
-
-  const resend = new Resend(apiKey)
   let sent = 0
-  let failed = 0
+  const failed: FailedRecipient[] = []
   let skipped = 0
 
   for (const recipient of recipients) {
@@ -100,32 +102,30 @@ export async function POST(request: Request) {
       continue
     }
 
-    // Resolve template variables per donor
     const personalizedMessage = message
       .replace(/\{\{donor_name\}\}/g, recipient.donorName ?? "")
       .replace(/\{\{date\}\}/g, new Date().toLocaleDateString())
     const personalizedSubject = subject
       .replace(/\{\{donor_name\}\}/g, recipient.donorName ?? "")
       .replace(/\{\{date\}\}/g, new Date().toLocaleDateString())
+    const html = `<p>${personalizedMessage
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\n/g, "<br>")}</p>`
 
     try {
-      const { error: sendError } = await resend.emails.send({
-        from: FROM_EMAIL,
+      await sendGmailMessage({
+        userId: auth.userId,
+        orgId: auth.orgId,
         to: recipient.donorEmail.trim(),
         subject: personalizedSubject.trim(),
-        html: `<p>${personalizedMessage.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>")}</p>`,
+        html,
       })
 
-      if (sendError) {
-        console.error(`[email/bulk-send] Failed for ${recipient.donorEmail}:`, sendError.message)
-        failed++
-        continue
-      }
-
-      // Log for rate limiting and interaction tracking
       await Promise.all([
         supabase.from("email_send_log").insert({
           org_id: auth.orgId,
+          user_id: auth.userId,
           sent_at: new Date().toISOString(),
         }),
         supabase.from("interactions").insert({
@@ -140,8 +140,35 @@ export async function POST(request: Request) {
 
       sent++
     } catch (err) {
-      console.error(`[email/bulk-send] Unexpected error for ${recipient.donorEmail}:`, err)
-      failed++
+      // If Gmail isn't connected at all, no point continuing the batch.
+      if (err instanceof GmailNotConnectedError) {
+        return NextResponse.json(
+          {
+            error: "Connect Gmail to send email as your ministry.",
+            code: "gmail_not_connected",
+          },
+          { status: 412 }
+        )
+      }
+      if (err instanceof GmailNeedsReauthError) {
+        return NextResponse.json(
+          {
+            error: "Gmail access expired. Please reconnect.",
+            code: "gmail_needs_reauth",
+          },
+          { status: 412 }
+        )
+      }
+      const errMsg = err instanceof Error ? err.message : "Unknown error"
+      console.error(
+        `[email/bulk-send] Failed for ${recipient.donorEmail}:`,
+        errMsg
+      )
+      failed.push({
+        donorId: recipient.donorId,
+        donorEmail: recipient.donorEmail,
+        error: errMsg.slice(0, 200),
+      })
     }
   }
 

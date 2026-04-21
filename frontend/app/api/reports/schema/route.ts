@@ -41,7 +41,7 @@ export async function GET() {
   for (const col of candidates) {
     const { error } = await savedReportsQuery(supabase, orgId).select(col).limit(1);
     if (!error) exists.push(col);
-    else missing.push({ col, error: error.message });
+    else missing.push({ col, error: "Column not accessible" });
   }
 
   // Also check if selecting a typical projection works (helps confirm table access).

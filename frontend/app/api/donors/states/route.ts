@@ -25,8 +25,9 @@ export async function GET() {
       .order("state", { ascending: true });
 
     if (error) {
+      console.error("[donors/states]", error.message);
       return NextResponse.json(
-        { error: "Failed to load states.", details: error.message },
+        { error: "Failed to load states." },
         { status: 500 }
       );
     }

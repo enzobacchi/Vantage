@@ -4,12 +4,32 @@ import { z } from "zod"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getDonorLifecycleStatus } from "@/lib/donor-lifecycle"
 import { computeDonorHealthScore } from "@/lib/donor-score"
+import { recalcDonorTotals } from "@/lib/recalc-donor-totals"
 import { isLimitExceeded } from "@/lib/subscription"
+import {
+  DEFAULT_AI_COLUMNS,
+  filtersArraySchema,
+  type ValidatedFilterRow,
+} from "@/lib/reports/filter-schema"
+import {
+  EmptyResultError,
+  REPORT_COLUMN_CONFIG,
+  csvCell,
+  mapRowToOutputColumns,
+  runFilterQuery,
+  type FilterRow,
+} from "@/lib/reports/run-filter-query"
 
-export function buildTools(orgId: string) {
+import type { ChatPIIRedactor } from "./pii-redactor"
+
+export function buildTools(
+  orgId: string,
+  userId: string,
+  redactor?: ChatPIIRedactor
+) {
   const supabase = createAdminClient()
 
-  return {
+  const rawTools = {
     search_donors: tool({
       description:
         "Search and list donors. Use this for questions like 'who are my top donors', 'show me donors', 'list donors'. Returns donor profiles with IDs, names, lifetime giving, location, and lifecycle status. Results are sorted by lifetime giving (highest first) by default.",
@@ -112,9 +132,10 @@ export function buildTools(orgId: string) {
       execute: async ({ donor_id }) => {
         const [donorRes, donationsRes, interactionsRes, tagsRes, oppsRes] =
           await Promise.all([
+            // Only select fields needed for the summary — never fetch email/phone/address
             supabase
               .from("donors")
-              .select("*")
+              .select("id,display_name,donor_type,city,state,total_lifetime_value,last_donation_date,last_donation_amount,notes")
               .eq("id", donor_id)
               .eq("org_id", orgId)
               .single(),
@@ -524,24 +545,7 @@ export function buildTools(orgId: string) {
         }
 
         // Recalculate donor totals
-        const { data: allDonations } = await supabase
-          .from("donations")
-          .select("amount,date")
-          .eq("donor_id", donor_id)
-          .order("date", { ascending: false })
-
-        const rows = (allDonations ?? []) as { amount: number; date: string }[]
-        const total = rows.reduce((sum, r) => sum + Number(r.amount || 0), 0)
-        const last = rows[0]
-
-        await supabase
-          .from("donors")
-          .update({
-            total_lifetime_value: total,
-            last_donation_date: last?.date ?? null,
-            last_donation_amount: last?.amount ?? null,
-          })
-          .eq("id", donor_id)
+        await recalcDonorTotals(supabase, donor_id)
 
         return {
           success: true,
@@ -812,5 +816,232 @@ export function buildTools(orgId: string) {
         }
       },
     }),
+
+    create_custom_report: tool({
+      description:
+        "Build AND save a custom donor report to the Reports tab in one step. " +
+        "Use this whenever the user asks to generate, build, create, or save a " +
+        "report — do NOT wait for confirmation, the UI renders a Saved Report " +
+        "card with an Open link. Use for any 'show me / list / find donors who…' " +
+        "question whose criteria exceed search_donors — multi-temporal patterns " +
+        "(retention/recapture/reactivation), multiple AND'd conditions on " +
+        "different dimensions, etc. " +
+        "If the user's request CANNOT be expressed in the supported filter " +
+        "schema, pass filters: [] — the tool returns { error: 'unreliable_query' }.",
+      inputSchema: z.object({
+        title: z
+          .string()
+          .min(3)
+          .max(120)
+          .describe("Short title for the report (e.g. 'Recaptured donors 2026')"),
+        summary: z
+          .string()
+          .max(300)
+          .optional()
+          .describe("One-sentence description of what this report finds"),
+        filters: z
+          .array(
+            z.object({
+              field: z.string(),
+              operator: z.string(),
+              value: z.union([z.string(), z.number(), z.array(z.string())]),
+              value2: z.union([z.string(), z.number()]).optional(),
+            })
+          )
+          .max(12)
+          .describe(
+            "Array of filter rows. Empty array signals you cannot reliably build the query."
+          ),
+        selectedColumns: z
+          .array(z.string())
+          .optional()
+          .describe(
+            "Column ids to include. Defaults to first_name, last_name, email, lifetime_value, last_gift_date."
+          ),
+        visibility: z
+          .enum(["private", "shared"])
+          .optional()
+          .describe("Default: private. Use 'shared' if the user wants the team to see it."),
+      }),
+      execute: async ({ title, summary, filters, selectedColumns, visibility }) => {
+        if (!filters || filters.length === 0) {
+          console.log("[create_custom_report]", {
+            branch: "unreliable_query",
+            reason: "no_filters_provided",
+            title,
+          })
+          return { error: "unreliable_query", reason: "no_filters_provided" }
+        }
+
+        const validated = filtersArraySchema.safeParse(filters)
+        if (!validated.success) {
+          console.log("[create_custom_report]", {
+            branch: "unreliable_query",
+            reason: "validation_failed",
+            title,
+          })
+          return {
+            error: "unreliable_query",
+            reason: "validation_failed",
+            details: validated.error.format(),
+          }
+        }
+
+        const cols =
+          selectedColumns && selectedColumns.length > 0
+            ? selectedColumns.filter((c) => REPORT_COLUMN_CONFIG[c])
+            : DEFAULT_AI_COLUMNS
+        const finalCols = cols.length > 0 ? cols : DEFAULT_AI_COLUMNS
+
+        const validatedFilters = validated.data as ValidatedFilterRow[]
+        const filtersForQuery: FilterRow[] = validatedFilters.map((f) => ({
+          id: f.id,
+          field: f.field,
+          operator: f.operator,
+          value: f.value,
+          value2: f.value2,
+        }))
+
+        let result
+        try {
+          result = await runFilterQuery({
+            orgId,
+            filters: filtersForQuery,
+            selectedColumns: finalCols,
+            allowEmpty: true,
+          })
+        } catch (e) {
+          if (e instanceof EmptyResultError) {
+            result = { rows: [], rowCount: 0, emptyByPrefilter: true }
+          } else {
+            const details = e instanceof Error ? e.message : String(e)
+            console.log("[create_custom_report]", {
+              branch: "unreliable_query",
+              reason: "query_execution_failed",
+              title,
+              details,
+            })
+            return {
+              error: "unreliable_query",
+              reason: "query_execution_failed",
+              details,
+            }
+          }
+        }
+
+        if (result.rowCount === 0) {
+          console.log("[create_custom_report]", { branch: "ok_zero", title })
+          return {
+            ok: true,
+            saved: false,
+            report: {
+              title,
+              summary: summary ?? "",
+              filters: validatedFilters,
+              selectedColumns: finalCols,
+              rowCount: 0,
+            },
+          }
+        }
+
+        const headerLabels = finalCols.map(
+          (id) => REPORT_COLUMN_CONFIG[id]?.label ?? id
+        )
+        const outputRows = result.rows.map((r) => mapRowToOutputColumns(r, finalCols))
+        const csv = [
+          headerLabels.map(csvCell).join(","),
+          ...outputRows.map((row) =>
+            finalCols.map((id) => csvCell(row[id])).join(",")
+          ),
+        ].join("\n")
+
+        const filterCriteria = {
+          type: "CSV",
+          content: csv,
+          summary: summary ?? "",
+          row_count: result.rowCount,
+          bytes: Buffer.byteLength(csv, "utf8"),
+          reportSource: "ai_chat" as const,
+          filters: validatedFilters,
+          selectedColumns: finalCols,
+          visibility: visibility ?? "private",
+        }
+
+        const { data: inserted, error: insertError } = await supabase
+          .from("saved_reports")
+          .insert({
+            organization_id: orgId,
+            title,
+            type: "CSV",
+            content: csv,
+            query: "",
+            summary: summary ?? "",
+            records_count: result.rowCount,
+            visibility: visibility ?? "private",
+            created_by_user_id: userId,
+            filter_criteria: filterCriteria,
+          })
+          .select("id")
+          .single()
+
+        if (insertError || !inserted?.id) {
+          console.error("[create_custom_report] insert failed", {
+            orgId,
+            title,
+            error: insertError?.message,
+            code: insertError?.code,
+          })
+          console.log("[create_custom_report]", {
+            branch: "save_failed",
+            title,
+            reason: insertError?.message ?? "unknown_error",
+          })
+          return {
+            error: "save_failed",
+            reason: insertError?.message ?? "unknown_error",
+          }
+        }
+
+        console.log("[create_custom_report]", {
+          branch: "ok_saved",
+          title,
+          rowCount: result.rowCount,
+          id: inserted.id,
+        })
+        return {
+          ok: true,
+          saved: true,
+          report: {
+            id: String(inserted.id),
+            title,
+            summary: summary ?? "",
+            filters: validatedFilters,
+            selectedColumns: finalCols,
+            columnLabels: headerLabels,
+            rowCount: result.rowCount,
+            url: `/dashboard?view=saved-reports&reportId=${inserted.id}`,
+          },
+        }
+      },
+    }),
   }
+
+  if (!redactor) return rawTools
+
+  // Wrap each tool's execute to redact PII from results before the LLM sees them.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const wrapped: Record<string, any> = {}
+  for (const [name, t] of Object.entries(rawTools)) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const orig = t as any
+    wrapped[name] = {
+      ...orig,
+      execute: async (...args: unknown[]) => {
+        const result = await orig.execute(...args)
+        return redactor.redactToolResult(result)
+      },
+    }
+  }
+
+  return wrapped as typeof rawTools
 }

@@ -4,15 +4,15 @@ import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
-  IconDotsVertical,
-  IconLogout,
-  IconMessageCircle,
-  IconMoon,
-  IconNotification,
-  IconSearch,
-  IconSun,
-  IconUserCircle,
-} from "@tabler/icons-react"
+  EllipsisVertical,
+  LogOut,
+  MessageCircle,
+  Moon,
+  Bell,
+  Search,
+  Sun,
+  CircleUser,
+} from "lucide-react"
 import { useTheme } from "next-themes"
 import { toast } from "sonner"
 
@@ -146,7 +146,7 @@ export function AppHeader() {
           className="h-9 w-52 justify-start text-muted-foreground bg-muted/30 border-border/60 shadow-none text-sm font-normal"
           onClick={() => openCommandMenu(true)}
         >
-          <IconSearch className="mr-2 size-4 shrink-0" />
+          <Search className="mr-2 size-4 shrink-0" />
           <span className="flex-1 text-left">Search...</span>
           <kbd className="pointer-events-none hidden h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium sm:flex">
             <span className="text-xs">⌘</span>K
@@ -196,7 +196,7 @@ export function AppHeader() {
               onClick={() => setTheme(isDark ? "light" : "dark")}
               aria-label="Toggle theme"
             >
-              {isDark ? <IconSun className="size-4" /> : <IconMoon className="size-4" />}
+              {isDark ? <Sun className="size-4" /> : <Moon className="size-4" />}
             </Button>
           </TooltipTrigger>
           <TooltipContent side="bottom">
@@ -215,7 +215,7 @@ export function AppHeader() {
               <span className="hidden sm:block text-sm font-medium max-w-32 truncate">
                 {loading ? "…" : user.name}
               </span>
-              <IconDotsVertical className="size-4 text-muted-foreground shrink-0" />
+              <EllipsisVertical className="size-4 text-muted-foreground shrink-0" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="min-w-56 rounded-lg" sideOffset={4}>
@@ -234,21 +234,21 @@ export function AppHeader() {
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <DropdownMenuItem onClick={() => setProfileOpen(true)}>
-                <IconUserCircle />
+                <CircleUser />
                 My Profile
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setActiveView("settings")}>
-                <IconNotification />
+                <Bell />
                 Notifications
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setFeedbackOpen(true)}>
-                <IconMessageCircle />
+                <MessageCircle />
                 Help & Feedback
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleLogout}>
-              <IconLogout />
+              <LogOut />
               Log out
             </DropdownMenuItem>
           </DropdownMenuContent>

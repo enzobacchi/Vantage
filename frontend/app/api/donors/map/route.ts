@@ -49,6 +49,7 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get("status") ?? undefined;
     const minGivingParam = searchParams.get("minGiving");
     const maxGivingParam = searchParams.get("maxGiving");
+    const assignedTo = searchParams.get("assignedTo")?.trim() || null;
 
     const minGiving =
       minGivingParam !== null && minGivingParam !== ""
@@ -80,6 +81,12 @@ export async function GET(request: NextRequest) {
     }
     if (maxGiving !== undefined && Number.isFinite(maxGiving)) {
       query = query.lte("total_lifetime_value", maxGiving);
+    }
+
+    if (assignedTo === "unassigned") {
+      query = query.is("assigned_to", null);
+    } else if (assignedTo) {
+      query = query.eq("assigned_to", assignedTo);
     }
 
     const data = await fetchAllDonorsWithCoords(query);

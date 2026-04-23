@@ -47,7 +47,7 @@ export function DashboardView() {
         {prefs.show_smart_actions && prefs.show_donations_chart && (
           <section className="grid gap-4 px-4 lg:grid-cols-3 lg:px-6">
             <DailyInsights />
-            <div className="lg:col-span-2">
+            <div className="lg:col-span-2 h-full">
               <ChartBarDonations />
             </div>
           </section>

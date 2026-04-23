@@ -50,7 +50,7 @@ export function DailyInsights() {
     return () => { cancelled = true }
   }, [])
 
-  const cardClass = "bg-gradient-to-t from-primary/5 to-card shadow-xs dark:bg-card"
+  const cardClass = "bg-gradient-to-t from-primary/5 to-card shadow-xs dark:bg-card h-full"
 
   if (loading) {
     return (

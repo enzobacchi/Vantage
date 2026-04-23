@@ -79,7 +79,7 @@ export function ChartBarDonations() {
   }, [])
 
   return (
-    <Card className="bg-gradient-to-t from-primary/5 to-card shadow-xs">
+    <Card className="bg-gradient-to-t from-primary/5 to-card shadow-xs h-full">
       <CardHeader>
         <CardTitle>Revenue Trend</CardTitle>
         <CardDescription>

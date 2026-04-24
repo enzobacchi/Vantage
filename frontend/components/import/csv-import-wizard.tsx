@@ -267,10 +267,16 @@ export function CSVImportWizard() {
 
       const res = await importDonorsFromCSV(importRows)
       setResult(res)
-      toast.success(
-        `Imported ${res.donorsCreated + res.donorsUpdated} donors` +
-          (res.donationsCreated ? ` and ${res.donationsCreated} donations` : "")
-      )
+      const imported = res.donorsCreated + res.donorsUpdated
+      const donationsSuffix = res.donationsCreated ? ` and ${res.donationsCreated} donations` : ""
+      if (res.capReached && res.donorsSkipped > 0) {
+        toast.warning(
+          `Imported ${imported} donors${donationsSuffix}. ${res.donorsSkipped} skipped — you've hit your plan's ${res.planMaxDonors.toLocaleString()} donor limit. Upgrade to import the rest.`,
+          { duration: 10_000 }
+        )
+      } else {
+        toast.success(`Imported ${imported} donors${donationsSuffix}`)
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Import failed")
     } finally {
@@ -587,6 +593,20 @@ function ImportResults({
           <StatCard label="Donors Updated" value={result.donorsUpdated} />
           <StatCard label="Donations Created" value={result.donationsCreated} />
         </div>
+
+        {result.capReached && result.donorsSkipped > 0 && (
+          <Alert>
+            <AlertCircle className="size-4" strokeWidth={1.5} />
+            <AlertDescription>
+              <strong>{result.donorsSkipped.toLocaleString()} donors skipped.</strong>{" "}
+              Your plan is capped at {result.planMaxDonors.toLocaleString()} donors.{" "}
+              <a href="/settings?tab=billing" className="underline">
+                Upgrade
+              </a>{" "}
+              to import the rest.
+            </AlertDescription>
+          </Alert>
+        )}
 
         {result.errors.length > 0 && (
           <Alert variant="destructive">

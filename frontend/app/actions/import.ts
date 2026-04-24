@@ -6,7 +6,7 @@ import { getCurrentUserOrg } from "@/lib/auth";
 import { geocodeAddress } from "@/lib/geocode";
 import { recalcDonorTotals } from "@/lib/recalc-donor-totals";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getOrgSubscription, PLANS } from "@/lib/subscription";
+import { ABSOLUTE_DONOR_CEILING, getOrgSubscription, resolveTrialLimits } from "@/lib/subscription";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -33,6 +33,9 @@ export type ImportResult = {
   donorsCreated: number;
   donorsUpdated: number;
   donationsCreated: number;
+  donorsSkipped: number;
+  capReached: boolean;
+  planMaxDonors: number;
   errors: Array<{ row: number; message: string }>;
 };
 
@@ -64,6 +67,9 @@ export async function importDonorsFromCSV(
     donorsCreated: 0,
     donorsUpdated: 0,
     donationsCreated: 0,
+    donorsSkipped: 0,
+    capReached: false,
+    planMaxDonors: 0,
     errors: [],
   };
 
@@ -85,12 +91,14 @@ export async function importDonorsFromCSV(
     }
   }
 
-  // Enforce donor limit — calculate how many new donors can still be created
+  // Enforce donor limit — calculate how many new donors can still be created.
+  // Trial-tier aware via resolveTrialLimits. Even Pro caps at ABSOLUTE_DONOR_CEILING.
   const sub = await getOrgSubscription(orgId);
-  const plan = PLANS[sub.planId];
+  const plan = resolveTrialLimits(sub.planId, sub.trialTier);
   const currentDonorCount = existingDonors?.length ?? 0;
-  const donorSlotsRemaining =
-    plan.maxDonors === 0 ? Infinity : Math.max(0, plan.maxDonors - currentDonorCount);
+  const effectiveCap = plan.maxDonors === 0 ? ABSOLUTE_DONOR_CEILING : Math.min(plan.maxDonors, ABSOLUTE_DONOR_CEILING);
+  const donorSlotsRemaining = Math.max(0, effectiveCap - currentDonorCount);
+  result.planMaxDonors = effectiveCap;
   let newDonorsCreated = 0;
 
   const geocodeCache = new Map<string, { lat: number; lng: number } | null>();
@@ -175,10 +183,8 @@ export async function importDonorsFromCSV(
     } else {
       // Enforce donor limit before creating
       if (newDonorsCreated >= donorSlotsRemaining) {
-        result.errors.push({
-          row: i + 1,
-          message: "Donor limit reached. Upgrade your plan to import more donors.",
-        });
+        result.donorsSkipped++;
+        result.capReached = true;
         continue;
       }
 

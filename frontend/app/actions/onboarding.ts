@@ -37,3 +37,21 @@ export async function completeOnboarding(): Promise<{ success: boolean; error?: 
   if (error) return { success: false, error: error.message }
   return { success: true }
 }
+
+/**
+ * Reset onboarding so the wizard re-appears on next dashboard load.
+ * Used by the "Re-open tour" affordance in settings.
+ */
+export async function resetOnboarding(): Promise<{ success: boolean; error?: string }> {
+  const org = await getCurrentUserOrg()
+  if (!org) return { success: false, error: "Unauthorized" }
+
+  const supabase = createAdminClient()
+  const { error } = await supabase
+    .from("organizations")
+    .update({ onboarding_completed_at: null })
+    .eq("id", org.orgId)
+
+  if (error) return { success: false, error: error.message }
+  return { success: true }
+}

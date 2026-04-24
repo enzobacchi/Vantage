@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { requireUserOrg } from "@/lib/auth"
-import { getOrgSubscription, PLANS } from "@/lib/subscription"
+import { getOrgSubscription, resolveTrialLimits } from "@/lib/subscription"
 import { createAdminClient } from "@/lib/supabase/admin"
 
 /**
@@ -12,14 +12,14 @@ export async function GET() {
   if (!auth.ok) return auth.response
 
   const sub = await getOrgSubscription(auth.orgId)
-  const plan = PLANS[sub.planId]
+  const plan = resolveTrialLimits(sub.planId, sub.trialTier)
 
   // Get current usage counts
   const admin = createAdminClient()
   const now = new Date()
   const periodStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
 
-  const [donorCount, aiUsage] = await Promise.all([
+  const [donorCount, aiUsage, chatUsage] = await Promise.all([
     admin
       .from("donors")
       .select("id", { count: "exact", head: true })
@@ -30,6 +30,14 @@ export async function GET() {
       .select("count")
       .eq("org_id", auth.orgId)
       .eq("metric", "ai_insights")
+      .gte("period_start", periodStart)
+      .single()
+      .then((r) => r.data?.count ?? 0),
+    admin
+      .from("subscription_usage")
+      .select("count")
+      .eq("org_id", auth.orgId)
+      .eq("metric", "chat_messages")
       .gte("period_start", periodStart)
       .single()
       .then((r) => r.data?.count ?? 0),
@@ -45,6 +53,7 @@ export async function GET() {
   return NextResponse.json({
     subscription: {
       planId: sub.planId,
+      trialTier: sub.trialTier,
       planName: plan.name,
       status: sub.status,
       trialEndsAt: sub.trialEndsAt,
@@ -54,10 +63,12 @@ export async function GET() {
     limits: {
       maxDonors: plan.maxDonors,
       maxAiInsightsPerMonth: plan.maxAiInsightsPerMonth,
+      maxChatMessagesPerMonth: plan.maxChatMessagesPerMonth,
     },
     usage: {
       donors: donorCount,
       aiInsights: aiUsage,
+      chatMessages: chatUsage,
     },
     plan: {
       name: plan.name,

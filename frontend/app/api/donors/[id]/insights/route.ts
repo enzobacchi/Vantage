@@ -5,7 +5,7 @@ import { requireUserOrg } from "@/lib/auth"
 import { redactPII, unredactPII, type PIIValues } from "@/lib/pii-redaction"
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { isLimitExceeded, incrementUsage, getOrgSubscription, PLANS } from "@/lib/subscription"
+import { isLimitExceeded, incrementUsage, getOrgSubscription, resolveTrialLimits } from "@/lib/subscription"
 
 export async function GET(
   _req: NextRequest,
@@ -25,7 +25,7 @@ export async function GET(
   const limitHit = await isLimitExceeded(orgId, "ai_insights")
   if (limitHit) {
     const sub = await getOrgSubscription(orgId)
-    const plan = PLANS[sub.planId]
+    const plan = resolveTrialLimits(sub.planId, sub.trialTier)
     return NextResponse.json(
       {
         error: "AI insight limit reached",
@@ -148,6 +148,15 @@ Rules:
 - Next steps should be concrete actions a fundraiser can take this week.
 - Return ONLY valid JSON, no markdown fences.`
 
+  // Defense-in-depth: each nested field is already individually redacted above,
+  // but wrap the full serialized payload once more in case a name/email/address
+  // leaked through an un-redacted field (e.g., a new donor column added later).
+  const redactedPayload = redactPII(JSON.stringify(donorData, null, 2), pii).redacted
+
+  if (process.env.DEBUG_PII_REDACTION === "true") {
+    console.log("[insights] outbound payload preview:", redactedPayload.slice(0, 500))
+  }
+
   const completion = await client.chat.completions.create({
     model: "gpt-4o-mini",
     max_tokens: 1024,
@@ -156,7 +165,7 @@ Rules:
       { role: "system", content: systemPrompt },
       {
         role: "user",
-        content: `Analyze this donor's data and provide insights:\n${JSON.stringify(donorData, null, 2)}`,
+        content: `Analyze this donor's data and provide insights:\n${redactedPayload}`,
       },
     ],
   })
@@ -191,7 +200,7 @@ Rules:
 
   // Return result with current usage info
   const sub = await getOrgSubscription(orgId)
-  const plan = PLANS[sub.planId]
+  const plan = resolveTrialLimits(sub.planId, sub.trialTier)
   const now = new Date()
   const periodStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
   const { data: usageRow } = await supabase

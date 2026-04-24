@@ -2,11 +2,13 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { AlertCircle, AlertTriangle, FileSpreadsheet, Link2, Mail } from "lucide-react"
 import { toast } from "sonner"
 
+import { resetOnboarding } from "@/app/actions/onboarding"
 import { CSVImportWizard } from "@/components/import/csv-import-wizard"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -30,6 +32,8 @@ export function SettingsIntegrations() {
   const [gmailStatus, setGmailStatus] = React.useState<GmailStatus>({ connected: false })
   const [gmailDisconnecting, setGmailDisconnecting] = React.useState(false)
   const [syncState, setSyncState] = React.useState<SyncState>({ status: "idle" })
+  const [resettingTour, setResettingTour] = React.useState(false)
+  const router = useRouter()
   const searchParams = useSearchParams()
   const qbError = searchParams.get("qb_error")
   const gmailError = searchParams.get("gmail_error")
@@ -81,6 +85,22 @@ export function SettingsIntegrations() {
       toast.error("Gmail connection failed", { description: gmailError })
     }
   }, [searchParams, gmailError, fetchGmailStatus])
+
+  async function handleReopenTour() {
+    setResettingTour(true)
+    try {
+      const res = await resetOnboarding()
+      if (!res.success) {
+        toast.error(res.error ?? "Could not reopen the tour.")
+        return
+      }
+      toast.success("Reopening the tour…")
+      router.push("/dashboard")
+      router.refresh()
+    } finally {
+      setResettingTour(false)
+    }
+  }
 
   async function handleGmailDisconnect() {
     setGmailDisconnecting(true)
@@ -146,13 +166,26 @@ export function SettingsIntegrations() {
       }
 
       setSyncState({ status: "success", data: data as Record<string, unknown> })
-      const d = data as { usedRealmId?: string; realmId?: string }
+      const d = data as {
+        usedRealmId?: string
+        realmId?: string
+        syncMode?: string
+        recordsProcessed?: number
+        donorsSkippedLimit?: number
+        capReached?: boolean
+        planMaxDonors?: number
+      }
       const usedRealmId = d?.usedRealmId ?? d?.realmId
       if (usedRealmId) setQbStatus((prev) => ({ ...prev, connected: true, realmId: usedRealmId }))
-      if ((data as { syncMode?: string })?.syncMode === "full") {
+      if (d.capReached && (d.donorsSkippedLimit ?? 0) > 0) {
+        toast.warning(
+          `Imported up to your ${d.planMaxDonors?.toLocaleString()} donor cap. ${d.donorsSkippedLimit?.toLocaleString()} donors not synced — upgrade to import the rest.`,
+          { duration: 10_000 }
+        )
+      } else if (d.syncMode === "full") {
         toast.success("Historical Sync Complete.")
       } else {
-        const count = (data as { recordsProcessed?: number })?.recordsProcessed
+        const count = d.recordsProcessed
         const msg =
           typeof count === "number"
             ? `Quick update: ${count.toLocaleString()} record(s) processed`
@@ -272,19 +305,65 @@ export function SettingsIntegrations() {
             </Button>
           </div>
 
+          {syncState.status === "loading" && (
+            <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2">
+                <Spinner className="size-4" />
+                <span>
+                  Syncing donors from QuickBooks — this can take up to a minute for large accounts.
+                </span>
+              </div>
+            </div>
+          )}
           {syncState.status === "error" && (
             <p className="text-sm text-destructive">{syncState.message}</p>
           )}
-          {syncState.status === "success" && syncState.data != null && (
-            <details className="group">
-              <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
-                View last sync response
-              </summary>
-              <pre className="mt-2 max-h-48 overflow-auto rounded-md border bg-muted/50 p-3 text-xs">
-                {JSON.stringify(syncState.data, null, 2)}
-              </pre>
-            </details>
-          )}
+          {syncState.status === "success" && syncState.data != null && (() => {
+            const d = syncState.data as {
+              donorsUpserted?: number
+              donorsSkippedLimit?: number
+              capReached?: boolean
+              planMaxDonors?: number
+            }
+            const isAtCeiling = d.planMaxDonors === 10_000
+            return (
+              <>
+                {d.capReached && (d.donorsSkippedLimit ?? 0) > 0 && (
+                  <Alert>
+                    <AlertCircle className="size-4" strokeWidth={1.5} />
+                    <AlertDescription>
+                      <strong>
+                        {(d.donorsSkippedLimit ?? 0).toLocaleString()} donors not synced.
+                      </strong>{" "}
+                      Your plan is capped at{" "}
+                      {(d.planMaxDonors ?? 0).toLocaleString()} donors.{" "}
+                      {isAtCeiling ? (
+                        <a
+                          href="mailto:efbacchiocchi@gmail.com?subject=Vantage%20Enterprise%20inquiry"
+                          className="underline"
+                        >
+                          Contact us
+                        </a>
+                      ) : (
+                        <Link href="/settings?tab=billing" className="underline">
+                          Upgrade
+                        </Link>
+                      )}{" "}
+                      to sync the rest.
+                    </AlertDescription>
+                  </Alert>
+                )}
+                <details className="group">
+                  <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
+                    View last sync response
+                  </summary>
+                  <pre className="mt-2 max-h-48 overflow-auto rounded-md border bg-muted/50 p-3 text-xs">
+                    {JSON.stringify(syncState.data, null, 2)}
+                  </pre>
+                </details>
+              </>
+            )
+          })()}
         </CardContent>
       </Card>
 
@@ -376,6 +455,32 @@ export function SettingsIntegrations() {
         </CardHeader>
         <CardContent>
           <CSVImportWizard />
+        </CardContent>
+      </Card>
+
+      <Card className="max-w-2xl">
+        <CardHeader>
+          <CardTitle>Onboarding tour</CardTitle>
+          <CardDescription>
+            Replay the welcome walkthrough — plan details, data security,
+            import steps, and example AI prompts.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            variant="outline"
+            onClick={handleReopenTour}
+            disabled={resettingTour}
+          >
+            {resettingTour ? (
+              <>
+                <Spinner className="mr-2 size-4" />
+                Reopening…
+              </>
+            ) : (
+              "Re-open onboarding tour"
+            )}
+          </Button>
         </CardContent>
       </Card>
     </div>

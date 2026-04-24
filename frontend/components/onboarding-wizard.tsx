@@ -1,13 +1,14 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
   ArrowRight,
   CheckCircle2,
   FileSpreadsheet,
   Link2,
-  Users,
+  Lock,
+  Sparkles,
 } from "lucide-react"
 import { completeOnboarding } from "@/app/actions/onboarding"
 import { Button } from "@/components/ui/button"
@@ -18,122 +19,44 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { useChatOverlay } from "@/components/chat/chat-provider"
 import { toast } from "sonner"
 
-type OnboardingStep = {
-  id: string
-  title: string
-  icon: typeof CheckCircle2
-  content: React.ReactNode
-  action?: { label: string; href: string }
+type PlanSummary = {
+  planName: string
+  maxDonors: number
+  maxAiInsightsPerMonth: number
+  maxChatMessagesPerMonth: number
+  isTrial: boolean
 }
 
-const STEPS: OnboardingStep[] = [
-  {
-    id: "welcome",
-    title: "Welcome to Vantage",
-    icon: CheckCircle2,
-    content: (
-      <div className="space-y-3">
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          Vantage is your AI-powered donor CRM. It helps you manage donor
-          relationships, track giving history, and sync directly with your
-          accounting software.
-        </p>
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          Let&apos;s take a quick look at how to get started.
-        </p>
-      </div>
-    ),
-  },
-  {
-    id: "import",
-    title: "Import your donors",
-    icon: FileSpreadsheet,
-    content: (
-      <div className="space-y-3">
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          Bring your existing donors into Vantage in seconds:
-        </p>
-        <ul className="space-y-2 text-sm text-muted-foreground">
-          <li className="flex items-start gap-2">
-            <span className="size-1.5 rounded-full bg-foreground/40 shrink-0 mt-2" />
-            <span>
-              <strong className="text-foreground">CSV Import</strong> — upload a
-              spreadsheet from any existing system.
-            </span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="size-1.5 rounded-full bg-foreground/40 shrink-0 mt-2" />
-            <span>
-              <strong className="text-foreground">QuickBooks Sync</strong> —
-              connect your QuickBooks account to automatically import customers
-              and donations.
-            </span>
-          </li>
-        </ul>
-      </div>
-    ),
-    action: { label: "Import Donors", href: "/settings?tab=integrations" },
-  },
-  {
-    id: "connect",
-    title: "Connect QuickBooks",
-    icon: Link2,
-    content: (
-      <div className="space-y-3">
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          If you use QuickBooks Online, connecting it takes about 30 seconds.
-          Vantage will automatically sync your customers as donors and pull in
-          donation history — and keep it updated every night.
-        </p>
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          Don&apos;t use QuickBooks? No problem — CSV import works great for
-          data from any system.
-        </p>
-      </div>
-    ),
-    action: { label: "Connect QuickBooks", href: "/settings?tab=integrations" },
-  },
-  {
-    id: "explore",
-    title: "Explore your dashboard",
-    icon: Users,
-    content: (
-      <div className="space-y-3">
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          Once your donors are in, you can:
-        </p>
-        <ul className="space-y-2 text-sm text-muted-foreground">
-          <li className="flex items-start gap-2">
-            <span className="size-1.5 rounded-full bg-foreground/40 shrink-0 mt-2" />
-            <span>View donor profiles, giving history, and AI-generated insights</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="size-1.5 rounded-full bg-foreground/40 shrink-0 mt-2" />
-            <span>Send emails directly from the donor list or profile page</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="size-1.5 rounded-full bg-foreground/40 shrink-0 mt-2" />
-            <span>Use the AI chat (<strong className="text-foreground">Cmd+J</strong>) to ask questions about your donor base</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="size-1.5 rounded-full bg-foreground/40 shrink-0 mt-2" />
-            <span>Log calls, emails, and tasks to keep a full activity timeline</span>
-          </li>
-        </ul>
-      </div>
-    ),
-  },
+function formatLimit(n: number, suffix: string): string {
+  if (n === 0) return `Unlimited ${suffix}`
+  return `${n.toLocaleString()} ${suffix}`
+}
+
+const SEED_PROMPTS = [
+  "Who are my top 10 donors this year?",
+  "Show me donors who haven't given in 12 months",
+  "Which donors gave over $1,000 last year?",
+  "Draft a thank-you email for my biggest donor this month",
 ]
 
-export function OnboardingWizard({ open }: { open: boolean }) {
+export function OnboardingWizard({
+  open,
+  planSummary,
+}: {
+  open: boolean
+  planSummary?: PlanSummary
+}) {
   const router = useRouter()
+  const { openWithMessage } = useChatOverlay()
   const [step, setStep] = useState(0)
   const [completing, setCompleting] = useState(false)
 
-  const isLast = step === STEPS.length - 1
-  const current = STEPS[step]
+  const steps = useMemo(() => buildSteps(planSummary), [planSummary])
+  const isLast = step === steps.length - 1
+  const current = steps[step]
   const Icon = current.icon
 
   async function handleFinish(redirectTo?: string) {
@@ -147,6 +70,17 @@ export function OnboardingWizard({ open }: { open: boolean }) {
       if (redirectTo) {
         router.push(redirectTo)
       }
+    } finally {
+      setCompleting(false)
+    }
+  }
+
+  async function handleSeedPrompt(prompt: string) {
+    setCompleting(true)
+    try {
+      await completeOnboarding()
+      router.refresh()
+      openWithMessage(prompt)
     } finally {
       setCompleting(false)
     }
@@ -169,11 +103,13 @@ export function OnboardingWizard({ open }: { open: boolean }) {
           </div>
         </DialogHeader>
 
-        <div className="py-2">{current.content}</div>
+        <div className="py-2">
+          {current.render({ planSummary, onSeedPrompt: handleSeedPrompt })}
+        </div>
 
         {/* Step dots */}
         <div className="flex items-center justify-center gap-1.5 py-1">
-          {STEPS.map((_, i) => (
+          {steps.map((_, i) => (
             <span
               key={i}
               className={
@@ -240,4 +176,141 @@ export function OnboardingWizard({ open }: { open: boolean }) {
       </DialogContent>
     </Dialog>
   )
+}
+
+type OnboardingStep = {
+  id: string
+  title: string
+  icon: typeof CheckCircle2
+  render: (ctx: {
+    planSummary?: PlanSummary
+    onSeedPrompt: (prompt: string) => void
+  }) => React.ReactNode
+  action?: { label: string; href: string }
+}
+
+function buildSteps(planSummary?: PlanSummary): OnboardingStep[] {
+  return [
+    {
+      id: "welcome",
+      title: "Welcome to Vantage",
+      icon: CheckCircle2,
+      render: ({ planSummary }) => (
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            Vantage is your AI-powered donor CRM. Manage donors, track giving, and
+            sync directly with your accounting software.
+          </p>
+
+          <div className="rounded-lg border border-border bg-muted/30 p-3">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Lock className="size-4 text-emerald-600 dark:text-emerald-400" strokeWidth={1.5} />
+              Your data stays yours
+            </div>
+            <p className="mt-1.5 text-xs text-muted-foreground leading-relaxed">
+              AI only sees redacted data. Names, emails, phones, and addresses are
+              replaced with placeholders before any AI call. We've contractually
+              prohibited our AI providers from training on your data.
+            </p>
+          </div>
+
+          {planSummary && (
+            <div className="rounded-lg border border-border bg-card p-3">
+              <p className="text-sm font-medium">
+                You're on the {planSummary.planName}
+                {planSummary.isTrial ? " — 30-day trial" : ""}
+              </p>
+              <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                <li>• {formatLimit(planSummary.maxDonors, "donors")}</li>
+                <li>
+                  • {formatLimit(planSummary.maxAiInsightsPerMonth, "AI insights / month")}
+                </li>
+                <li>
+                  • {formatLimit(planSummary.maxChatMessagesPerMonth, "AI chats / month")}
+                </li>
+              </ul>
+            </div>
+          )}
+        </div>
+      ),
+    },
+    {
+      id: "import",
+      title: "Import your donors",
+      icon: FileSpreadsheet,
+      render: () => (
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            Bring your existing donors into Vantage in seconds:
+          </p>
+          <ul className="space-y-2 text-sm text-muted-foreground">
+            <li className="flex items-start gap-2">
+              <span className="size-1.5 rounded-full bg-foreground/40 shrink-0 mt-2" />
+              <span>
+                <strong className="text-foreground">CSV Import</strong> — upload a
+                spreadsheet from any existing system.
+              </span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="size-1.5 rounded-full bg-foreground/40 shrink-0 mt-2" />
+              <span>
+                <strong className="text-foreground">QuickBooks Sync</strong> —
+                connect your QuickBooks account to automatically import customers
+                and donations.
+              </span>
+            </li>
+          </ul>
+        </div>
+      ),
+      action: { label: "Import Donors", href: "/settings?tab=integrations" },
+    },
+    {
+      id: "connect",
+      title: "Connect QuickBooks",
+      icon: Link2,
+      render: () => (
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            If you use QuickBooks Online, connecting it takes about 30 seconds.
+            Vantage will sync your customers as donors and pull in donation
+            history — and keep it updated every night.
+          </p>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            Don&apos;t use QuickBooks? No problem — CSV import works great for
+            data from any system.
+          </p>
+        </div>
+      ),
+      action: { label: "Connect QuickBooks", href: "/settings?tab=integrations" },
+    },
+    {
+      id: "explore",
+      title: "Try the AI",
+      icon: Sparkles,
+      render: ({ onSeedPrompt }) => (
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            Once your donors are in, ask Vantage AI anything about them. Cmd+J
+            opens the chat from anywhere. Here are a few to try:
+          </p>
+          <div className="flex flex-col gap-2">
+            {SEED_PROMPTS.map((prompt) => (
+              <button
+                key={prompt}
+                type="button"
+                onClick={() => onSeedPrompt(prompt)}
+                className="rounded-lg border border-border bg-card px-3 py-2.5 text-left text-sm text-foreground transition-colors hover:border-border hover:bg-accent"
+              >
+                {prompt}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            You can also send emails directly from any donor page and log calls,
+            meetings, and tasks to keep a full activity timeline.
+          </p>
+        </div>
+      ),
+    },
+  ]
 }

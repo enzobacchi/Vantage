@@ -324,6 +324,8 @@ const SUGGESTIONS = [
 
 type ChatMode = "sheet" | "full"
 
+type ChatUsage = { used: number; limit: number; remaining: number; resetsAt: string }
+
 function useChatSession({
   active,
   onClose,
@@ -336,9 +338,25 @@ function useChatSession({
   const { pendingMessage, clearPendingMessage } = useChatOverlay()
   const [historyLoaded, setHistoryLoaded] = React.useState(false)
   const [input, setInput] = React.useState("")
+  const [usage, setUsage] = React.useState<ChatUsage | null>(null)
   const bottomRef = React.useRef<HTMLDivElement>(null)
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
   const [activeDonorId, setActiveDonorId] = React.useState<string | null>(null)
+
+  const refreshUsage = React.useCallback(async () => {
+    try {
+      const r = await fetch("/api/chat/usage")
+      if (!r.ok) return
+      const data: ChatUsage = await r.json()
+      setUsage(data)
+    } catch {
+      // non-fatal — header badge simply won't render
+    }
+  }, [])
+
+  React.useEffect(() => {
+    if (active) void refreshUsage()
+  }, [active, refreshUsage])
 
   const handleDonorClick = React.useCallback((id: string) => {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -365,8 +383,20 @@ function useChatSession({
       toast.error("Chat error", {
         description: error.message || "Something went wrong. Please try again.",
       })
+      void refreshUsage()
     }
-  }, [error])
+  }, [error, refreshUsage])
+
+  // Refresh usage after each completed turn.
+  const prevStatusRef = React.useRef(status)
+  React.useEffect(() => {
+    if (prevStatusRef.current === "streaming" && status !== "streaming") {
+      void refreshUsage()
+    }
+    prevStatusRef.current = status
+  }, [status, refreshUsage])
+
+  const capHit = usage != null && usage.limit > 0 && usage.used >= usage.limit
 
   // Load chat history when the surface becomes active.
   React.useEffect(() => {
@@ -482,6 +512,8 @@ function useChatSession({
     handleKeyDown,
     bottomRef,
     textareaRef,
+    usage,
+    capHit,
   }
 }
 
@@ -515,6 +547,8 @@ export function ChatBody({
     handleKeyDown,
     bottomRef,
     textareaRef,
+    usage,
+    capHit,
   } = useChatSession({ active, onClose, mode })
 
   const containerClass =
@@ -531,6 +565,19 @@ export function ChatBody({
           <span className="text-sm font-semibold text-foreground">
             Vantage AI
           </span>
+          {usage && usage.limit > 0 && (
+            <span
+              className={cn(
+                "text-[11px] rounded-full border px-2 py-0.5",
+                capHit
+                  ? "border-destructive/30 bg-destructive/10 text-destructive"
+                  : "border-border/50 text-muted-foreground"
+              )}
+              title={`Resets ${new Date(usage.resetsAt).toLocaleDateString()}`}
+            >
+              {usage.used} / {usage.limit} chats this month
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1">
           {hasMessages && (
@@ -614,38 +661,65 @@ export function ChatBody({
 
       {/* Input */}
       <div className="shrink-0 border-t border-border/40 px-4 py-3">
-        <div
-          className={cn(
-            "relative flex items-end rounded-xl bg-muted/30 transition-colors",
-            "border border-border/50 focus-within:border-border focus-within:bg-muted/40",
-            containerClass
-          )}
-        >
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Ask me something..."
-            disabled={isLoading}
-            rows={1}
-            className="flex-1 resize-none bg-transparent px-4 py-3 text-sm placeholder:text-muted-foreground/60 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 max-h-40"
-          />
-          <div className="flex items-center gap-1 pr-2 pb-2">
-            <button
-              disabled={!input.trim() || isLoading}
-              onClick={onSubmit}
-              className={cn(
-                "flex size-8 items-center justify-center rounded-lg transition-all",
-                input.trim() && !isLoading
-                  ? "bg-gradient-to-r from-[#007A3F] to-[#21E0D6] text-white shadow-sm hover:opacity-90"
-                  : "bg-muted text-muted-foreground cursor-not-allowed"
-              )}
+        {capHit ? (
+          <div
+            className={cn(
+              "rounded-xl border border-border/50 bg-muted/30 p-4 text-center text-sm",
+              containerClass
+            )}
+          >
+            <p className="font-medium text-foreground">
+              You've used all {usage?.limit} AI chats this month.
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Upgrade your plan for more — or they reset{" "}
+              {usage?.resetsAt
+                ? new Date(usage.resetsAt).toLocaleDateString()
+                : "next month"}
+              .
+            </p>
+            <Button
+              asChild
+              size="sm"
+              className="mt-3 bg-gradient-to-r from-[#007A3F] to-[#21E0D6] text-white hover:opacity-90 border-0"
             >
-              <ArrowUp className="size-4" strokeWidth={1.5} />
-            </button>
+              <a href="/settings?tab=billing">Upgrade</a>
+            </Button>
           </div>
-        </div>
+        ) : (
+          <div
+            className={cn(
+              "relative flex items-end rounded-xl bg-muted/30 transition-colors",
+              "border border-border/50 focus-within:border-border focus-within:bg-muted/40",
+              containerClass
+            )}
+          >
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask me something..."
+              disabled={isLoading}
+              rows={1}
+              className="flex-1 resize-none bg-transparent px-4 py-3 text-sm placeholder:text-muted-foreground/60 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 max-h-40"
+            />
+            <div className="flex items-center gap-1 pr-2 pb-2">
+              <button
+                disabled={!input.trim() || isLoading}
+                onClick={onSubmit}
+                className={cn(
+                  "flex size-8 items-center justify-center rounded-lg transition-all",
+                  input.trim() && !isLoading
+                    ? "bg-gradient-to-r from-[#007A3F] to-[#21E0D6] text-white shadow-sm hover:opacity-90"
+                    : "bg-muted text-muted-foreground cursor-not-allowed"
+                )}
+              >
+                <ArrowUp className="size-4" strokeWidth={1.5} />
+              </button>
+            </div>
+          </div>
+        )}
         <p className="mt-2 text-center text-[11px] text-muted-foreground/40">
           Vantage AI can search your donor data. Always verify important information.
         </p>

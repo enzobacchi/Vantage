@@ -4,6 +4,7 @@ import { requireUserOrg } from "@/lib/auth";
 import { isSyncError, runSyncForOrg } from "@/lib/sync/run-sync";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function GET(request: Request) {
   const auth = await requireUserOrg();

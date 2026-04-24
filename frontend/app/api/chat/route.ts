@@ -6,6 +6,8 @@ import {
   type UIMessage as AiUIMessage,
 } from "ai"
 
+import { NextResponse } from "next/server"
+
 import { requireUserOrg } from "@/lib/auth"
 import {
   ChatPIIRedactor,
@@ -15,6 +17,7 @@ import { buildSystemPrompt } from "@/lib/chat/system-prompt"
 import { buildTools } from "@/lib/chat/tools"
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { getUsage, incrementUsage, isLimitExceeded } from "@/lib/subscription"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -69,6 +72,23 @@ export async function POST(request: Request) {
   const rl = checkRateLimit(`chat:${auth.orgId}`, 30, 60_000)
   if (rl.limited) return rateLimitResponse(rl.retryAfterMs)
 
+  // Monthly per-plan chat cap (stacked on top of the minute-rate limit).
+  // Trial/Essentials = 200/mo, Growth = 1,000/mo, Pro/Enterprise = unlimited.
+  if (await isLimitExceeded(auth.orgId, "chat_messages")) {
+    const usage = await getUsage(auth.orgId, "chat_messages")
+    return NextResponse.json(
+      {
+        error: "chat_cap_reached",
+        message: `You've used all ${usage.limit} AI chat messages for this month. Upgrade your plan for more.`,
+        used: usage.used,
+        limit: usage.limit,
+        resetsAt: usage.resetsAt,
+        upgradeUrl: "/settings?tab=billing",
+      },
+      { status: 429 }
+    )
+  }
+
   const { messages } = (await request.json()) as { messages: UIMessage[] }
 
   const supabase = createAdminClient()
@@ -104,6 +124,14 @@ export async function POST(request: Request) {
     stopWhen: stepCountIs(8),
     experimental_transform: redactor.createStreamTransform(),
     onFinish: async ({ text }) => {
+      try {
+        // Increment monthly chat usage only after the stream finishes
+        // successfully — failed requests (e.g. Anthropic 5xx) should not
+        // burn a quota slot.
+        await incrementUsage(auth.orgId, "chat_messages")
+      } catch (e) {
+        console.error("[chat] Failed to increment usage:", e)
+      }
       try {
         if (redactedLastUserText) {
           await supabase.from("chat_history").insert({

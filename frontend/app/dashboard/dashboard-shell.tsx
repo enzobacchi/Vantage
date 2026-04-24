@@ -28,14 +28,24 @@ function AutoSyncTrigger() {
   return null
 }
 
+export type PlanSummary = {
+  planName: string
+  maxDonors: number
+  maxAiInsightsPerMonth: number
+  maxChatMessagesPerMonth: number
+  isTrial: boolean
+}
+
 export default function DashboardShell({
   children,
   tosAccepted = true,
   onboardingDone = true,
+  planSummary,
 }: {
   children: React.ReactNode
   tosAccepted?: boolean
   onboardingDone?: boolean
+  planSummary?: PlanSummary
 }) {
   return (
     <>
@@ -43,7 +53,7 @@ export default function DashboardShell({
       <StripeCheckoutLinker />
       <TosAcceptanceDialog open={!tosAccepted} />
       {/* Show onboarding only after TOS is accepted */}
-      {tosAccepted && <OnboardingWizard open={!onboardingDone} />}
+      {tosAccepted && <OnboardingWizard open={!onboardingDone} planSummary={planSummary} />}
       <NavProvider>
         <SidebarProvider
           defaultOpen={true}

@@ -11,6 +11,16 @@ export const maxDuration = 60
 const MAX_BYTES = 25 * 1024 * 1024 // OpenAI Whisper limit
 
 export async function POST(request: Request) {
+  if (process.env.TRANSCRIBE_ENABLED !== "true") {
+    return NextResponse.json(
+      {
+        error:
+          "Voice transcription is temporarily disabled. Type your message instead.",
+      },
+      { status: 503 },
+    )
+  }
+
   const auth = await requireUserOrg()
   if (!auth.ok) return auth.response
 

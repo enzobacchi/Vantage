@@ -13,6 +13,34 @@ import {
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 
+type TrialSize = "essentials" | "growth" | "pro"
+
+const TRIAL_SIZES: Array<{
+  value: TrialSize
+  label: string
+  donors: string
+  description: string
+}> = [
+  {
+    value: "essentials",
+    label: "Small",
+    donors: "Up to 500 donors",
+    description: "Most small ministries and startups",
+  },
+  {
+    value: "growth",
+    label: "Medium",
+    donors: "500 – 2,500 donors",
+    description: "Growing nonprofits",
+  },
+  {
+    value: "pro",
+    label: "Large",
+    donors: "2,500 – 10,000 donors",
+    description: "Established ministries",
+  },
+]
+
 export function SignupForm({
   className,
   ...props
@@ -22,10 +50,12 @@ export function SignupForm({
   const next = searchParams.get("next") ?? "/dashboard"
   // Payment Link flow: checkout_session_id is passed from the Stripe success URL
   const checkoutSessionId = searchParams.get("checkout_session_id")
+  const isJoinFlow = !!(next && next.includes("/join"))
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
+  const [trialSize, setTrialSize] = useState<TrialSize>("essentials")
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [emailConfirmRequired, setEmailConfirmRequired] = useState(false)
@@ -46,6 +76,13 @@ export function SignupForm({
 
     setLoading(true)
     try {
+      // Persist the picked trial tier so getOrgSubscription() can read it when
+      // it auto-creates the subscription on first dashboard load. Skipped for
+      // team-join invites (they inherit the inviter's org + plan).
+      if (!isJoinFlow && typeof document !== "undefined") {
+        document.cookie = `pending_trial_tier=${trialSize}; path=/; max-age=3600; SameSite=Lax`
+      }
+
       const supabase = createBrowserSupabaseClient()
       const baseUrl =
         (typeof window !== "undefined" ? window.location.origin : null) ||
@@ -190,6 +227,49 @@ export function SignupForm({
               autoComplete="new-password"
             />
           </Field>
+          {!isJoinFlow && (
+            <Field>
+              <FieldLabel>About how many donors do you have?</FieldLabel>
+              <div className="grid grid-cols-1 gap-2">
+                {TRIAL_SIZES.map((size) => {
+                  const selected = trialSize === size.value
+                  return (
+                    <button
+                      key={size.value}
+                      type="button"
+                      onClick={() => setTrialSize(size.value)}
+                      className={`rounded-md border p-3 text-left transition-colors ${
+                        selected
+                          ? "border-foreground bg-accent"
+                          : "border-border hover:bg-accent/50"
+                      }`}
+                      aria-pressed={selected}
+                    >
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="font-medium">{size.label}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {size.donors}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {size.description}
+                      </p>
+                    </button>
+                  )
+                })}
+              </div>
+              <FieldDescription>
+                More than 10,000 donors?{" "}
+                <a
+                  href="mailto:efbacchiocchi@gmail.com?subject=Vantage%20Enterprise%20inquiry"
+                  className="underline hover:text-foreground"
+                >
+                  Contact us
+                </a>{" "}
+                — we'll get you set up.
+              </FieldDescription>
+            </Field>
+          )}
           {error && (
             <p className="text-sm text-destructive" role="alert">
               {error}

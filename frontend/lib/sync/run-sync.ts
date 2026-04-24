@@ -14,7 +14,7 @@ import {
 import { createQBOAuthClient, getQBApiBaseUrl } from "@/lib/quickbooks/client";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { geocodeAddress } from "@/lib/geocode";
-import { getOrgSubscription, PLANS } from "@/lib/subscription";
+import { ABSOLUTE_DONOR_CEILING, getOrgSubscription, resolveTrialLimits } from "@/lib/subscription";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -30,6 +30,10 @@ export type SyncResult = {
   invoicesFetched: number;
   donorsUpserted: number;
   donorsSkippedLimit: number;
+  /** True when the plan's donor cap was hit and some QB customers were not imported. */
+  capReached: boolean;
+  /** Effective donor cap that was applied (plan cap or ABSOLUTE_DONOR_CEILING, whichever is lower). */
+  planMaxDonors: number;
   donationsUpserted: number;
   geocodedAttempted: number;
   geocodedSucceeded: number;
@@ -689,15 +693,16 @@ export async function runSyncForOrg(
     );
 
     const sub = await getOrgSubscription(orgId);
-    const plan = PLANS[sub.planId];
+    const plan = resolveTrialLimits(sub.planId, sub.trialTier);
     const { count: currentDonorCount } = await supabase
       .from("donors")
       .select("id", { count: "exact", head: true })
       .eq("org_id", orgId);
-    const slotsRemaining =
-      plan.maxDonors === 0
-        ? Infinity
-        : Math.max(0, plan.maxDonors - (currentDonorCount ?? 0));
+    // Effective cap: plan cap clipped to ABSOLUTE_DONOR_CEILING (10k). Ensures
+    // even Pro trials stay inside the Vercel 60s sync window and runaway QB
+    // accounts with 50k+ customers don't crash mid-sync.
+    const effectiveCap = plan.maxDonors === 0 ? ABSOLUTE_DONOR_CEILING : Math.min(plan.maxDonors, ABSOLUTE_DONOR_CEILING);
+    const slotsRemaining = Math.max(0, effectiveCap - (currentDonorCount ?? 0));
     const allowedNew = netNewDonors.slice(0, Math.min(netNewDonors.length, slotsRemaining));
     const skippedCount = netNewDonors.length - allowedNew.length;
 
@@ -927,6 +932,8 @@ export async function runSyncForOrg(
       invoicesFetched: invoices.length,
       donorsUpserted: finalUpsertBatch.length,
       donorsSkippedLimit: skippedCount,
+      capReached: skippedCount > 0,
+      planMaxDonors: effectiveCap,
       donationsUpserted: donationsUpsertedCount,
       geocodedAttempted,
       geocodedSucceeded,

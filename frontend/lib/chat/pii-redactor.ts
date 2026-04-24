@@ -2,12 +2,37 @@
  * Per-request PII redaction for chat tool results and stream unredaction.
  *
  * Tool results are redacted (donor names → [DONOR_N]) before reaching the LLM.
+ * User-typed messages are redacted via `redactUserText` before `streamText`.
  * The output stream is unredacted ([DONOR_N] → real name) before reaching the client.
+ *
+ * Amounts and dates are intentionally NOT redacted: the model needs them for
+ * analytics, and they are not identifying once names/contact info are stripped.
  */
 
 import type { StreamTextTransform, TextStreamPart, ToolSet } from "ai"
 
-import { type PIIMap, redactWithMap, unredactWithMap } from "./pii-helpers"
+import {
+  type PIIMap,
+  redactWithMap,
+  redactWithMapWordBoundary,
+  unredactWithMap,
+} from "./pii-helpers"
+
+/** Redact common PII patterns (emails, phone numbers) from free-text. */
+export function redactPIIPatterns(text: string): string {
+  return text
+    .replace(/[^\s@]+@[^\s@]+\.[^\s@]+/g, "[REDACTED_EMAIL]")
+    .replace(
+      /(\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g,
+      "[REDACTED_PHONE]"
+    )
+}
+
+type DonorSeed = {
+  display_name?: string | null
+  email?: string | null
+  phone?: string | null
+}
 
 /** Keys whose string values are treated as donor names. */
 const NAME_KEYS = new Set(["display_name", "donor_name"])
@@ -22,18 +47,71 @@ const GUARD_SIBLINGS = new Set(["id", "donor_id"])
 
 export class ChatPIIRedactor {
   private map: PIIMap = { entries: {} }
-  private counter = 0
-  private seen = new Set<string>()
+  private nameCounter = 0
+  private emailCounter = 0
+  private phoneCounter = 0
+  private seenNames = new Set<string>()
+  private seenEmails = new Set<string>()
+  private seenPhones = new Set<string>()
 
   /** Register a donor name and assign a [DONOR_N] placeholder. */
   addDonorName(value: string | null | undefined): void {
     if (!value?.trim()) return
     const v = value.trim()
     const key = v.toLowerCase()
-    if (this.seen.has(key)) return
-    this.seen.add(key)
-    this.counter++
-    this.map.entries[`[DONOR_${this.counter}]`] = v
+    if (this.seenNames.has(key)) return
+    this.seenNames.add(key)
+    this.nameCounter++
+    this.map.entries[`[DONOR_${this.nameCounter}]`] = v
+  }
+
+  /** Register a donor email and assign an [EMAIL_N] placeholder. */
+  addEmail(value: string | null | undefined): void {
+    if (!value?.trim()) return
+    const v = value.trim()
+    const key = v.toLowerCase()
+    if (this.seenEmails.has(key)) return
+    this.seenEmails.add(key)
+    this.emailCounter++
+    this.map.entries[`[EMAIL_${this.emailCounter}]`] = v
+  }
+
+  /** Register a donor phone number and assign a [PHONE_N] placeholder. */
+  addPhone(value: string | null | undefined): void {
+    if (!value?.trim()) return
+    const v = value.trim()
+    if (this.seenPhones.has(v)) return
+    this.seenPhones.add(v)
+    this.phoneCounter++
+    this.map.entries[`[PHONE_${this.phoneCounter}]`] = v
+  }
+
+  /**
+   * Bulk-seed the redactor from an array of donor-like rows. Typically called
+   * once at the start of a chat request with the org's donor index so that
+   * user messages and tool results share a consistent placeholder map.
+   */
+  seedFromDonors(donors: DonorSeed[]): void {
+    for (const d of donors) {
+      this.addDonorName(d.display_name)
+      this.addEmail(d.email)
+      this.addPhone(d.phone)
+    }
+  }
+
+  /**
+   * Redact a free-text user message before it reaches the LLM. Matches
+   * seeded donor names/emails/phones first (so the round-trip unredaction
+   * restores them on output) and then applies regex patterns to catch
+   * any stray emails/phones not in the donor index.
+   */
+  redactUserText(text: string): string {
+    if (!text) return text
+    const withMap =
+      Object.keys(this.map.entries).length === 0
+        ? text
+        : redactWithMapWordBoundary(text, this.map)
+    return redactPIIPatterns(withMap)
   }
 
   /**

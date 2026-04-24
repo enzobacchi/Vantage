@@ -38,6 +38,10 @@ No test framework — linting and `npm run build` (TypeScript) are the quality g
 - Auth supports both cookie-based (web) and Bearer token (mobile) authentication.
 - Use scoped query builders in `frontend/lib/supabase/scoped.ts` which pre-filter by `org_id`.
 
+### Mobile parity
+
+A sibling Expo app lives at `/Users/enzobacchiocchi/Developer/Vantage/Mobile` and shares this Supabase backend. When you modify an API route under `frontend/app/api/`, check `Mobile/docs/API_PARITY.md` — if the route is marked `consumed`, the mobile client reads that shape and may break. Update the mobile call site (typically in `Mobile/lib/` or `Mobile/app/**`) in the same change set when the contract shifts.
+
 ### Key Domain Concepts
 
 - **Donor Lifecycle**: Computed status — `New` (≤6mo), `Active`, `Lapsed` (>12mo), `Lost` (>24mo). Calculated by `frontend/lib/donor-lifecycle.ts`, not a free-form field.

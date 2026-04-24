@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server"
 
 import { requireUserOrg } from "@/lib/auth"
+import { ChatPIIRedactor } from "@/lib/chat/pii-redactor"
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit"
+import { createAdminClient } from "@/lib/supabase/admin"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -74,5 +76,20 @@ export async function POST(request: Request) {
   }
 
   const body = (await whisperRes.json()) as { text?: string }
-  return NextResponse.json({ text: body.text ?? "" })
+  const rawText = body.text ?? ""
+
+  // Redact PII before returning. Whisper itself sees the raw audio (unavoidable
+  // without local transcription), but the transcript we hand back to any
+  // downstream caller — chat, notes, interactions — must have names, emails,
+  // and phone numbers replaced with placeholders.
+  const redactor = new ChatPIIRedactor()
+  const supabase = createAdminClient()
+  const { data: donorIndex } = await supabase
+    .from("donors")
+    .select("display_name,email,phone")
+    .eq("org_id", auth.orgId)
+    .limit(5000)
+  if (donorIndex) redactor.seedFromDonors(donorIndex)
+
+  return NextResponse.json({ text: redactor.redactUserText(rawText) })
 }

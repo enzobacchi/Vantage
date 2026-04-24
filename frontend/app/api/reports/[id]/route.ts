@@ -312,11 +312,34 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const body = (await request.json().catch(() => null)) as { title?: unknown } | null;
-  const title = typeof body?.title === "string" ? body.title.trim() : "";
+  const body = (await request.json().catch(() => null)) as
+    | { title?: unknown; summary?: unknown; visibility?: unknown }
+    | null;
 
   if (!id) return NextResponse.json({ error: "Missing report id." }, { status: 400 });
-  if (!title) return NextResponse.json({ error: "Missing title." }, { status: 400 });
+
+  const updates: { title?: string; summary?: string | null; visibility?: string } = {};
+  if (typeof body?.title === "string") {
+    const t = body.title.trim();
+    if (!t) return NextResponse.json({ error: "Title cannot be empty." }, { status: 400 });
+    updates.title = t;
+  }
+  if (typeof body?.summary === "string") {
+    updates.summary = body.summary.trim() || null;
+  } else if (body?.summary === null) {
+    updates.summary = null;
+  }
+  if (
+    body?.visibility === "private" ||
+    body?.visibility === "shared" ||
+    body?.visibility === "specific"
+  ) {
+    updates.visibility = body.visibility;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json({ error: "No valid fields to update." }, { status: 400 });
+  }
 
   const auth = await requireUserOrg();
   if (!auth.ok) return auth.response;
@@ -324,16 +347,16 @@ export async function PATCH(
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from("saved_reports")
-    .update({ title })
+    .update(updates)
     .eq("id", id)
     .eq("organization_id", auth.orgId)
-    .select("id,title,type,summary,created_at")
+    .select("id,title,type,summary,visibility,created_at")
     .single();
 
   if (error) {
     console.error("[reports/[id]] PATCH:", error.message);
     return NextResponse.json(
-      { error: "Failed to rename report." },
+      { error: "Failed to update report." },
       { status: 500 }
     );
   }

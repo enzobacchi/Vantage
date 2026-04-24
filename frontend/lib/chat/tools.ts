@@ -21,6 +21,56 @@ import {
 } from "@/lib/reports/run-filter-query"
 
 import type { ChatPIIRedactor } from "./pii-redactor"
+import { bucketDate, enumerateBuckets, type Interval } from "./timeseries"
+
+const GROUP_DIMS = [
+  "campaign",
+  "fund",
+  "lifecycle",
+  "donor_type",
+  "payment_method",
+  "state",
+] as const
+type GroupDim = (typeof GROUP_DIMS)[number]
+
+const INTERVALS = ["day", "week", "month", "quarter", "year"] as const
+
+type DonationRow = {
+  amount: number | string | null
+  date: string
+  donor_id: string
+  payment_method?: string | null
+  campaign_id?: string | null
+  fund_id?: string | null
+}
+
+type DonorRow = {
+  id: string
+  donor_type?: string | null
+  state?: string | null
+  last_donation_date?: string | null
+  total_lifetime_value?: number | null
+}
+
+const roundCents = (n: number) => Math.round(n * 100) / 100
+
+type MetricKey = "revenue" | "donor_count" | "gift_count" | "avg_gift"
+
+function pickMetric(
+  agg: { revenue: number; gift_count: number; donors: Set<string> },
+  metric: MetricKey
+): number {
+  switch (metric) {
+    case "revenue":
+      return agg.revenue
+    case "donor_count":
+      return agg.donors.size
+    case "gift_count":
+      return agg.gift_count
+    case "avg_gift":
+      return agg.gift_count > 0 ? agg.revenue / agg.gift_count : 0
+  }
+}
 
 export function buildTools(
   orgId: string,
@@ -28,6 +78,151 @@ export function buildTools(
   redactor?: ChatPIIRedactor
 ) {
   const supabase = createAdminClient()
+
+  /**
+   * Fetch donations in a date range plus the columns needed to group or
+   * bucket them later. Single source of truth for the analytics tools.
+   *
+   * Paginates via .range() — PostgREST caps a single .select() at 1000 rows
+   * by default. Without pagination, any org with more than 1000 donations
+   * silently undercounts revenue/gift_count/donor_count.
+   */
+  async function fetchDonationsInRange(
+    fromDate?: string,
+    toDate?: string
+  ): Promise<DonationRow[]> {
+    const PAGE = 1000
+    const all: DonationRow[] = []
+    for (let offset = 0; ; offset += PAGE) {
+      let q = supabase
+        .from("donations")
+        .select("amount,date,donor_id,payment_method,campaign_id,fund_id")
+        .eq("org_id", orgId)
+        .order("date", { ascending: true })
+        .range(offset, offset + PAGE - 1)
+      if (fromDate) q = q.gte("date", fromDate)
+      if (toDate) q = q.lte("date", toDate)
+      const { data, error } = await q
+      if (error) {
+        console.error("[tools] fetchDonationsInRange:", error.message)
+        break
+      }
+      const page = (data ?? []) as DonationRow[]
+      all.push(...page)
+      if (page.length < PAGE) break
+    }
+    return all
+  }
+
+  /**
+   * Build a `donor_id -> DonorRow` map for a set of donor IDs. Used by
+   * analytics tools that group by lifecycle, donor_type, or state.
+   */
+  async function fetchDonorMap(
+    donorIds: string[]
+  ): Promise<Map<string, DonorRow>> {
+    const map = new Map<string, DonorRow>()
+    if (donorIds.length === 0) return map
+    // PostgREST caps at 1000 rows per query — chunk the id list so large
+    // donor sets don't get silently truncated.
+    const CHUNK = 500
+    for (let i = 0; i < donorIds.length; i += CHUNK) {
+      const slice = donorIds.slice(i, i + CHUNK)
+      const { data } = await supabase
+        .from("donors")
+        .select("id,donor_type,state,last_donation_date,total_lifetime_value")
+        .eq("org_id", orgId)
+        .in("id", slice)
+      for (const d of (data ?? []) as DonorRow[]) map.set(d.id, d)
+    }
+    return map
+  }
+
+  /**
+   * Resolve `campaign_id`/`fund_id` values referenced in a batch of donations
+   * to human-readable names. Returns an id → name map.
+   */
+  async function fetchOptionNames(
+    rows: DonationRow[],
+    groupBy: GroupDim | undefined
+  ): Promise<Record<string, string>> {
+    if (groupBy !== "campaign" && groupBy !== "fund") return {}
+    const idKey = groupBy === "campaign" ? "campaign_id" : "fund_id"
+    const ids = [
+      ...new Set(
+        rows
+          .map((r) => r[idKey] as string | null | undefined)
+          .filter((v): v is string => !!v)
+      ),
+    ]
+    if (ids.length === 0) return {}
+    const table = groupBy === "campaign" ? "gift_campaigns" : "gift_funds"
+    const { data } = await supabase
+      .from(table)
+      .select("id,name")
+      .in("id", ids)
+    const out: Record<string, string> = {}
+    for (const o of (data ?? []) as { id: string; name: string | null }[]) {
+      out[o.id] = o.name ?? ""
+    }
+    return out
+  }
+
+  /**
+   * Return the group-key for a donation row given a grouping dimension.
+   * Unknown / missing values are bucketed as "Uncategorized".
+   */
+  function groupKeyFor(
+    row: DonationRow,
+    groupBy: GroupDim,
+    donorMap: Map<string, DonorRow>,
+    optionNames: Record<string, string>
+  ): string {
+    switch (groupBy) {
+      case "campaign":
+        return row.campaign_id ? optionNames[row.campaign_id] || "Uncategorized" : "Uncategorized"
+      case "fund":
+        return row.fund_id ? optionNames[row.fund_id] || "Uncategorized" : "Uncategorized"
+      case "payment_method":
+        return row.payment_method || "unknown"
+      case "lifecycle": {
+        const d = donorMap.get(row.donor_id)
+        return d ? getDonorLifecycleStatus(d).status : "Unknown"
+      }
+      case "donor_type": {
+        const d = donorMap.get(row.donor_id)
+        return d?.donor_type || "unknown"
+      }
+      case "state": {
+        const d = donorMap.get(row.donor_id)
+        return d?.state || "Unknown"
+      }
+    }
+  }
+
+  type PeriodTotals = {
+    total_revenue: number
+    gift_count: number
+    donor_count: number
+    average_gift: number
+    donor_ids: Set<string>
+  }
+
+  function computePeriodTotals(rows: DonationRow[]): PeriodTotals {
+    const donorIds = new Set<string>()
+    let total = 0
+    for (const r of rows) {
+      total += Number(r.amount ?? 0)
+      donorIds.add(r.donor_id)
+    }
+    return {
+      total_revenue: roundCents(total),
+      gift_count: rows.length,
+      donor_count: donorIds.size,
+      average_gift: rows.length > 0 ? roundCents(total / rows.length) : 0,
+      donor_ids: donorIds,
+    }
+  }
 
   const rawTools = {
     search_donors: tool({
@@ -216,62 +411,382 @@ export function buildTools(
 
     get_donation_metrics: tool({
       description:
-        "Get aggregate donation statistics: total revenue, average gift size, donor counts, and breakdowns by lifecycle/type. Use this for summary questions like 'how much did we raise' or 'what are our metrics'. Do NOT use this to list individual donors — use search_donors instead.",
+        "Get aggregate donation statistics for a single date range: total revenue, average gift, donor counts, and optional breakdowns by dimension. Use for summary questions like 'how much did we raise', 'what are our metrics', or 'revenue by campaign last quarter'. For two-window comparisons (Q1 vs Q2, YoY) use compare_periods. For charting over time use get_donation_timeseries. Do NOT use this to list individual donors — use search_donors instead.",
       inputSchema: z.object({
         from_date: z
           .string()
           .optional()
-          .describe("Start date (YYYY-MM-DD)"),
-        to_date: z.string().optional().describe("End date (YYYY-MM-DD)"),
+          .describe("Start date (YYYY-MM-DD, inclusive)"),
+        to_date: z
+          .string()
+          .optional()
+          .describe("End date (YYYY-MM-DD, inclusive)"),
+        group_by: z
+          .enum(GROUP_DIMS)
+          .optional()
+          .describe(
+            "Dimension to break totals down by: campaign, fund, lifecycle, donor_type, payment_method, or state"
+          ),
       }),
-      execute: async ({ from_date, to_date }) => {
-        let donationQuery = supabase
-          .from("donations")
-          .select("amount,date,donor_id")
-          .eq("org_id", orgId)
+      execute: async ({ from_date, to_date, group_by }) => {
+        // Headline "what are my donation metrics?" — no date, no grouping.
+        // Match the dashboard: sum donors.total_lifetime_value, count donor
+        // rows. The donations table can lag the cached lifetime totals, so
+        // using it here diverges from the numbers the user sees on the home
+        // screen. Grouping/date-ranged queries still need the donations path.
+        if (!from_date && !to_date && !group_by) {
+          const PAGE = 1000
+          const donors: DonorRow[] = []
+          let totalCount: number | null = null
+          for (let offset = 0; ; offset += PAGE) {
+            const { data, count, error } = await supabase
+              .from("donors")
+              .select(
+                "id,donor_type,state,last_donation_date,total_lifetime_value",
+                { count: offset === 0 ? "exact" : undefined }
+              )
+              .eq("org_id", orgId)
+              .order("id", { ascending: true })
+              .range(offset, offset + PAGE - 1)
+            if (error) {
+              console.error("[tools] donors fetch:", error.message)
+              break
+            }
+            if (offset === 0) totalCount = count ?? null
+            const page = (data ?? []) as DonorRow[]
+            donors.push(...page)
+            if (page.length < PAGE) break
+          }
+          const totalDonors = totalCount ?? donors.length
+          const totalRevenue = roundCents(
+            donors.reduce((sum, d) => sum + Number(d.total_lifetime_value ?? 0), 0)
+          )
+          const lifecycleCounts: Record<string, number> = {}
+          const typeCounts: Record<string, number> = {}
+          for (const d of donors) {
+            const lc = getDonorLifecycleStatus(d)
+            lifecycleCounts[lc.status] = (lifecycleCounts[lc.status] ?? 0) + 1
+            if (d.donor_type) {
+              typeCounts[d.donor_type] = (typeCounts[d.donor_type] ?? 0) + 1
+            }
+          }
+          return {
+            total_count: null,
+            total_revenue: totalRevenue,
+            average_gift: totalDonors > 0 ? roundCents(totalRevenue / totalDonors) : 0,
+            unique_donor_count: totalDonors,
+            donors_by_lifecycle: lifecycleCounts,
+            donors_by_type: typeCounts,
+            source: "donors.total_lifetime_value",
+          }
+        }
 
-        if (from_date) donationQuery = donationQuery.gte("date", from_date)
-        if (to_date) donationQuery = donationQuery.lte("date", to_date)
+        const rows = await fetchDonationsInRange(from_date, to_date)
+        const totals = computePeriodTotals(rows)
 
-        const { data: donations, error } = await donationQuery
-        if (error) return { error: "Failed to load donation metrics." }
-
-        const rows = donations ?? []
-        const totalRevenue = rows.reduce((s, d) => s + Number(d.amount), 0)
-        const uniqueDonors = new Set(rows.map((d) => d.donor_id))
-
-        // Get donor details for lifecycle breakdown
-        const donorIds = [...uniqueDonors]
+        // Per-donor counts (lifecycle + type) are always returned — they
+        // power the existing KPI card regardless of group_by.
+        const donorMap = await fetchDonorMap([...totals.donor_ids])
         const lifecycleCounts: Record<string, number> = {}
         const typeCounts: Record<string, number> = {}
-
-        if (donorIds.length > 0) {
-          const { data: donors } = await supabase
-            .from("donors")
-            .select(
-              "id,donor_type,last_donation_date,total_lifetime_value"
-            )
-            .eq("org_id", orgId)
-            .in("id", donorIds)
-
-          for (const d of donors ?? []) {
-            const lc = getDonorLifecycleStatus(d)
-            lifecycleCounts[lc.status] =
-              (lifecycleCounts[lc.status] ?? 0) + 1
+        for (const d of donorMap.values()) {
+          const lc = getDonorLifecycleStatus(d)
+          lifecycleCounts[lc.status] = (lifecycleCounts[lc.status] ?? 0) + 1
+          if (d.donor_type) {
             typeCounts[d.donor_type] = (typeCounts[d.donor_type] ?? 0) + 1
           }
         }
 
+        // Optional dimensional breakdown. Cap to top 10 groups so the model
+        // doesn't try to narrate 50 campaigns and blow past the token limit.
+        const BREAKDOWN_LIMIT = 10
+        let breakdown:
+          | Array<{
+              group: string
+              total: number
+              gift_count: number
+              donor_count: number
+            }>
+          | undefined
+        let totalGroups = 0
+        let truncated = false
+        if (group_by) {
+          const optionNames = await fetchOptionNames(rows, group_by)
+          const agg: Record<
+            string,
+            { total: number; gifts: number; donors: Set<string> }
+          > = {}
+          for (const r of rows) {
+            const key = groupKeyFor(r, group_by, donorMap, optionNames)
+            agg[key] ||= { total: 0, gifts: 0, donors: new Set() }
+            agg[key].total += Number(r.amount ?? 0)
+            agg[key].gifts++
+            agg[key].donors.add(r.donor_id)
+          }
+          const all = Object.entries(agg)
+            .map(([group, v]) => ({
+              group,
+              total: roundCents(v.total),
+              gift_count: v.gifts,
+              donor_count: v.donors.size,
+            }))
+            .sort((a, b) => b.total - a.total)
+          totalGroups = all.length
+          truncated = all.length > BREAKDOWN_LIMIT
+          breakdown = all.slice(0, BREAKDOWN_LIMIT)
+        }
+
         return {
-          total_count: rows.length,
-          total_revenue: totalRevenue,
-          average_gift:
-            rows.length > 0
-              ? Math.round((totalRevenue / rows.length) * 100) / 100
-              : 0,
-          unique_donor_count: uniqueDonors.size,
+          total_count: totals.gift_count,
+          total_revenue: totals.total_revenue,
+          average_gift: totals.average_gift,
+          unique_donor_count: totals.donor_count,
           donors_by_lifecycle: lifecycleCounts,
           donors_by_type: typeCounts,
+          ...(breakdown && {
+            group_by,
+            breakdown,
+            total_groups: totalGroups,
+            truncated,
+          }),
+        }
+      },
+    }),
+
+    compare_periods: tool({
+      description:
+        "Compare donation metrics between two date ranges. Use for 'Q1 vs Q2', 'this month vs last month', 'YoY by campaign', or 'how did we do compared to last year'. Returns totals for each period, percent deltas, optional group breakdowns, and optional retention (which donors gave in both windows). Do NOT use this for single-period metrics — use get_donation_metrics.",
+      inputSchema: z.object({
+        period_a: z
+          .object({
+            from: z.string().describe("Start date (YYYY-MM-DD)"),
+            to: z.string().describe("End date (YYYY-MM-DD)"),
+            label: z
+              .string()
+              .optional()
+              .describe("Display label, e.g. 'Q1 2025'"),
+          })
+          .describe("First period to compare"),
+        period_b: z
+          .object({
+            from: z.string().describe("Start date (YYYY-MM-DD)"),
+            to: z.string().describe("End date (YYYY-MM-DD)"),
+            label: z.string().optional().describe("Display label"),
+          })
+          .describe("Second period to compare"),
+        group_by: z
+          .enum(GROUP_DIMS)
+          .optional()
+          .describe("Optional per-group comparison"),
+        include_retention: z
+          .boolean()
+          .optional()
+          .describe(
+            "Include retained_donors / new_in_b / lost donor counts (donor overlap across the two windows)"
+          ),
+      }),
+      execute: async ({
+        period_a,
+        period_b,
+        group_by,
+        include_retention,
+      }) => {
+        const [rowsA, rowsB] = await Promise.all([
+          fetchDonationsInRange(period_a.from, period_a.to),
+          fetchDonationsInRange(period_b.from, period_b.to),
+        ])
+        const a = computePeriodTotals(rowsA)
+        const b = computePeriodTotals(rowsB)
+
+        const pctDelta = (before: number, after: number): number | null => {
+          if (before === 0) return after === 0 ? 0 : null
+          return Math.round(((after - before) / before) * 1000) / 10
+        }
+
+        const out: Record<string, unknown> = {
+          a: {
+            label: period_a.label ?? `${period_a.from} → ${period_a.to}`,
+            from: period_a.from,
+            to: period_a.to,
+            total_revenue: a.total_revenue,
+            gift_count: a.gift_count,
+            donor_count: a.donor_count,
+            average_gift: a.average_gift,
+          },
+          b: {
+            label: period_b.label ?? `${period_b.from} → ${period_b.to}`,
+            from: period_b.from,
+            to: period_b.to,
+            total_revenue: b.total_revenue,
+            gift_count: b.gift_count,
+            donor_count: b.donor_count,
+            average_gift: b.average_gift,
+          },
+          delta: {
+            total_revenue_pct: pctDelta(a.total_revenue, b.total_revenue),
+            gift_count_pct: pctDelta(a.gift_count, b.gift_count),
+            donor_count_pct: pctDelta(a.donor_count, b.donor_count),
+            average_gift_pct: pctDelta(a.average_gift, b.average_gift),
+            total_revenue_abs: roundCents(b.total_revenue - a.total_revenue),
+          },
+        }
+
+        if (group_by) {
+          const allDonorIds = [
+            ...new Set([...a.donor_ids, ...b.donor_ids]),
+          ]
+          const donorMap = await fetchDonorMap(allDonorIds)
+          const optionNames = await fetchOptionNames(
+            [...rowsA, ...rowsB],
+            group_by
+          )
+          const groups = new Set<string>()
+          const sum = (rows: DonationRow[]) => {
+            const agg: Record<string, number> = {}
+            for (const r of rows) {
+              const key = groupKeyFor(r, group_by, donorMap, optionNames)
+              groups.add(key)
+              agg[key] = (agg[key] ?? 0) + Number(r.amount ?? 0)
+            }
+            return agg
+          }
+          const aAgg = sum(rowsA)
+          const bAgg = sum(rowsB)
+          out.by_group = [...groups]
+            .map((g) => ({
+              group: g,
+              a: roundCents(aAgg[g] ?? 0),
+              b: roundCents(bAgg[g] ?? 0),
+              delta_pct: pctDelta(aAgg[g] ?? 0, bAgg[g] ?? 0),
+            }))
+            .sort((x, y) => y.b - x.b)
+          out.group_by = group_by
+        }
+
+        if (include_retention) {
+          const retained = [...a.donor_ids].filter((id) =>
+            b.donor_ids.has(id)
+          ).length
+          const newInB = [...b.donor_ids].filter(
+            (id) => !a.donor_ids.has(id)
+          ).length
+          const lost = [...a.donor_ids].filter(
+            (id) => !b.donor_ids.has(id)
+          ).length
+          out.retention = {
+            retained_donors: retained,
+            new_donors_in_b: newInB,
+            lost_donors: lost,
+            retention_rate_pct:
+              a.donor_count > 0
+                ? Math.round((retained / a.donor_count) * 1000) / 10
+                : null,
+          }
+        }
+
+        return out
+      },
+    }),
+
+    get_donation_timeseries: tool({
+      description:
+        "Return donation metrics bucketed over time for charting. Use for 'monthly donations this year', 'weekly giving trend', 'revenue by month by campaign', or anything that should render as a line/bar chart. For a single-number answer use get_donation_metrics. For two-period comparisons use compare_periods.",
+      inputSchema: z.object({
+        from_date: z.string().describe("Start date (YYYY-MM-DD)"),
+        to_date: z.string().describe("End date (YYYY-MM-DD)"),
+        interval: z
+          .enum(INTERVALS)
+          .describe("Bucket size: day, week, month, quarter, or year"),
+        group_by: z
+          .enum(GROUP_DIMS)
+          .optional()
+          .describe(
+            "Optional dimension to split into parallel series (renders as stacked bars)"
+          ),
+        metric: z
+          .enum(["revenue", "donor_count", "gift_count", "avg_gift"])
+          .optional()
+          .describe("Which metric to chart (default: revenue)"),
+      }),
+      execute: async ({
+        from_date,
+        to_date,
+        interval,
+        group_by,
+        metric = "revenue",
+      }) => {
+        const rows = await fetchDonationsInRange(from_date, to_date)
+        const buckets = enumerateBuckets(
+          from_date,
+          to_date,
+          interval as Interval
+        )
+
+        let donorMap = new Map<string, DonorRow>()
+        let optionNames: Record<string, string> = {}
+        if (group_by) {
+          const uniqueDonorIds = [...new Set(rows.map((r) => r.donor_id))]
+          ;[donorMap, optionNames] = await Promise.all([
+            fetchDonorMap(uniqueDonorIds),
+            fetchOptionNames(rows, group_by),
+          ])
+        }
+
+        type Agg = {
+          revenue: number
+          gift_count: number
+          donors: Set<string>
+        }
+        const emptyAgg = (): Agg => ({
+          revenue: 0,
+          gift_count: 0,
+          donors: new Set(),
+        })
+        const byBucket = new Map<string, Map<string, Agg>>()
+        const groupSet = new Set<string>()
+
+        for (const b of buckets) byBucket.set(b, new Map())
+
+        for (const r of rows) {
+          const bucket = bucketDate(r.date, interval as Interval)
+          if (!bucket) continue
+          const groupKey = group_by
+            ? groupKeyFor(r, group_by, donorMap, optionNames)
+            : "total"
+          groupSet.add(groupKey)
+          const bucketMap = byBucket.get(bucket) ?? new Map<string, Agg>()
+          const agg = bucketMap.get(groupKey) ?? emptyAgg()
+          agg.revenue += Number(r.amount ?? 0)
+          agg.gift_count += 1
+          agg.donors.add(r.donor_id)
+          bucketMap.set(groupKey, agg)
+          byBucket.set(bucket, bucketMap)
+        }
+
+        const groups = [...groupSet].sort()
+        const series = buckets.map((b) => {
+          const row: Record<string, number | string> = { bucket: b }
+          let totalMetric = 0
+          for (const g of groups) {
+            const agg = byBucket.get(b)?.get(g)
+            const value = agg ? pickMetric(agg, metric) : 0
+            row[g] = roundCents(value)
+            totalMetric += value
+          }
+          row.total = roundCents(totalMetric)
+          return row
+        })
+
+        return {
+          interval,
+          metric,
+          group_by: group_by ?? null,
+          groups,
+          series,
+          total_revenue: roundCents(
+            rows.reduce((s, r) => s + Number(r.amount ?? 0), 0)
+          ),
+          total_gifts: rows.length,
         }
       },
     }),

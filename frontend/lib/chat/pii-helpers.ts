@@ -94,3 +94,28 @@ export function unredactWithMap(text: string, map: PIIMap): string {
   }
   return result
 }
+
+/**
+ * Word-boundary variant of `redactWithMap`. Use for free-text (user messages,
+ * transcribed audio) where substring matching would clobber unrelated tokens —
+ * e.g. redacting "Ven" inside "Venmo".
+ *
+ * Uses negative lookaround (`(?<!\w)` / `(?!\w)`) instead of `\b` so that
+ * values starting or ending with punctuation (phone numbers like
+ * "(555) 123-4567") still match correctly.
+ *
+ * Values shorter than 3 characters are skipped to avoid false positives
+ * on common initials or nicknames ("Jo", "Al").
+ */
+export function redactWithMapWordBoundary(text: string, map: PIIMap): string {
+  let result = text
+  const sorted = Object.entries(map.entries).sort(
+    ([, a], [, b]) => b.length - a.length
+  )
+  for (const [placeholder, realValue] of sorted) {
+    if (realValue.length < 3) continue
+    const pattern = `(?<!\\w)${escapeRegex(realValue)}(?!\\w)`
+    result = result.replace(new RegExp(pattern, "gi"), placeholder)
+  }
+  return result
+}

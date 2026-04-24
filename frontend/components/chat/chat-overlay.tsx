@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useRouter } from "next/navigation"
 import { useChat } from "@ai-sdk/react"
 import type { UIMessage } from "ai"
 import {
@@ -9,7 +10,10 @@ import {
   ChevronRight,
   Copy,
   Check,
+  GitCompareArrows,
+  LineChart,
   Loader2,
+  Maximize2,
   Plus,
   Search,
   UserCircle,
@@ -22,10 +26,18 @@ import { toast } from "sonner"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+} from "@/components/ui/sheet"
 import { TextShimmerWave } from "@/components/ui/text-shimmer-wave"
 import { useChatOverlay } from "@/components/chat/chat-provider"
 import { ChatDonorCard } from "@/components/chat/chat-donor-card"
 import { BuildCustomReportCard } from "@/components/chat/build-custom-report-card"
+import { ChatMetricsCard } from "@/components/chat/chat-metrics-card"
+import { ChatTimeseriesChart } from "@/components/chat/chat-timeseries-chart"
+import { ChatCompareCard } from "@/components/chat/chat-compare-card"
 
 /* ───────── Markdown-lite renderer ───────── */
 
@@ -71,6 +83,8 @@ const TOOL_CONFIG: Record<string, { label: string; icon: React.ElementType }> = 
   search_donors: { label: "Searched donors", icon: Search },
   get_donor_summary: { label: "Looked up donor profile", icon: UserCircle },
   get_donation_metrics: { label: "Calculated metrics", icon: BarChart3 },
+  compare_periods: { label: "Compared periods", icon: GitCompareArrows },
+  get_donation_timeseries: { label: "Charted donations", icon: LineChart },
   filter_donations: { label: "Searched donations", icon: Receipt },
   get_recent_activity: { label: "Loaded recent activity", icon: Activity },
   create_donor: { label: "Added donor to CRM", icon: UserCircle },
@@ -82,6 +96,8 @@ const TOOL_CONFIG_LOADING: Record<string, string> = {
   search_donors: "Searching donors",
   get_donor_summary: "Looking up donor profile",
   get_donation_metrics: "Calculating metrics",
+  compare_periods: "Comparing periods",
+  get_donation_timeseries: "Charting donations",
   filter_donations: "Searching donations",
   get_recent_activity: "Loading recent activity",
   create_donor: "Adding donor to CRM",
@@ -222,6 +238,22 @@ function MessageBubble({
             if (tp.type === "tool-create_custom_report") {
               return <BuildCustomReportCard key={i} part={tp} />
             }
+            if (tp.type === "tool-get_donation_metrics") {
+              const output = tp.output as { breakdown?: unknown } | undefined
+              // Only render the rich metrics card when the LLM requested a
+              // breakdown (group_by). Plain totals stay as the compact tool
+              // badge so short answers aren't dominated by empty KPI tiles.
+              if (output?.breakdown) {
+                return <ChatMetricsCard key={i} part={tp} />
+              }
+              return <ToolPart key={i} part={tp} />
+            }
+            if (tp.type === "tool-get_donation_timeseries") {
+              return <ChatTimeseriesChart key={i} part={tp} />
+            }
+            if (tp.type === "tool-compare_periods") {
+              return <ChatCompareCard key={i} part={tp} />
+            }
             return <ToolPart key={i} part={tp} />
           }
           return null
@@ -288,10 +320,20 @@ const SUGGESTIONS = [
   "Recent donor activity",
 ]
 
-/* ───────── Chat overlay ───────── */
+/* ───────── Shared chat-session state ───────── */
 
-export function ChatOverlay() {
-  const { isOpen, close, pendingMessage, clearPendingMessage } = useChatOverlay()
+type ChatMode = "sheet" | "full"
+
+function useChatSession({
+  active,
+  onClose,
+  mode,
+}: {
+  active: boolean
+  onClose: () => void
+  mode: ChatMode
+}) {
+  const { pendingMessage, clearPendingMessage } = useChatOverlay()
   const [historyLoaded, setHistoryLoaded] = React.useState(false)
   const [input, setInput] = React.useState("")
   const bottomRef = React.useRef<HTMLDivElement>(null)
@@ -299,13 +341,12 @@ export function ChatOverlay() {
   const [activeDonorId, setActiveDonorId] = React.useState<string | null>(null)
 
   const handleDonorClick = React.useCallback((id: string) => {
-    // Validate UUID
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
     if (!uuidRegex.test(id)) {
       toast.error("Invalid donor link")
       return
     }
-    setActiveDonorId((prev) => prev === id ? null : id)
+    setActiveDonorId((prev) => (prev === id ? null : id))
   }, [])
 
   const closeDonorCard = React.useCallback(() => {
@@ -314,16 +355,10 @@ export function ChatOverlay() {
 
   const handleNavigateDonor = React.useCallback(() => {
     setActiveDonorId(null)
-    close()
-  }, [close])
+    onClose()
+  }, [onClose])
 
-  const {
-    messages,
-    sendMessage,
-    status,
-    setMessages,
-    error,
-  } = useChat()
+  const { messages, sendMessage, status, setMessages, error } = useChat()
 
   React.useEffect(() => {
     if (error) {
@@ -333,9 +368,9 @@ export function ChatOverlay() {
     }
   }, [error])
 
-  // Load history when overlay opens
+  // Load chat history when the surface becomes active.
   React.useEffect(() => {
-    if (!isOpen || historyLoaded) return
+    if (!active || historyLoaded) return
     fetch("/api/chat/history")
       .then((r) => r.json())
       .then((data) => {
@@ -351,42 +386,51 @@ export function ChatOverlay() {
         setHistoryLoaded(true)
       })
       .catch(() => setHistoryLoaded(true))
-  }, [isOpen, historyLoaded, setMessages])
+  }, [active, historyLoaded, setMessages])
 
-  // Auto-send pending message from ChatBar
+  // Auto-send a message queued by ChatBar (sheet mode — ChatBar isn't mounted in full mode).
   React.useEffect(() => {
-    if (!isOpen || !pendingMessage) return
+    if (!active || !pendingMessage) return
     const timer = setTimeout(() => {
       sendMessage({ text: pendingMessage })
       clearPendingMessage()
     }, 50)
     return () => clearTimeout(timer)
-  }, [isOpen, pendingMessage, sendMessage, clearPendingMessage])
+  }, [active, pendingMessage, sendMessage, clearPendingMessage])
 
   // Auto-scroll
   React.useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages, status])
 
-  // Focus textarea when overlay opens
+  // Focus textarea
   React.useEffect(() => {
-    if (isOpen) {
+    if (active) {
       setTimeout(() => textareaRef.current?.focus(), 100)
     }
-  }, [isOpen])
+  }, [active])
 
-  // Close on Escape
+  // Escape-to-close only in sheet mode. In full-page mode Escape closing would
+  // navigate the user away, which is a worse default than requiring an explicit click.
   React.useEffect(() => {
-    if (!isOpen) return
+    if (!active || mode !== "sheet") return
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault()
-        close()
+        onClose()
       }
     }
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
-  }, [isOpen, close])
+  }, [active, mode, onClose])
+
+  // Auto-resize textarea
+  React.useEffect(() => {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = "auto"
+    el.style.height = Math.min(el.scrollHeight, 160) + "px"
+  }, [input])
 
   const isLoading = status === "submitted" || status === "streaming"
   const hasMessages = messages.length > 0
@@ -421,135 +465,221 @@ export function ChatOverlay() {
     }
   }
 
-  // Auto-resize textarea
-  React.useEffect(() => {
-    const el = textareaRef.current
-    if (!el) return
-    el.style.height = "auto"
-    el.style.height = Math.min(el.scrollHeight, 160) + "px"
-  }, [input])
+  return {
+    messages,
+    status,
+    input,
+    setInput,
+    isLoading,
+    hasMessages,
+    activeDonorId,
+    handleDonorClick,
+    closeDonorCard,
+    handleNavigateDonor,
+    handleNewChat,
+    onSubmit,
+    handleSuggestion,
+    handleKeyDown,
+    bottomRef,
+    textareaRef,
+  }
+}
 
-  if (!isOpen) return null
+/* ───────── Chat body (shared by sheet + full page) ───────── */
+
+export function ChatBody({
+  active,
+  onClose,
+  onMaximize,
+  mode = "sheet",
+}: {
+  active: boolean
+  onClose: () => void
+  onMaximize?: () => void
+  mode?: ChatMode
+}) {
+  const {
+    messages,
+    status,
+    input,
+    setInput,
+    isLoading,
+    hasMessages,
+    activeDonorId,
+    handleDonorClick,
+    closeDonorCard,
+    handleNavigateDonor,
+    handleNewChat,
+    onSubmit,
+    handleSuggestion,
+    handleKeyDown,
+    bottomRef,
+    textareaRef,
+  } = useChatSession({ active, onClose, mode })
+
+  const containerClass =
+    mode === "full"
+      ? "mx-auto w-full max-w-3xl"
+      : undefined
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-background/60 backdrop-blur-md animate-in fade-in duration-200"
-        onClick={close}
-      />
-
-      {/* Chat panel */}
-      <div className="relative z-10 flex w-full max-w-2xl flex-col rounded-2xl border border-border/60 bg-card shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-300 mx-4"
-        style={{ maxHeight: "min(80vh, 720px)" }}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-border/40 px-5 py-3 shrink-0">
-          <div className="flex items-center gap-2.5">
-            <img src="/vantage-icon.png" alt="Vantage AI" className="size-6" />
-            <span className="text-sm font-semibold text-foreground">Vantage AI</span>
-          </div>
-          <div className="flex items-center gap-1">
-            {hasMessages && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-                onClick={handleNewChat}
-              >
-                <Plus className="size-3" strokeWidth={1.5} />
-                New chat
-              </Button>
-            )}
+    <>
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-border/40 px-5 py-3 shrink-0">
+        <div className="flex items-center gap-2.5">
+          <img src="/vantage-icon.png" alt="Vantage AI" className="size-6" />
+          <span className="text-sm font-semibold text-foreground">
+            Vantage AI
+          </span>
+        </div>
+        <div className="flex items-center gap-1">
+          {hasMessages && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+              onClick={handleNewChat}
+            >
+              <Plus className="size-3" strokeWidth={1.5} />
+              New chat
+            </Button>
+          )}
+          {mode === "sheet" && onMaximize && (
             <Button
               variant="ghost"
               size="icon"
               className="size-7 text-muted-foreground hover:text-foreground"
-              onClick={close}
+              onClick={onMaximize}
+              aria-label="Open in full view"
             >
-              <X className="size-4" strokeWidth={1.5} />
+              <Maximize2 className="size-3.5" strokeWidth={1.5} />
             </Button>
-          </div>
-        </div>
-
-        {/* Messages area */}
-        {!hasMessages && !isLoading ? (
-          /* Empty state */
-          <div className="flex flex-1 flex-col items-center justify-center px-6 py-12">
-            <h2 className="text-lg font-semibold text-foreground mb-6">
-              What can I help with?
-            </h2>
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              {SUGGESTIONS.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => handleSuggestion(s)}
-                  className="rounded-full border border-border/60 bg-card px-3.5 py-2 text-xs text-muted-foreground transition-all hover:border-border hover:bg-muted/50 hover:text-foreground"
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : (
-          /* Message list */
-          <div className="flex-1 overflow-y-auto min-h-0">
-            <div className="space-y-6 px-5 py-5">
-              {messages.map((message, idx) => (
-                <MessageBubble
-                  key={message.id}
-                  message={message}
-                  onDonorClick={handleDonorClick}
-                  activeDonorId={activeDonorId}
-                  onCloseDonorCard={closeDonorCard}
-                  onNavigateDonor={handleNavigateDonor}
-                  isStreaming={status === "streaming" && idx === messages.length - 1 && message.role === "assistant"}
-                />
-              ))}
-              {isLoading && messages[messages.length - 1]?.role !== "assistant" && (
-                <ShimmerIndicator messages={messages} status={status} />
-              )}
-              <div ref={bottomRef} />
-            </div>
-          </div>
-        )}
-
-        {/* Input */}
-        <div className="shrink-0 border-t border-border/40 px-4 py-3">
-          <div className={cn(
-            "relative flex items-end rounded-xl bg-muted/30 transition-colors",
-            "border border-border/50 focus-within:border-border focus-within:bg-muted/40"
-          )}>
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Ask me something..."
-              disabled={isLoading}
-              rows={1}
-              className="flex-1 resize-none bg-transparent px-4 py-3 text-sm placeholder:text-muted-foreground/60 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 max-h-40"
-            />
-            <div className="flex items-center gap-1 pr-2 pb-2">
-              <button
-                disabled={!input.trim() || isLoading}
-                onClick={onSubmit}
-                className={cn(
-                  "flex size-8 items-center justify-center rounded-lg transition-all",
-                  input.trim() && !isLoading
-                    ? "bg-gradient-to-r from-[#007A3F] to-[#21E0D6] text-white shadow-sm hover:opacity-90"
-                    : "bg-muted text-muted-foreground cursor-not-allowed"
-                )}
-              >
-                <ArrowUp className="size-4" strokeWidth={1.5} />
-              </button>
-            </div>
-          </div>
-          <p className="mt-2 text-center text-[11px] text-muted-foreground/40">
-            Vantage AI can search your donor data. Always verify important information.
-          </p>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7 text-muted-foreground hover:text-foreground"
+            onClick={onClose}
+            aria-label={mode === "sheet" ? "Close chat" : "Back"}
+          >
+            <X className="size-4" strokeWidth={1.5} />
+          </Button>
         </div>
       </div>
-    </div>
+
+      {/* Messages area */}
+      {!hasMessages && !isLoading ? (
+        <div className="flex flex-1 flex-col items-center justify-center px-6 py-12">
+          <h2 className="text-lg font-semibold text-foreground mb-6">
+            What can I help with?
+          </h2>
+          <div className="flex flex-wrap items-center justify-center gap-2 max-w-2xl">
+            {SUGGESTIONS.map((s) => (
+              <button
+                key={s}
+                onClick={() => handleSuggestion(s)}
+                className="rounded-full border border-border/60 bg-card px-3.5 py-2 text-xs text-muted-foreground transition-all hover:border-border hover:bg-muted/50 hover:text-foreground"
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto min-h-0">
+          <div className={cn("space-y-6 px-5 py-5", containerClass)}>
+            {messages.map((message, idx) => (
+              <MessageBubble
+                key={message.id}
+                message={message}
+                onDonorClick={handleDonorClick}
+                activeDonorId={activeDonorId}
+                onCloseDonorCard={closeDonorCard}
+                onNavigateDonor={handleNavigateDonor}
+                isStreaming={
+                  status === "streaming" &&
+                  idx === messages.length - 1 &&
+                  message.role === "assistant"
+                }
+              />
+            ))}
+            {isLoading &&
+              messages[messages.length - 1]?.role !== "assistant" && (
+                <ShimmerIndicator messages={messages} status={status} />
+              )}
+            <div ref={bottomRef} />
+          </div>
+        </div>
+      )}
+
+      {/* Input */}
+      <div className="shrink-0 border-t border-border/40 px-4 py-3">
+        <div
+          className={cn(
+            "relative flex items-end rounded-xl bg-muted/30 transition-colors",
+            "border border-border/50 focus-within:border-border focus-within:bg-muted/40",
+            containerClass
+          )}
+        >
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Ask me something..."
+            disabled={isLoading}
+            rows={1}
+            className="flex-1 resize-none bg-transparent px-4 py-3 text-sm placeholder:text-muted-foreground/60 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 max-h-40"
+          />
+          <div className="flex items-center gap-1 pr-2 pb-2">
+            <button
+              disabled={!input.trim() || isLoading}
+              onClick={onSubmit}
+              className={cn(
+                "flex size-8 items-center justify-center rounded-lg transition-all",
+                input.trim() && !isLoading
+                  ? "bg-gradient-to-r from-[#007A3F] to-[#21E0D6] text-white shadow-sm hover:opacity-90"
+                  : "bg-muted text-muted-foreground cursor-not-allowed"
+              )}
+            >
+              <ArrowUp className="size-4" strokeWidth={1.5} />
+            </button>
+          </div>
+        </div>
+        <p className="mt-2 text-center text-[11px] text-muted-foreground/40">
+          Vantage AI can search your donor data. Always verify important information.
+        </p>
+      </div>
+    </>
+  )
+}
+
+/* ───────── Chat overlay (sheet wrapper) ───────── */
+
+export function ChatOverlay() {
+  const { isOpen, close } = useChatOverlay()
+  const router = useRouter()
+
+  const handleMaximize = React.useCallback(() => {
+    close()
+    router.push("/chat")
+  }, [close, router])
+
+  return (
+    <Sheet open={isOpen} onOpenChange={(o) => { if (!o) close() }}>
+      <SheetContent
+        side="right"
+        showCloseButton={false}
+        className="!max-w-none w-full bg-card sm:w-[520px] lg:w-[600px] p-0 gap-0 flex flex-col border-l border-border/60"
+      >
+        <SheetTitle className="sr-only">Vantage AI chat</SheetTitle>
+        <ChatBody
+          active={isOpen}
+          onClose={close}
+          onMaximize={handleMaximize}
+          mode="sheet"
+        />
+      </SheetContent>
+    </Sheet>
   )
 }

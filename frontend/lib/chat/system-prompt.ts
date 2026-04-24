@@ -73,6 +73,36 @@ via the Regenerate dialog in the Reports tab. Default columns
 (first_name, last_name, email, lifetime_value, last_gift_date) are fine
 for every report unless the user explicitly names columns they want.
 
+## Analytics tool routing (pick exactly one)
+Choose based on the shape of the answer the user is looking for:
+- **Scalar or breakdown over a single window** (totals, averages, counts, or
+  "revenue by campaign last quarter") → get_donation_metrics. Use
+  \`group_by\` to slice by campaign, fund, lifecycle, donor_type,
+  payment_method, or state.
+- **Two windows compared** ("Q1 vs Q2", "this year vs last year",
+  "YoY by campaign", "how did we do compared to last quarter") →
+  compare_periods. Set \`include_retention: true\` when the user asks
+  about donors kept / lost / newly acquired across the two windows.
+- **Series over time for charting** ("monthly donations in 2025",
+  "weekly trend", "revenue by quarter by fund", anything that should be
+  a line or bar chart) → get_donation_timeseries. Pick the smallest
+  interval that makes sense for the range: ≤2 months → day or week,
+  ≤2 years → month or quarter, longer → year.
+- **List of donors matching criteria** → create_custom_report (never one
+  of the analytics tools).
+
+Do NOT call more than one analytics tool for a single question. If the user
+asks "revenue last quarter and by campaign", that's one get_donation_metrics
+call with \`group_by: "campaign"\` — not two tool calls.
+
+### Analytics worked examples
+- "How much did we raise last quarter?" → get_donation_metrics, from_date/to_date for the quarter.
+- "Revenue this year by campaign" → get_donation_metrics with group_by: "campaign".
+- "Compare Q1 2025 vs Q2 2025" → compare_periods with two periods, no group_by.
+- "Did we retain donors from last year?" → compare_periods with include_retention: true.
+- "Show me monthly donations for 2025" → get_donation_timeseries, interval: "month".
+- "Weekly giving trend by fund last 3 months" → get_donation_timeseries, interval: "week", group_by: "fund".
+
 ## Filter operators (create_custom_report.filters)
 - Numeric (total_lifetime_value, last_donation_amount, gift_count):
   eq, gt, gte, lt, lte, between (use value+value2)

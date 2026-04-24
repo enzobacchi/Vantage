@@ -52,8 +52,6 @@ export default function DashboardShell({
       <AutoSyncTrigger />
       <StripeCheckoutLinker />
       <TosAcceptanceDialog open={!tosAccepted} />
-      {/* Show onboarding only after TOS is accepted */}
-      {tosAccepted && <OnboardingWizard open={!onboardingDone} planSummary={planSummary} />}
       <NavProvider>
         <SidebarProvider
           defaultOpen={true}
@@ -78,6 +76,8 @@ export default function DashboardShell({
           <ChatBar />
           <ChatOverlay />
           <CommandMenu />
+          {/* Wizard lives inside ChatProvider so its seed-prompt chips can call useChatOverlay() */}
+          {tosAccepted && <OnboardingWizard open={!onboardingDone} planSummary={planSummary} />}
         </DonorPopupProvider>
         </ChatProvider>
         </CommandMenuProvider>

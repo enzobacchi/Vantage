@@ -50,6 +50,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { SignupQRCard } from "@/components/settings/signup-qr-card"
 
 export function SettingsTeam() {
   const [members, setMembers] = React.useState<OrgMember[]>([])
@@ -163,6 +164,8 @@ export function SettingsTeam() {
   const isOwner = currentRole === "owner"
 
   return (
+    <div className="space-y-6">
+    {canManage && <SignupQRCard />}
     <Card>
       <CardHeader>
         <CardTitle>Team</CardTitle>
@@ -362,5 +365,6 @@ export function SettingsTeam() {
       )}
       </CardContent>
     </Card>
+    </div>
   )
 }

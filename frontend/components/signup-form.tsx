@@ -137,7 +137,7 @@ export function SignupForm({
             <p className="text-sm text-balance text-muted-foreground">
               {next && next.includes("/join")
                 ? "Create your account to join the team."
-                : "Get started with Vantage"}
+                : "Start your 30-day free trial. No credit card required."}
             </p>
           </div>
           <Field>

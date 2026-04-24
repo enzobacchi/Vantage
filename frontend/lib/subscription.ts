@@ -1,5 +1,8 @@
 import type { SubscriptionPlan, SubscriptionStatus } from "@/types/database"
 
+/** Free trial length for new signups (QR-code lead flow, email signup, etc). */
+export const TRIAL_DURATION_DAYS = 30
+
 // ---------------------------------------------------------------------------
 // Plan definitions — tiers designed for small-to-midsize nonprofits
 // ---------------------------------------------------------------------------
@@ -27,7 +30,7 @@ const SHARED_FEATURES = [
 export const PLANS: Record<SubscriptionPlan, { name: string; description: string } & PlanLimits> = {
   trial: {
     name: "Free Trial",
-    description: "14-day trial with full access",
+    description: `${TRIAL_DURATION_DAYS}-day trial with full access`,
     maxDonors: 500,
     maxAiInsightsPerMonth: 30,
     monthlyPrice: 0,
@@ -133,16 +136,21 @@ export async function getOrgSubscription(orgId: string): Promise<OrgSubscription
     }
   }
 
-  // No subscription — create a 14-day trial
+  // No subscription — create a default trial
   const trialEnd = new Date()
-  trialEnd.setDate(trialEnd.getDate() + 14)
+  trialEnd.setDate(trialEnd.getDate() + TRIAL_DURATION_DAYS)
 
-  await admin.from("subscriptions").insert({
-    org_id: orgId,
-    plan_id: "trial",
-    status: "trialing",
-    trial_ends_at: trialEnd.toISOString(),
-  })
+  await admin
+    .from("subscriptions")
+    .upsert(
+      {
+        org_id: orgId,
+        plan_id: "trial",
+        status: "trialing",
+        trial_ends_at: trialEnd.toISOString(),
+      },
+      { onConflict: "org_id" }
+    )
 
   return {
     planId: "trial",

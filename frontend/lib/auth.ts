@@ -1,5 +1,9 @@
 import { createServerSupabaseClient, getUserFromBearerToken } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { TRIAL_DURATION_DAYS } from "@/lib/subscription";
+import { welcomeTrialEmailHtml } from "@/lib/email-templates";
+
+const FROM_EMAIL = "Vantage <notifications@vantagedonorai.com>";
 
 export type CurrentUserOrg = {
   userId: string;
@@ -93,10 +97,12 @@ export async function getCurrentUserOrg(): Promise<CurrentUserOrg | null> {
       return null;
     }
 
+    const orgId = (newOrg as { id: string }).id;
+
     const { error: linkError } = await admin
       .from("organization_members")
       .upsert(
-        { user_id: user.id, organization_id: (newOrg as { id: string }).id, role: "owner" },
+        { user_id: user.id, organization_id: orgId, role: "owner" },
         { onConflict: "user_id,organization_id" }
       );
 
@@ -104,10 +110,74 @@ export async function getCurrentUserOrg(): Promise<CurrentUserOrg | null> {
       return null;
     }
 
-    return { userId: user.id, orgId: (newOrg as { id: string }).id };
+    await startFreeTrial({
+      orgId,
+      email: user.email ?? null,
+      fullName: (user.user_metadata?.full_name as string | undefined) ?? null,
+    });
+
+    return { userId: user.id, orgId };
   }
 
   return { userId: user.id, orgId: membership.organization_id };
+}
+
+/**
+ * Initialize a fresh org with a trial subscription and send the welcome email.
+ * Idempotent via the unique org_id index on subscriptions — a repeat call won't
+ * double-insert, but it will re-send the welcome email. In practice this only runs
+ * once because getCurrentUserOrg only creates the org on the user's very first call.
+ */
+async function startFreeTrial(opts: {
+  orgId: string
+  email: string | null
+  fullName: string | null
+}): Promise<void> {
+  const admin = createAdminClient();
+  const trialEnd = new Date();
+  trialEnd.setDate(trialEnd.getDate() + TRIAL_DURATION_DAYS);
+  const trialEndsAt = trialEnd.toISOString();
+
+  const { error: subError } = await admin
+    .from("subscriptions")
+    .upsert(
+      {
+        org_id: opts.orgId,
+        plan_id: "trial",
+        status: "trialing",
+        trial_ends_at: trialEndsAt,
+      },
+      { onConflict: "org_id" }
+    );
+
+  if (subError) {
+    console.error("[auth/startFreeTrial] subscription insert failed", subError.message);
+    // Don't block org creation on subscription write failure.
+  }
+
+  if (!opts.email) return;
+
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) return;
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://vantagedonorai.com";
+  try {
+    const { Resend } = await import("resend");
+    const resend = new Resend(apiKey);
+    await resend.emails.send({
+      from: FROM_EMAIL,
+      to: opts.email,
+      subject: "Welcome to Vantage — your free trial is active",
+      html: welcomeTrialEmailHtml({
+        firstName: opts.fullName?.split(" ")[0] ?? null,
+        trialEndsAt,
+        trialDurationDays: TRIAL_DURATION_DAYS,
+        appUrl: `${appUrl}/dashboard`,
+      }),
+    });
+  } catch (e) {
+    console.error("[auth/startFreeTrial] welcome email failed", e instanceof Error ? e.message : e);
+  }
 }
 
 /**

@@ -51,6 +51,58 @@ export function passwordResetEmailHtml(resetLink: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Trial lifecycle emails
+// ---------------------------------------------------------------------------
+
+function formatTrialEndDate(iso: string): string {
+  const d = new Date(iso)
+  return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+}
+
+export function welcomeTrialEmailHtml(params: {
+  firstName: string | null | undefined
+  trialEndsAt: string
+  trialDurationDays: number
+  appUrl: string
+}): string {
+  const greeting = params.firstName?.trim()
+    ? `Welcome, ${esc(params.firstName.trim())}.`
+    : "Welcome to Vantage."
+  const endDate = formatTrialEndDate(params.trialEndsAt)
+  return wrapEmailTemplate("Your free trial is active", `
+    ${p(greeting)}
+    ${p(`Your <strong>${params.trialDurationDays}-day free trial</strong> has started. No credit card required — explore every feature of Vantage with full access.`)}
+    ${p(`You won't be charged unless you choose to subscribe on or before <strong>${esc(endDate)}</strong>.`)}
+    <div style="margin: 24px 0;">
+      ${linkButton(params.appUrl, "Open Vantage")}
+    </div>
+    ${p("A few things to try first: import your donors from QuickBooks or CSV, open the AI chat with Cmd+J, and check your donor map.")}
+  `)
+}
+
+export function trialEndingEmailHtml(params: {
+  firstName: string | null | undefined
+  trialEndsAt: string
+  upgradeUrl: string
+}): string {
+  const greeting = params.firstName?.trim()
+    ? `Hi ${esc(params.firstName.trim())},`
+    : "Hi,"
+  const endDate = formatTrialEndDate(params.trialEndsAt)
+  return wrapEmailTemplate("Your trial ends in 7 days", `
+    ${p(greeting)}
+    ${p(`Your Vantage free trial ends on <strong>${esc(endDate)}</strong>. To keep access to your donors, reports, and AI features, add a payment method now.`)}
+    ${p("Plans start at $29/month. Cancel anytime from billing settings.")}
+    <div style="margin: 24px 0;">
+      ${linkButton(params.upgradeUrl, "Add payment method")}
+    </div>
+    <p style="color: #a1a1aa; font-size: 12px; margin: 16px 0 0 0;">
+      If you don't subscribe before the trial ends, your account will be paused until you add a payment method. Your data stays safe.
+    </p>
+  `)
+}
+
+// ---------------------------------------------------------------------------
 // Notification emails
 // ---------------------------------------------------------------------------
 

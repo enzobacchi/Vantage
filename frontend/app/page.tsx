@@ -1,8 +1,7 @@
 import { redirect } from "next/navigation"
 
-/**
- * Root path: send users into the app. Dashboard layout will redirect to /login if not authenticated.
- */
+// Root path always goes to the marketing site. Users access the app via
+// /login or /dashboard directly — bare `/` is reserved for marketing.
 export default function RootPage() {
-  redirect("/dashboard")
+  redirect("https://vantagedonorai.com/")
 }

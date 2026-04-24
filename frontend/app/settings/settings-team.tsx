@@ -50,8 +50,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { SignupQRCard } from "@/components/settings/signup-qr-card"
-
 export function SettingsTeam() {
   const [members, setMembers] = React.useState<OrgMember[]>([])
   const [invitations, setInvitations] = React.useState<Invitation[]>([])
@@ -165,7 +163,6 @@ export function SettingsTeam() {
 
   return (
     <div className="space-y-6">
-    {canManage && <SignupQRCard />}
     <Card>
       <CardHeader>
         <CardTitle>Team</CardTitle>

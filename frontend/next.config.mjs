@@ -1,9 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Redirect root to dashboard (handled at config level for reliable deployment)
+  // Root always goes to the marketing site. Runs at the edge before any
+  // middleware/page, so this is the reliable hook for domain-level routing.
   async redirects() {
     return [
-      { source: "/", destination: "/dashboard", permanent: false },
+      { source: "/", destination: "https://vantagedonorai.com/", permanent: false },
     ];
   },
   typescript: {

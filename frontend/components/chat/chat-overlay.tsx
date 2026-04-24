@@ -38,6 +38,8 @@ import { BuildCustomReportCard } from "@/components/chat/build-custom-report-car
 import { ChatMetricsCard } from "@/components/chat/chat-metrics-card"
 import { ChatTimeseriesChart } from "@/components/chat/chat-timeseries-chart"
 import { ChatCompareCard } from "@/components/chat/chat-compare-card"
+import { ChatHealthScoreCard } from "@/components/chat/chat-health-score-card"
+import { ChatAtRiskCard } from "@/components/chat/chat-at-risk-card"
 
 /* ───────── Markdown-lite renderer ───────── */
 
@@ -239,20 +241,19 @@ function MessageBubble({
               return <BuildCustomReportCard key={i} part={tp} />
             }
             if (tp.type === "tool-get_donation_metrics") {
-              const output = tp.output as { breakdown?: unknown } | undefined
-              // Only render the rich metrics card when the LLM requested a
-              // breakdown (group_by). Plain totals stay as the compact tool
-              // badge so short answers aren't dominated by empty KPI tiles.
-              if (output?.breakdown) {
-                return <ChatMetricsCard key={i} part={tp} />
-              }
-              return <ToolPart key={i} part={tp} />
+              return <ChatMetricsCard key={i} part={tp} />
             }
             if (tp.type === "tool-get_donation_timeseries") {
               return <ChatTimeseriesChart key={i} part={tp} />
             }
             if (tp.type === "tool-compare_periods") {
               return <ChatCompareCard key={i} part={tp} />
+            }
+            if (tp.type === "tool-get_donor_health_score") {
+              return <ChatHealthScoreCard key={i} part={tp} />
+            }
+            if (tp.type === "tool-get_at_risk_donors") {
+              return <ChatAtRiskCard key={i} part={tp} onDonorClick={onDonorClick} />
             }
             return <ToolPart key={i} part={tp} />
           }

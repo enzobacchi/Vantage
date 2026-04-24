@@ -81,6 +81,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { EmailComposeDialog, type EmailRecipient } from "@/components/email/email-compose-dialog"
+import { emailEnabled } from "@/lib/features"
 
 function formatDate(value: string | null | undefined) {
   if (!value) return "—"
@@ -228,9 +229,9 @@ function LogActivityDialog({
         <DialogTitle>Log Activity</DialogTitle>
       </DialogHeader>
       <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v as "call" | "email" | "task"); reset() }}>
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className={`grid w-full ${emailEnabled ? "grid-cols-3" : "grid-cols-2"}`}>
           <TabsTrigger value="call">Log Call</TabsTrigger>
-          <TabsTrigger value="email">Send Email</TabsTrigger>
+          {emailEnabled && <TabsTrigger value="email">Send Email</TabsTrigger>}
           <TabsTrigger value="task">Add Task</TabsTrigger>
         </TabsList>
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
@@ -596,7 +597,7 @@ export function DonorCRMView() {
     () =>
       createDonorColumns({
         onOpenDonorSheet: openDonorSheet,
-        onSendEmail: handleSendEmailFromRow,
+        onSendEmail: emailEnabled ? handleSendEmailFromRow : undefined,
         assigneeMap,
       }),
     [openDonorSheet, handleSendEmailFromRow, assigneeMap]
@@ -980,18 +981,20 @@ export function DonorCRMView() {
                 <Download className="size-3.5" strokeWidth={1.5} />
                 Export
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setEmailTarget(null)
-                  setEmailDialogOpen(true)
-                }}
-                className="gap-1.5"
-              >
-                <Mail className="size-3.5" strokeWidth={1.5} />
-                Send Email ({selectedDonors.length})
-              </Button>
+              {emailEnabled && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setEmailTarget(null)
+                    setEmailDialogOpen(true)
+                  }}
+                  className="gap-1.5"
+                >
+                  <Mail className="size-3.5" strokeWidth={1.5} />
+                  Send Email ({selectedDonors.length})
+                </Button>
+              )}
               {selectedDonors.length === 2 && (
                 <Button
                   variant="outline"
@@ -1196,18 +1199,20 @@ export function DonorCRMView() {
                 )}
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-7"
-                  title="Send email"
-                  onClick={() => {
-                    setLogActivityDefaultTab("email")
-                    setLogActivityOpen(true)
-                  }}
-                >
-                  <Mail className="size-3.5" strokeWidth={1.5} />
-                </Button>
+                {emailEnabled && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-7"
+                    title="Send email"
+                    onClick={() => {
+                      setLogActivityDefaultTab("email")
+                      setLogActivityOpen(true)
+                    }}
+                  >
+                    <Mail className="size-3.5" strokeWidth={1.5} />
+                  </Button>
+                )}
                 <Button
                   variant="ghost"
                   size="icon"
@@ -1402,7 +1407,7 @@ export function DonorCRMView() {
       </Sheet>
 
       {/* Email Compose Dialog */}
-      {emailDialogOpen && emailTarget ? (
+      {emailEnabled && emailDialogOpen && emailTarget ? (
         <EmailComposeDialog
           open={emailDialogOpen}
           onOpenChange={setEmailDialogOpen}
@@ -1418,7 +1423,7 @@ export function DonorCRMView() {
             }
           }}
         />
-      ) : emailDialogOpen && selectedDonors.length > 0 ? (
+      ) : emailEnabled && emailDialogOpen && selectedDonors.length > 0 ? (
         <EmailComposeDialog
           open={emailDialogOpen}
           onOpenChange={setEmailDialogOpen}

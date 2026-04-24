@@ -7,11 +7,40 @@ import Link from "next/link"
 type UsageAlert = {
   type: "warning" | "critical"
   message: string
+  // Stable key used to persist dismissal. Includes the metric + bucket so that
+  // a new, larger threshold will re-surface the banner even if the user
+  // previously dismissed a warning at a lower bucket.
+  key: string
+}
+
+const STORAGE_PREFIX = "vantage.usage_banner_dismissed:"
+
+// Pct → nearest 10% bucket floor. 82 → 80, 91 → 90, 100 → 100.
+function bucketFor(pct: number) {
+  return Math.min(100, Math.floor(pct / 10) * 10)
+}
+
+function isDismissed(key: string) {
+  if (typeof window === "undefined") return false
+  try {
+    return window.localStorage.getItem(STORAGE_PREFIX + key) === "1"
+  } catch {
+    return false
+  }
+}
+
+function markDismissed(key: string) {
+  if (typeof window === "undefined") return
+  try {
+    window.localStorage.setItem(STORAGE_PREFIX + key, "1")
+  } catch {
+    // localStorage may be unavailable (Safari private mode, etc.)
+  }
 }
 
 export function UsageAlertBanner() {
   const [alerts, setAlerts] = React.useState<UsageAlert[]>([])
-  const [dismissed, setDismissed] = React.useState(false)
+  const [dismissedKey, setDismissedKey] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     let cancelled = false
@@ -23,34 +52,36 @@ export function UsageAlertBanner() {
         const { limits, usage } = data
         const found: UsageAlert[] = []
 
-        // Donor limit alerts
         if (limits.maxDonors > 0) {
           const pct = Math.round((usage.donors / limits.maxDonors) * 100)
           if (pct >= 100) {
             found.push({
               type: "critical",
               message: `Donor limit reached (${usage.donors.toLocaleString()}/${limits.maxDonors.toLocaleString()}). Upgrade to add more donors.`,
+              key: `donors:${bucketFor(pct)}`,
             })
           } else if (pct >= 80) {
             found.push({
               type: "warning",
               message: `You're at ${pct}% of your donor limit.`,
+              key: `donors:${bucketFor(pct)}`,
             })
           }
         }
 
-        // AI insight alerts
         if (limits.maxAiInsightsPerMonth > 0) {
           const pct = Math.round((usage.aiInsights / limits.maxAiInsightsPerMonth) * 100)
           if (pct >= 100) {
             found.push({
               type: "critical",
               message: `AI insights used up for this month (${usage.aiInsights}/${limits.maxAiInsightsPerMonth}). Upgrade for more.`,
+              key: `aiInsights:${bucketFor(pct)}`,
             })
           } else if (pct >= 80) {
             found.push({
               type: "warning",
               message: `${usage.aiInsights} of ${limits.maxAiInsightsPerMonth} AI insights used this month.`,
+              key: `aiInsights:${bucketFor(pct)}`,
             })
           }
         }
@@ -64,10 +95,18 @@ export function UsageAlertBanner() {
     return () => { cancelled = true }
   }, [])
 
-  if (dismissed || alerts.length === 0) return null
+  const alert = React.useMemo(() => {
+    if (alerts.length === 0) return null
+    return alerts.find((a) => a.type === "critical") ?? alerts[0]
+  }, [alerts])
 
-  // Show the most critical alert
-  const alert = alerts.find((a) => a.type === "critical") ?? alerts[0]
+  // If the persisted dismissal matches the current alert's key, hide it. When
+  // usage crosses into a new 10% bucket, the key changes and the banner
+  // reappears.
+  const hideFromStorage = alert ? isDismissed(alert.key) : false
+  const hideFromSession = alert ? dismissedKey === alert.key : false
+
+  if (!alert || hideFromStorage || hideFromSession) return null
 
   return (
     <div
@@ -90,7 +129,10 @@ export function UsageAlertBanner() {
         View plans <ArrowRight className="size-3.5" strokeWidth={1.5} />
       </Link>
       <button
-        onClick={() => setDismissed(true)}
+        onClick={() => {
+          markDismissed(alert.key)
+          setDismissedKey(alert.key)
+        }}
         className="ml-1 rounded p-0.5 hover:bg-black/5 dark:hover:bg-white/10"
         aria-label="Dismiss"
       >

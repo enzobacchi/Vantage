@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 
 import { getCurrentUserOrg } from "@/lib/auth";
 import { geocodeAddress } from "@/lib/geocode";
-import { recalcDonorTotals } from "@/lib/recalc-donor-totals";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ABSOLUTE_DONOR_CEILING, getOrgSubscription, resolveTrialLimits } from "@/lib/subscription";
 
@@ -50,6 +49,13 @@ const VALID_PAYMENT_METHODS = [
   "daf",
 ];
 
+// Chunk size for bulk inserts. Supabase accepts large arrays, but smaller
+// chunks give us per-chunk error isolation without blowing up timeouts.
+const INSERT_CHUNK = 500;
+// Cap concurrent geocode requests to avoid hammering Mapbox (free tier is
+// ~600/min; 10 in flight keeps us well under that while parallelizing).
+const GEOCODE_CONCURRENCY = 10;
+
 // ---------------------------------------------------------------------------
 // Main import action
 // ---------------------------------------------------------------------------
@@ -86,28 +92,40 @@ export async function importDonorsFromCSV(
     email: string | null;
   }[]) {
     if (d.display_name) {
-      const key = buildMatchKey(d.display_name, d.email);
-      existingMap.set(key, d.id);
+      existingMap.set(buildMatchKey(d.display_name, d.email), d.id);
     }
   }
 
-  // Enforce donor limit — calculate how many new donors can still be created.
-  // Trial-tier aware via resolveTrialLimits. Even Pro caps at ABSOLUTE_DONOR_CEILING.
   const sub = await getOrgSubscription(orgId);
   const plan = resolveTrialLimits(sub.planId, sub.trialTier);
   const currentDonorCount = existingDonors?.length ?? 0;
   const effectiveCap = plan.maxDonors === 0 ? ABSOLUTE_DONOR_CEILING : Math.min(plan.maxDonors, ABSOLUTE_DONOR_CEILING);
   const donorSlotsRemaining = Math.max(0, effectiveCap - currentDonorCount);
   result.planMaxDonors = effectiveCap;
-  let newDonorsCreated = 0;
 
-  const geocodeCache = new Map<string, { lat: number; lng: number } | null>();
-  const donorIdsWithDonations: string[] = [];
+  // -----------------------------------------------------------------------
+  // Phase 1: Validate rows + collect unique addresses for geocoding
+  // -----------------------------------------------------------------------
+
+  type Prepared = {
+    rowIdx: number;
+    matchKey: string;
+    existingDonorId: string | null;
+    fullAddress: string | null;
+    donorPayload: Record<string, unknown>;
+    donation: {
+      amount: number;
+      date: string;
+      paymentMethod: string;
+      memo: string | null;
+    } | null;
+  };
+
+  const prepared: Prepared[] = [];
+  const addressSet = new Set<string>();
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-
-    // Validate required field
     if (!row.display_name?.trim()) {
       result.errors.push({ row: i + 1, message: "Missing display name" });
       continue;
@@ -116,21 +134,16 @@ export async function importDonorsFromCSV(
     const displayName = row.display_name.trim();
     const email = row.email?.trim() || null;
     const matchKey = buildMatchKey(displayName, email);
-    const existingDonorId = existingMap.get(matchKey);
 
-    // Build donor payload
     const donorType = row.donor_type?.trim().toLowerCase();
     const billingAddress = row.billing_address?.trim() || null;
     const fullAddress = billingAddress
-      ? [
-          billingAddress,
-          row.city?.trim(),
-          row.state?.trim(),
-          row.zip?.trim(),
-        ]
+      ? [billingAddress, row.city?.trim(), row.state?.trim(), row.zip?.trim()]
           .filter(Boolean)
           .join(", ")
       : null;
+
+    if (fullAddress) addressSet.add(fullAddress);
 
     const donorPayload: Record<string, unknown> = {
       org_id: orgId,
@@ -144,105 +157,179 @@ export async function importDonorsFromCSV(
       state: row.state?.trim() || null,
       zip: row.zip?.trim() || null,
       donor_type:
-        donorType && VALID_DONOR_TYPES.includes(donorType)
-          ? donorType
-          : "individual",
+        donorType && VALID_DONOR_TYPES.includes(donorType) ? donorType : "individual",
     };
 
-    // Geocode if we have an address
-    if (fullAddress) {
-      let coords = geocodeCache.get(fullAddress);
-      if (coords === undefined) {
-        coords = await geocodeAddress(fullAddress);
-        geocodeCache.set(fullAddress, coords);
-      }
-      if (coords) {
-        donorPayload.location_lat = coords.lat;
-        donorPayload.location_lng = coords.lng;
-      }
-    }
-
-    let donorId: string;
-
-    if (existingDonorId) {
-      // Update existing donor
-      const { error } = await supabase
-        .from("donors")
-        .update(donorPayload)
-        .eq("id", existingDonorId);
-
-      if (error) {
-        result.errors.push({
-          row: i + 1,
-          message: `Failed to update donor: ${error.message}`,
-        });
-        continue;
-      }
-      donorId = existingDonorId;
-      result.donorsUpdated++;
-    } else {
-      // Enforce donor limit before creating
-      if (newDonorsCreated >= donorSlotsRemaining) {
-        result.donorsSkipped++;
-        result.capReached = true;
-        continue;
-      }
-
-      // Create new donor
-      const { data: newDonor, error } = await supabase
-        .from("donors")
-        .insert(donorPayload)
-        .select("id")
-        .single();
-
-      if (error || !newDonor?.id) {
-        result.errors.push({
-          row: i + 1,
-          message: `Failed to create donor: ${error?.message ?? "Unknown error"}`,
-        });
-        continue;
-      }
-      donorId = (newDonor as { id: string }).id;
-      existingMap.set(matchKey, donorId);
-      result.donorsCreated++;
-      newDonorsCreated++;
-    }
-
-    // Create donation if amount and date are present
+    let donation: Prepared["donation"] = null;
     if (row.amount != null && row.amount > 0 && row.date) {
       const paymentMethod = row.payment_method?.trim().toLowerCase();
-      const { error: donationError } = await supabase
-        .from("donations")
-        .insert({
-          org_id: orgId,
-          donor_id: donorId,
-          amount: row.amount,
-          date: row.date,
-          payment_method:
-            paymentMethod && VALID_PAYMENT_METHODS.includes(paymentMethod)
-              ? paymentMethod
-              : "other",
-          memo: row.memo?.trim() || null,
-          source: "csv_import",
-        });
+      donation = {
+        amount: row.amount,
+        date: row.date,
+        paymentMethod:
+          paymentMethod && VALID_PAYMENT_METHODS.includes(paymentMethod)
+            ? paymentMethod
+            : "other",
+        memo: row.memo?.trim() || null,
+      };
+    }
 
-      if (donationError) {
-        result.errors.push({
-          row: i + 1,
-          message: `Donor created but donation failed: ${donationError.message}`,
-        });
-      } else {
-        result.donationsCreated++;
-        donorIdsWithDonations.push(donorId);
+    prepared.push({
+      rowIdx: i,
+      matchKey,
+      existingDonorId: existingMap.get(matchKey) ?? null,
+      fullAddress,
+      donorPayload,
+      donation,
+    });
+  }
+
+  // -----------------------------------------------------------------------
+  // Phase 2: Parallel geocode unique addresses
+  // -----------------------------------------------------------------------
+
+  const addresses = Array.from(addressSet);
+  const geocodeResults = new Map<string, { lat: number; lng: number } | null>();
+
+  for (let i = 0; i < addresses.length; i += GEOCODE_CONCURRENCY) {
+    const batch = addresses.slice(i, i + GEOCODE_CONCURRENCY);
+    const coords = await Promise.all(batch.map((addr) => geocodeAddress(addr)));
+    batch.forEach((addr, j) => geocodeResults.set(addr, coords[j] ?? null));
+  }
+
+  for (const p of prepared) {
+    if (p.fullAddress) {
+      const c = geocodeResults.get(p.fullAddress);
+      if (c) {
+        p.donorPayload.location_lat = c.lat;
+        p.donorPayload.location_lng = c.lng;
       }
     }
   }
 
-  // Recalculate totals for donors that got new donations
-  const uniqueDonorIds = [...new Set(donorIdsWithDonations)];
-  for (const donorId of uniqueDonorIds) {
-    await recalcDonorTotals(supabase, donorId);
+  // -----------------------------------------------------------------------
+  // Phase 3: Bulk create new donors (respecting plan cap)
+  // -----------------------------------------------------------------------
+
+  const toCreate: Prepared[] = [];
+  const toUpdate: Prepared[] = [];
+  let newDonorsPlanned = 0;
+
+  for (const p of prepared) {
+    if (p.existingDonorId) {
+      toUpdate.push(p);
+      continue;
+    }
+    if (newDonorsPlanned >= donorSlotsRemaining) {
+      result.donorsSkipped++;
+      result.capReached = true;
+      continue;
+    }
+    toCreate.push(p);
+    newDonorsPlanned++;
   }
+
+  // Bulk insert new donors in chunks. Supabase returns rows in the same order
+  // as provided, so we can zip back by index to capture new IDs.
+  for (let i = 0; i < toCreate.length; i += INSERT_CHUNK) {
+    const chunk = toCreate.slice(i, i + INSERT_CHUNK);
+    const { data: inserted, error } = await supabase
+      .from("donors")
+      .insert(chunk.map((p) => p.donorPayload))
+      .select("id");
+
+    if (error) {
+      for (const p of chunk) {
+        result.errors.push({
+          row: p.rowIdx + 1,
+          message: `Failed to create donor: ${error.message}`,
+        });
+      }
+      continue;
+    }
+
+    const insertedRows = (inserted ?? []) as { id: string }[];
+    chunk.forEach((p, j) => {
+      const newId = insertedRows[j]?.id;
+      if (!newId) return;
+      p.existingDonorId = newId;
+      existingMap.set(p.matchKey, newId);
+      result.donorsCreated++;
+    });
+  }
+
+  // -----------------------------------------------------------------------
+  // Phase 4: Update existing donors (per-row; rare in fresh imports)
+  // -----------------------------------------------------------------------
+
+  for (const p of toUpdate) {
+    const { error } = await supabase
+      .from("donors")
+      .update(p.donorPayload)
+      .eq("id", p.existingDonorId!);
+    if (error) {
+      result.errors.push({
+        row: p.rowIdx + 1,
+        message: `Failed to update donor: ${error.message}`,
+      });
+      continue;
+    }
+    result.donorsUpdated++;
+  }
+
+  // -----------------------------------------------------------------------
+  // Phase 5: Bulk insert donations
+  // -----------------------------------------------------------------------
+
+  type DonationInsert = {
+    org_id: string;
+    donor_id: string;
+    amount: number;
+    date: string;
+    payment_method: string;
+    memo: string | null;
+    source: string;
+  };
+
+  const donationInserts: DonationInsert[] = [];
+  const rowByDonation: number[] = [];
+  const donorIdsWithDonations = new Set<string>();
+
+  for (const p of prepared) {
+    if (!p.donation || !p.existingDonorId) continue;
+    donationInserts.push({
+      org_id: orgId,
+      donor_id: p.existingDonorId,
+      amount: p.donation.amount,
+      date: p.donation.date,
+      payment_method: p.donation.paymentMethod,
+      memo: p.donation.memo,
+      source: "csv_import",
+    });
+    rowByDonation.push(p.rowIdx);
+    donorIdsWithDonations.add(p.existingDonorId);
+  }
+
+  for (let i = 0; i < donationInserts.length; i += INSERT_CHUNK) {
+    const chunk = donationInserts.slice(i, i + INSERT_CHUNK);
+    const { error } = await supabase.from("donations").insert(chunk);
+    if (error) {
+      for (let j = 0; j < chunk.length; j++) {
+        result.errors.push({
+          row: rowByDonation[i + j] + 1,
+          message: `Donor created but donation failed: ${error.message}`,
+        });
+      }
+      continue;
+    }
+    result.donationsCreated += chunk.length;
+  }
+
+  // -----------------------------------------------------------------------
+  // Phase 6: Batched recalc of donor totals
+  // -----------------------------------------------------------------------
+
+  await batchRecalcDonorTotals(supabase, orgId, Array.from(donorIdsWithDonations));
 
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/donations");
@@ -263,4 +350,57 @@ function buildMatchKey(
   return `${name}::${e}`;
 }
 
-// recalcDonorTotals imported from @/lib/recalc-donor-totals
+/**
+ * Compute each donor's total_lifetime_value, last_donation_date, and
+ * last_donation_amount in one pass from a single query, then write updates
+ * one-per-donor (Supabase's JS client doesn't support batched UPDATE…FROM
+ * across different target values). This is still dramatically faster than
+ * the previous pattern of N selects + N updates because we save the N reads.
+ */
+async function batchRecalcDonorTotals(
+  supabase: ReturnType<typeof createAdminClient>,
+  orgId: string,
+  donorIds: string[]
+): Promise<void> {
+  if (donorIds.length === 0) return;
+
+  const { data: donations } = await supabase
+    .from("donations")
+    .select("donor_id,amount,date")
+    .eq("org_id", orgId)
+    .in("donor_id", donorIds)
+    .order("date", { ascending: false });
+
+  const agg = new Map<
+    string,
+    { total: number; lastDate: string | null; lastAmount: number | null }
+  >();
+
+  for (const d of (donations ?? []) as {
+    donor_id: string;
+    amount: number | string | null;
+    date: string | null;
+  }[]) {
+    const cur = agg.get(d.donor_id) ?? { total: 0, lastDate: null, lastAmount: null };
+    cur.total += Number(d.amount ?? 0);
+    // donations are ordered desc by date, so the first row per donor is the latest
+    if (cur.lastDate === null) {
+      cur.lastDate = d.date;
+      cur.lastAmount = d.amount == null ? null : Number(d.amount);
+    }
+    agg.set(d.donor_id, cur);
+  }
+
+  await Promise.all(
+    Array.from(agg.entries()).map(([donorId, a]) =>
+      supabase
+        .from("donors")
+        .update({
+          total_lifetime_value: a.total,
+          last_donation_date: a.lastDate,
+          last_donation_amount: a.lastAmount,
+        })
+        .eq("id", donorId)
+    )
+  );
+}

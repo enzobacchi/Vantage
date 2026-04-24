@@ -1067,6 +1067,18 @@ export function DonorMapView() {
                 mapStyle={MAPBOX_STYLE}
                 reuseMaps
                 onLoad={handleMapLoad}
+                onError={(e) => {
+                  // Surface basemap / tile failures instead of rendering pins
+                  // on an empty canvas. Common causes: token rejected by
+                  // mapbox (401), domain-restricted token, rate limit.
+                  console.error("[Mapbox]", e.error)
+                  const msg = e.error?.message ?? ""
+                  if (msg.toLowerCase().includes("unauthorized") || msg.includes("401")) {
+                    setError(
+                      "Mapbox rejected the access token. Check NEXT_PUBLIC_MAPBOX_TOKEN in Vercel and that the token allows this domain."
+                    )
+                  }
+                }}
                 style={{ width: "100%", height: "100%" }}
               >
                 {points.map((p) => (

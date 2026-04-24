@@ -64,6 +64,16 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error("[stripe/checkout] Error creating checkout session:", err)
     const message = err instanceof Error ? err.message : "Unknown error"
+    if (message.startsWith("Missing STRIPE_PRICE_")) {
+      return NextResponse.json(
+        {
+          error:
+            "Billing isn't fully configured for this plan yet. Please contact support.",
+          code: "price_missing",
+        },
+        { status: 500 }
+      )
+    }
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }

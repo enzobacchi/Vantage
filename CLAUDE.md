@@ -155,6 +155,11 @@ OPENAI_API_KEY                # OpenAI API key
 ANTHROPIC_API_KEY             # Anthropic API key (chat agent)
 STRIPE_SECRET_KEY             # Stripe secret key
 STRIPE_WEBHOOK_SECRET         # Stripe webhook signing secret
+STRIPE_PRICE_ESSENTIALS_MONTHLY  # Recurring monthly price ID for Essentials tier
+STRIPE_PRICE_GROWTH_MONTHLY      # Recurring monthly price ID for Growth tier
+STRIPE_PRICE_PRO_MONTHLY         # Recurring monthly price ID for Pro tier
+NEXT_PUBLIC_EMAIL_ENABLED     # "true" to show donor email UI; default "false"
+EMAIL_ENABLED                 # Server-side mirror of email flag (for API gate)
 ```
 
 ## Deployment

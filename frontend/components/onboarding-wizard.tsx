@@ -306,8 +306,8 @@ function buildSteps(planSummary?: PlanSummary): OnboardingStep[] {
             ))}
           </div>
           <p className="text-xs text-muted-foreground">
-            You can also send emails directly from any donor page and log calls,
-            meetings, and tasks to keep a full activity timeline.
+            You can also log calls, meetings, and tasks on any donor page to
+            keep a full activity timeline.
           </p>
         </div>
       ),

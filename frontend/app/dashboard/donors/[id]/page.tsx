@@ -31,6 +31,7 @@ import { getDonorInteractions, logInteraction, toggleTaskStatus } from "@/app/ac
 import { updateDonor, type UpdateDonorInput } from "@/app/actions/donors"
 import type { Interaction } from "@/types/database"
 import { EmailComposeDialog } from "@/components/email/email-compose-dialog"
+import { emailEnabled } from "@/lib/features"
 import { DonorInsightsPanel } from "@/components/donors/donor-insights-panel"
 import { DonorHealthScoreCard } from "@/components/donors/donor-health-score"
 import { DonorNotesCard } from "@/components/donors/donor-notes-card"
@@ -158,17 +159,32 @@ function EditContactDialog({
     }
   }, [open, donor])
 
+  const isIndividual = form.donor_type === "individual"
+
   const handleSave = async () => {
-    if (!form.display_name.trim()) {
-      toast.error("Display name is required")
-      return
+    let displayName = form.display_name.trim()
+    const first = form.first_name.trim()
+    const last = form.last_name.trim()
+
+    if (isIndividual) {
+      if (!first) {
+        toast.error("First name is required")
+        return
+      }
+      displayName = [first, last].filter(Boolean).join(" ")
+    } else {
+      if (!displayName) {
+        toast.error("Organization name is required")
+        return
+      }
     }
+
     setSaving(true)
     try {
       await updateDonor(donor.id, {
-        display_name: form.display_name,
-        first_name: form.first_name || null,
-        last_name: form.last_name || null,
+        display_name: displayName,
+        first_name: isIndividual ? first || null : null,
+        last_name: isIndividual ? last || null : null,
         email: form.email || null,
         phone: form.phone || null,
         billing_address: form.billing_address || null,
@@ -203,31 +219,51 @@ function EditContactDialog({
         </DialogHeader>
         <div className="grid gap-4 py-2 max-h-[60vh] overflow-y-auto pr-1">
           <div className="grid gap-2">
-            <Label htmlFor="edit-display-name">Display Name</Label>
-            <Input
-              id="edit-display-name"
-              value={form.display_name}
-              onChange={(e) => update("display_name", e.target.value)}
-            />
+            <Label htmlFor="edit-donor-type-top">Donor Type</Label>
+            <Select
+              value={form.donor_type}
+              onValueChange={(v) => update("donor_type", v)}
+            >
+              <SelectTrigger id="edit-donor-type-top">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="individual">Individual</SelectItem>
+                <SelectItem value="corporate">Corporate</SelectItem>
+                <SelectItem value="school">School</SelectItem>
+                <SelectItem value="church">Church</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          {isIndividual ? (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="edit-first-name">First Name *</Label>
+                <Input
+                  id="edit-first-name"
+                  value={form.first_name}
+                  onChange={(e) => update("first_name", e.target.value)}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="edit-last-name">Last Name</Label>
+                <Input
+                  id="edit-last-name"
+                  value={form.last_name}
+                  onChange={(e) => update("last_name", e.target.value)}
+                />
+              </div>
+            </div>
+          ) : (
             <div className="grid gap-2">
-              <Label htmlFor="edit-first-name">First Name</Label>
+              <Label htmlFor="edit-display-name">Organization Name *</Label>
               <Input
-                id="edit-first-name"
-                value={form.first_name}
-                onChange={(e) => update("first_name", e.target.value)}
+                id="edit-display-name"
+                value={form.display_name}
+                onChange={(e) => update("display_name", e.target.value)}
               />
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="edit-last-name">Last Name</Label>
-              <Input
-                id="edit-last-name"
-                value={form.last_name}
-                onChange={(e) => update("last_name", e.target.value)}
-              />
-            </div>
-          </div>
+          )}
           <div className="grid gap-2">
             <Label htmlFor="edit-email">Email</Label>
             <Input
@@ -317,23 +353,6 @@ function EditContactDialog({
                 onChange={(e) => update("mailing_zip", e.target.value)}
               />
             </div>
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="edit-donor-type">Donor Type</Label>
-            <Select
-              value={form.donor_type}
-              onValueChange={(v) => update("donor_type", v)}
-            >
-              <SelectTrigger id="edit-donor-type">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="individual">Individual</SelectItem>
-                <SelectItem value="corporate">Corporate</SelectItem>
-                <SelectItem value="school">School</SelectItem>
-                <SelectItem value="church">Church</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
           <div className="grid gap-2">
             <Label htmlFor="edit-acquisition-source">Acquisition Source</Label>
@@ -452,9 +471,9 @@ function LogActivityDialog({
         <DialogTitle>Log Activity</DialogTitle>
       </DialogHeader>
       <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v as "call" | "email" | "task"); reset() }}>
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className={`grid w-full ${emailEnabled ? "grid-cols-3" : "grid-cols-2"}`}>
           <TabsTrigger value="call">Log Call</TabsTrigger>
-          <TabsTrigger value="email">Send Email</TabsTrigger>
+          {emailEnabled && <TabsTrigger value="email">Send Email</TabsTrigger>}
           <TabsTrigger value="task">Add Task</TabsTrigger>
         </TabsList>
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
@@ -640,14 +659,16 @@ export default function DonorProfilePage() {
             <CheckSquare className="size-3.5 mr-1.5" />
             Add Task
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setEmailDialogOpen(true)}
-          >
-            <Mail className="size-3.5 mr-1.5" />
-            Send Email
-          </Button>
+          {emailEnabled && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setEmailDialogOpen(true)}
+            >
+              <Mail className="size-3.5 mr-1.5" />
+              Send Email
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -942,20 +963,22 @@ export default function DonorProfilePage() {
       </Dialog>
 
       {/* Send Email Dialog */}
-      <EmailComposeDialog
-        open={emailDialogOpen}
-        onOpenChange={setEmailDialogOpen}
-        mode="single"
-        recipient={{
-          donorId,
-          donorEmail: donor.email,
-          donorName: donor.display_name,
-        }}
-        onSent={async () => {
-          const ints = await getDonorInteractions(donorId)
-          setInteractions(ints)
-        }}
-      />
+      {emailEnabled && (
+        <EmailComposeDialog
+          open={emailDialogOpen}
+          onOpenChange={setEmailDialogOpen}
+          mode="single"
+          recipient={{
+            donorId,
+            donorEmail: donor.email,
+            donorName: donor.display_name,
+          }}
+          onSent={async () => {
+            const ints = await getDonorInteractions(donorId)
+            setInteractions(ints)
+          }}
+        />
+      )}
     </div>
   )
 }

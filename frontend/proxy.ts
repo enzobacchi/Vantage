@@ -67,6 +67,15 @@ export async function proxy(request: NextRequest) {
   const { method, nextUrl } = request
   const { pathname } = nextUrl
 
+  // --- www → apex redirect for the marketing domain ---
+  // The business card URL is www.vantagedonorai.com; the marketing site
+  // lives at the apex. 308 keeps POST method semantics just in case.
+  const host = request.headers.get("host")
+  if (host === "www.vantagedonorai.com") {
+    const target = `https://vantagedonorai.com${pathname}${nextUrl.search}`
+    return NextResponse.redirect(target, 308)
+  }
+
   // --- CSRF Protection for API mutation routes ---
   if (MUTATION_METHODS.has(method) && pathname.startsWith("/api/")) {
     if (!CSRF_EXEMPT.some((p) => pathname.startsWith(p))) {

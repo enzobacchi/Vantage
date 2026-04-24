@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { requireUserOrg } from "@/lib/auth"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { emailEnabledServer } from "@/lib/features"
 import {
   GmailNeedsReauthError,
   GmailNotConnectedError,
@@ -24,6 +25,13 @@ type FailedRecipient = {
 }
 
 export async function POST(request: Request) {
+  if (!emailEnabledServer) {
+    return NextResponse.json(
+      { error: "Email sending is not enabled" },
+      { status: 403 }
+    )
+  }
+
   const auth = await requireUserOrg()
   if (!auth.ok) {
     return auth.response

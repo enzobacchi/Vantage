@@ -84,10 +84,13 @@ export default function DonationEntryPage() {
   const donorSearchDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [newDonorDisplayName, setNewDonorDisplayName] = React.useState("")
+  const [newDonorFirstName, setNewDonorFirstName] = React.useState("")
+  const [newDonorLastName, setNewDonorLastName] = React.useState("")
   const [newDonorEmail, setNewDonorEmail] = React.useState("")
   const [newDonorPhone, setNewDonorPhone] = React.useState("")
   const [newDonorAddress, setNewDonorAddress] = React.useState("")
   const [newDonorType, setNewDonorType] = React.useState<"individual" | "corporate" | "school" | "church">("individual")
+  const isNewDonorIndividual = newDonorType === "individual"
 
   const [amount, setAmount] = React.useState("")
   const [date, setDate] = React.useState(todayISO())
@@ -168,10 +171,14 @@ export default function DonationEntryPage() {
         donorInputRef.current?.focus()
         return
       }
+    } else if (isNewDonorIndividual) {
+      if (!newDonorFirstName.trim()) {
+        toast.error("First name is required")
+        return
+      }
     } else {
-      const name = newDonorDisplayName.trim()
-      if (!name) {
-        toast.error("Display name is required")
+      if (!newDonorDisplayName.trim()) {
+        toast.error("Organization name is required")
         return
       }
     }
@@ -189,8 +196,15 @@ export default function DonationEntryPage() {
     setSubmitting(true)
     try {
       if (donorMode === "create") {
+        const first = newDonorFirstName.trim()
+        const last = newDonorLastName.trim()
+        const computedDisplayName = isNewDonorIndividual
+          ? [first, last].filter(Boolean).join(" ")
+          : newDonorDisplayName.trim()
         const { id } = await createDonor({
-          display_name: newDonorDisplayName.trim(),
+          display_name: computedDisplayName,
+          first_name: isNewDonorIndividual ? first || null : null,
+          last_name: isNewDonorIndividual ? last || null : null,
           email: newDonorEmail.trim() || null,
           phone: newDonorPhone.trim() || null,
           billing_address: newDonorAddress.trim() || null,
@@ -219,6 +233,8 @@ export default function DonationEntryPage() {
       setMemo("")
       if (donorMode === "create") {
         setNewDonorDisplayName("")
+        setNewDonorFirstName("")
+        setNewDonorLastName("")
         setNewDonorEmail("")
         setNewDonorPhone("")
         setNewDonorAddress("")
@@ -372,14 +388,55 @@ export default function DonationEntryPage() {
                 </TabsContent>
                 <TabsContent value="create" className="mt-2 space-y-3">
                   <div className="space-y-2">
-                    <Label htmlFor="new-display-name">Display name *</Label>
-                    <Input
-                      id="new-display-name"
-                      placeholder="e.g. John Smith or Smith Family"
-                      value={newDonorDisplayName}
-                      onChange={(e) => setNewDonorDisplayName(e.target.value)}
-                    />
+                    <Label htmlFor="new-donor-type">Donor type</Label>
+                    <Select value={newDonorType} onValueChange={(v) => setNewDonorType(v as typeof newDonorType)}>
+                      <SelectTrigger id="new-donor-type">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {DONOR_TYPES.map((t) => (
+                          <SelectItem key={t.value} value={t.value}>
+                            {t.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Institutional (corporate/school/church) donors receive non-deductible acknowledgments.
+                    </p>
                   </div>
+                  {isNewDonorIndividual ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-2">
+                        <Label htmlFor="new-first-name">First name *</Label>
+                        <Input
+                          id="new-first-name"
+                          placeholder="Jane"
+                          value={newDonorFirstName}
+                          onChange={(e) => setNewDonorFirstName(e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="new-last-name">Last name</Label>
+                        <Input
+                          id="new-last-name"
+                          placeholder="Smith"
+                          value={newDonorLastName}
+                          onChange={(e) => setNewDonorLastName(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <Label htmlFor="new-display-name">Organization name *</Label>
+                      <Input
+                        id="new-display-name"
+                        placeholder="e.g. Acme Corp"
+                        value={newDonorDisplayName}
+                        onChange={(e) => setNewDonorDisplayName(e.target.value)}
+                      />
+                    </div>
+                  )}
                   <div className="space-y-2">
                     <Label htmlFor="new-email">Email</Label>
                     <Input
@@ -408,24 +465,6 @@ export default function DonationEntryPage() {
                       value={newDonorAddress}
                       onChange={(e) => setNewDonorAddress(e.target.value)}
                     />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="new-donor-type">Donor type</Label>
-                    <Select value={newDonorType} onValueChange={(v) => setNewDonorType(v as typeof newDonorType)}>
-                      <SelectTrigger id="new-donor-type">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {DONOR_TYPES.map((t) => (
-                          <SelectItem key={t.value} value={t.value}>
-                            {t.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      Institutional (corporate/school/church) donors receive non-deductible acknowledgments.
-                    </p>
                   </div>
                 </TabsContent>
               </Tabs>

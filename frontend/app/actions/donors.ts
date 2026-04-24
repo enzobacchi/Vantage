@@ -7,7 +7,9 @@ import { logAuditEvent } from "@/app/actions/audit"
 import { isLimitExceeded } from "@/lib/subscription"
 
 export type CreateDonorInput = {
-  display_name: string
+  display_name?: string
+  first_name?: string | null
+  last_name?: string | null
   email?: string | null
   phone?: string | null
   billing_address?: string | null
@@ -25,8 +27,26 @@ export async function createDonor(input: CreateDonorInput): Promise<{ id: string
   const org = await getCurrentUserOrg()
   if (!org) throw new Error("Unauthorized")
 
-  const displayName = input.display_name?.trim()
-  if (!displayName) throw new Error("Display name is required")
+  const firstName = input.first_name?.trim() || null
+  const lastName = input.last_name?.trim() || null
+  const donorType = input.donor_type && ["individual", "corporate", "school", "church"].includes(input.donor_type)
+    ? input.donor_type
+    : "individual"
+
+  // For individuals the display name is derived from first+last when the
+  // caller didn't provide one. For orgs the caller is expected to pass the
+  // organization name as display_name.
+  let displayName = input.display_name?.trim() || ""
+  if (!displayName && donorType === "individual") {
+    displayName = [firstName, lastName].filter(Boolean).join(" ")
+  }
+  if (!displayName) {
+    throw new Error(
+      donorType === "individual"
+        ? "First name is required"
+        : "Organization name is required"
+    )
+  }
 
   // Enforce donor limit based on subscription plan
   if (await isLimitExceeded(org.orgId, "donors")) {
@@ -34,14 +54,13 @@ export async function createDonor(input: CreateDonorInput): Promise<{ id: string
   }
 
   const supabase = createAdminClient()
-  const donorType = input.donor_type && ["individual", "corporate", "school", "church"].includes(input.donor_type)
-    ? input.donor_type
-    : "individual"
   const { data, error } = await supabase
     .from("donors")
     .insert({
       org_id: org.orgId,
       display_name: displayName,
+      first_name: firstName,
+      last_name: lastName,
       email: input.email?.trim() || null,
       phone: input.phone?.trim() || null,
       billing_address: input.billing_address?.trim() || null,

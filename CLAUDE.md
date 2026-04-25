@@ -61,6 +61,7 @@ A sibling Expo app lives at `/Users/enzobacchiocchi/Developer/Vantage/Mobile` an
 - **Smart Actions**: Dashboard recommendations generated via API, surfaced in `frontend/components/smart-actions.tsx`.
 - **Weekly Digest**: AI-summarized weekly digest emails via `frontend/lib/digest-ai.ts` + `/api/cron/digest`.
 - **Semantic Search**: pgvector embeddings stored on `donors` table via Supabase `match_donors` RPC. Not yet exposed in UI.
+- **Voice Donation Entry**: Mic button on `/dashboard/donations/entry` opens `frontend/components/donations/voice-entry-dialog.tsx`. Audio is sent to `POST /api/donations/voice-parse`, which runs Whisper for transcription, redacts PII via the org's donor index, then asks Claude Haiku 4.5 (`generateObject`) to extract a list of `{ donor, amount, date, payment_method, category, campaign, fund, memo }` rows. Server-side reconciliation matches donor placeholders/names back to real IDs and fuzzy-matches designations against `org_donation_options`. The user reviews and edits each row before saving — never auto-saved. Gated by `TRANSCRIBE_ENABLED=true` plus `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`.
 - Always redact PII before sending any donor data to LLMs. Never auto-execute AI suggestions — always require human approval.
 
 ### Database

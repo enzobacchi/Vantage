@@ -23,6 +23,7 @@ const PAYMENT_METHODS: PaymentMethod[] = [
   "venmo",
   "other",
   "quickbooks",
+  "daf",
 ]
 
 function isValidPaymentMethod(v: string): v is PaymentMethod {

@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, DollarSign } from "lucide-react"
+import { ArrowLeft, DollarSign, Mic } from "lucide-react"
 import { toast } from "sonner"
 
 import { createDonor } from "@/app/actions/donors"
@@ -14,6 +14,11 @@ import {
   type OrgDonationOptionRow,
 } from "@/app/actions/donations"
 import type { PaymentMethod } from "@/types/database"
+import {
+  useDonorSearch,
+  type DonorSearchItem,
+} from "@/lib/hooks/use-donor-search"
+import { VoiceEntryDialog } from "@/components/donations/voice-entry-dialog"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -46,8 +51,6 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 
-type DonorSearchItem = { id: string; display_name: string | null; total_lifetime_value: number | string | null }
-
 const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
   { value: "check", label: "Check" },
   { value: "cash", label: "Cash" },
@@ -78,10 +81,14 @@ export default function DonationEntryPage() {
   const [donorPopoverOpen, setDonorPopoverOpen] = React.useState(false)
   const [donorId, setDonorId] = React.useState("")
   const [donorDisplayName, setDonorDisplayName] = React.useState("")
-  const [donorSearchQuery, setDonorSearchQuery] = React.useState("")
-  const [donorSearchResults, setDonorSearchResults] = React.useState<DonorSearchItem[]>([])
-  const [donorSearching, setDonorSearching] = React.useState(false)
-  const donorSearchDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const {
+    query: donorSearchQuery,
+    setQuery: setDonorSearchQuery,
+    results: donorSearchResults,
+    searching: donorSearching,
+    clear: clearDonorSearch,
+  } = useDonorSearch()
+  const [voiceOpen, setVoiceOpen] = React.useState(false)
 
   const [newDonorDisplayName, setNewDonorDisplayName] = React.useState("")
   const [newDonorFirstName, setNewDonorFirstName] = React.useState("")
@@ -123,39 +130,18 @@ export default function DonationEntryPage() {
     loadOptions()
   }, [loadOptions])
 
-  React.useEffect(() => {
-    const q = donorSearchQuery.trim()
-    if (!q) {
-      setDonorSearchResults([])
-      return
-    }
-    donorSearchDebounceRef.current = setTimeout(() => {
-      setDonorSearching(true)
-      fetch(`/api/donors/search?q=${encodeURIComponent(q)}`)
-        .then((res) => (res.ok ? res.json() : []))
-        .then((arr: DonorSearchItem[]) => setDonorSearchResults(Array.isArray(arr) ? arr : []))
-        .catch(() => setDonorSearchResults([]))
-        .finally(() => setDonorSearching(false))
-    }, 200)
-    return () => {
-      if (donorSearchDebounceRef.current) clearTimeout(donorSearchDebounceRef.current)
-    }
-  }, [donorSearchQuery])
-
   const selectDonor = (d: DonorSearchItem) => {
     setDonorId(d.id)
     setDonorDisplayName(d.display_name?.trim() ?? "Unknown")
     setDonorPopoverOpen(false)
-    setDonorSearchQuery("")
-    setDonorSearchResults([])
+    clearDonorSearch()
     setTimeout(() => amountInputRef.current?.focus(), 0)
   }
 
   const clearDonor = () => {
     setDonorId("")
     setDonorDisplayName("")
-    setDonorSearchQuery("")
-    setDonorSearchResults([])
+    clearDonorSearch()
     donorInputRef.current?.focus()
   }
 
@@ -295,7 +281,7 @@ export default function DonationEntryPage() {
             <ArrowLeft className="size-4" strokeWidth={1.5} />
           </Link>
         </Button>
-        <div>
+        <div className="flex-1">
           <h1 className="text-xl font-semibold flex items-center gap-2">
             <DollarSign className="size-5" strokeWidth={1.5} />
             Log Donation
@@ -304,7 +290,28 @@ export default function DonationEntryPage() {
             Manually record offline donations (checks, cash, Zelle, wire, Venmo). Use Cmd/Ctrl+Enter to save quickly.
           </p>
         </div>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => setVoiceOpen(true)}
+          className="gap-2"
+        >
+          <Mic className="size-4" strokeWidth={1.5} />
+          Voice entry
+        </Button>
       </div>
+
+      <VoiceEntryDialog
+        open={voiceOpen}
+        onOpenChange={setVoiceOpen}
+        categories={categories}
+        campaigns={campaigns}
+        funds={funds}
+        onOptionsChanged={loadOptions}
+        onSavedAny={() => {
+          router.refresh()
+        }}
+      />
 
       <Card className="max-w-xl">
         <CardHeader>

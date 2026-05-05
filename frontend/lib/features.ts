@@ -11,3 +11,10 @@ export const emailEnabled =
 export const emailEnabledServer =
   process.env.EMAIL_ENABLED === "true" ||
   process.env.NEXT_PUBLIC_EMAIL_ENABLED === "true"
+
+export const transcribeEnabled =
+  process.env.NEXT_PUBLIC_TRANSCRIBE_ENABLED === "true"
+
+export const transcribeEnabledServer =
+  process.env.TRANSCRIBE_ENABLED === "true" ||
+  process.env.NEXT_PUBLIC_TRANSCRIBE_ENABLED === "true"

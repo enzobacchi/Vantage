@@ -4,12 +4,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { useRouter } from "next/navigation"
 import { useNav } from "@/components/nav-context"
-import { ExternalLink, MapPin, Navigation, X, Filter, Map as MapIcon, RefreshCw, Search, Settings2, Circle, Pentagon, Trash2, FileText, Download, FilePlus } from "lucide-react"
+import { ExternalLink, MapPin, Navigation, X, Filter, Map as MapIcon, RefreshCw, Search, Settings2, Pentagon, Trash2, FileText, Download, FilePlus } from "lucide-react"
 import Map, { Marker, Popup, Source, Layer } from "react-map-gl/mapbox"
 import type { MapRef } from "react-map-gl/mapbox"
 import MapboxDraw from "@mapbox/mapbox-gl-draw"
 import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css"
-import { isPointInPolygon, isPointInCircle } from "@/lib/geo-utils"
+import { isPointInPolygon } from "@/lib/geo-utils"
 import {
   type RouteDonorWithCoords,
   type RouteDonorWithIcebreaker,
@@ -217,7 +217,6 @@ export function DonorMapView() {
   const mapRef = useRef<MapRef>(null)
   const drawRef = useRef<MapboxDraw | null>(null)
   const pointsRef = useRef<DonorMapPoint[]>([])
-  const circleModeRef = useRef(false)
   const [points, setPoints] = useState<DonorMapPoint[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -226,9 +225,7 @@ export function DonorMapView() {
   const [legendOpen, setLegendOpen] = useState(false)
   const [webglOk, setWebglOk] = useState<boolean | null>(null)
   const [selectedByDraw, setSelectedByDraw] = useState<DonorMapPoint[]>([])
-  const [drawMode, setDrawMode] = useState<"polygon" | "circle" | null>(null)
-  const [circleCenter, setCircleCenter] = useState<[number, number] | null>(null)
-  const [circleRadiusInput, setCircleRadiusInput] = useState("")
+  const [drawMode, setDrawMode] = useState<"polygon" | null>(null)
   const [generateReportLoading, setGenerateReportLoading] = useState(false)
   const [showAllSelectedDonors, setShowAllSelectedDonors] = useState(false)
 
@@ -256,7 +253,6 @@ export function DonorMapView() {
   const hasMoreDonors = selectedByDraw.length > INITIAL_DONORS_SHOWN
 
   useEffect(() => { pointsRef.current = points }, [points])
-  useEffect(() => { circleModeRef.current = drawMode === "circle" }, [drawMode])
 
   const [mapReady, setMapReady] = useState(false)
 
@@ -461,14 +457,6 @@ export function DonorMapView() {
     []
   )
 
-  const filterDonorsByCircle = useCallback(
-    (center: [number, number], radiusMiles: number, donors: DonorMapPoint[]) =>
-      donors.filter((p) =>
-        isPointInCircle([p.location_lng, p.location_lat], center, radiusMiles)
-      ),
-    []
-  )
-
   const handleDrawCreate = useCallback(
     (e: { features?: Array<{ geometry?: { type?: string; coordinates?: number[][][] } }> }) => {
       const features = e.features ?? []
@@ -538,56 +526,29 @@ export function DonorMapView() {
 
     const onDrawCreate = (e: unknown) => handleDrawCreate(e as { features?: Array<{ geometry?: { type?: string; coordinates?: number[][][] } }> })
     const onDrawUpdate = () => handleDrawUpdate()
-    const onClick = (e: { lngLat: { lng: number; lat: number } }) => {
-      if (circleModeRef.current) {
-        setCircleCenter([e.lngLat.lng, e.lngLat.lat])
-      }
-    }
 
     map.on("draw.create", onDrawCreate)
     map.on("draw.update", onDrawUpdate)
-    map.on("click", onClick)
 
     return () => {
       map.off("draw.create", onDrawCreate)
       map.off("draw.update", onDrawUpdate)
-      map.off("click", onClick)
     }
   }, [mapReady, handleDrawCreate, handleDrawUpdate])
 
   const activatePolygonMode = useCallback(() => {
     setDrawMode("polygon")
-    setCircleCenter(null)
-    setCircleRadiusInput("")
+    setSelected(null)
     drawRef.current?.changeMode("draw_polygon")
-  }, [])
-
-  const activateCircleMode = useCallback(() => {
-    setDrawMode("circle")
-    setCircleCenter(null)
-    setCircleRadiusInput("")
-    drawRef.current?.changeMode("simple_select")
-    drawRef.current?.deleteAll()
   }, [])
 
   const clearDraw = useCallback(() => {
     setDrawMode(null)
-    setCircleCenter(null)
-    setCircleRadiusInput("")
     setSelectedByDraw([])
     setShowAllSelectedDonors(false)
     drawRef.current?.deleteAll()
     drawRef.current?.changeMode("simple_select")
   }, [])
-
-  const applyCircleFilter = useCallback(() => {
-    const center = circleCenter
-    const radius = Number(circleRadiusInput)
-    if (!center || !Number.isFinite(radius) || radius <= 0 || radius > 500) return
-    const filtered = filterDonorsByCircle(center, radius, points)
-    setSelectedByDraw(filtered)
-    setCircleRadiusInput("")
-  }, [circleCenter, circleRadiusInput, filterDonorsByCircle, points])
 
   const handleGenerateReport = useCallback(async () => {
     if (selectedByDraw.length === 0) return
@@ -686,7 +647,7 @@ export function DonorMapView() {
       routeIsOptimized &&
       routeOptimized?.some((d) => d.icebreaker && d.icebreaker.trim().length > 0)
 
-    const headers = ["Step", "Name", "Address", "Last Gift"]
+    const headers = ["Step", "Name", "Address", "Last Donation"]
     if (hasIcebreaker) headers.push("Icebreaker")
 
     const rows = routeDisplayList.map((d, i) => {
@@ -980,16 +941,6 @@ export function DonorMapView() {
           <Pentagon className="mr-1.5 size-4" />
           Polygon
         </Button>
-        <Button
-          type="button"
-          variant={drawMode === "circle" ? "secondary" : "outline"}
-          size="sm"
-          className="h-8"
-          onClick={activateCircleMode}
-        >
-          <Circle className="mr-1.5 size-4" />
-          Circle
-        </Button>
         {(drawMode || selectedByDraw.length > 0) && (
           <Button type="button" variant="ghost" size="sm" className="h-8" onClick={clearDraw}>
             <Trash2 className="mr-1.5 size-4" />
@@ -1000,29 +951,6 @@ export function DonorMapView() {
           <span className="text-xs text-muted-foreground ml-2">
             Click points to draw, double-click to finish
           </span>
-        )}
-        {drawMode === "circle" && (
-          <div className="ml-2 flex items-center gap-2 border-l pl-2">
-            {circleCenter ? (
-              <>
-                <Input
-                  type="number"
-                  min={0.1}
-                  max={500}
-                  step={1}
-                  placeholder="Radius (mi)"
-                  value={circleRadiusInput}
-                  onChange={(e) => setCircleRadiusInput(e.target.value)}
-                  className="h-8 w-24 text-xs"
-                />
-                <Button type="button" size="sm" className="h-8" onClick={applyCircleFilter}>
-                  Apply
-                </Button>
-              </>
-            ) : (
-              <span className="text-xs text-muted-foreground">Click map to set center</span>
-            )}
-          </div>
         )}
       </div>
 
@@ -1087,6 +1015,7 @@ export function DonorMapView() {
                     latitude={p.location_lat}
                     longitude={p.location_lng}
                     anchor="bottom"
+                    style={{ pointerEvents: drawMode ? "none" : "auto" }}
                   >
                     <button
                       type="button"
@@ -1107,19 +1036,6 @@ export function DonorMapView() {
                   </Marker>
                 ))}
 
-                {/* Circle center marker */}
-                {circleCenter && drawMode === "circle" && (
-                  <Marker
-                    latitude={circleCenter[1]}
-                    longitude={circleCenter[0]}
-                    anchor="center"
-                  >
-                    <div className="flex items-center justify-center">
-                      <div className="size-4 rounded-full border-2 border-primary bg-primary/30 shadow" />
-                    </div>
-                  </Marker>
-                )}
-
                 {/* Route planner markers */}
                 {routeMode && routeDisplayList.length > 0 && (routeDisplayList as RouteDonorWithCoords[]).map((d, i) => (
                   d.location_lat != null && d.location_lng != null ? (
@@ -1128,6 +1044,7 @@ export function DonorMapView() {
                       latitude={d.location_lat}
                       longitude={d.location_lng}
                       anchor="center"
+                      style={{ pointerEvents: drawMode ? "none" : "auto" }}
                     >
                       <div
                         className="flex items-center justify-center size-7 rounded-full bg-[#007A3F] text-white text-xs font-bold shadow-sm border-2 border-white"
@@ -1243,9 +1160,9 @@ export function DonorMapView() {
                     onClose={() => setSelected(null)}
                     closeButton
                     closeOnClick={false}
-                    className="[&_.mapboxgl-popup-content]:!p-0 [&_.mapboxgl-popup-content]:!bg-background [&_.mapboxgl-popup-content]:!text-foreground [&_.mapboxgl-popup-content]:border [&_.mapboxgl-popup-content]:border-border [&_.mapboxgl-popup-content]:rounded-lg [&_.mapboxgl-popup-content]:shadow-sm"
+                    className="[&_.mapboxgl-popup-content]:!p-0 [&_.mapboxgl-popup-content]:!bg-background [&_.mapboxgl-popup-content]:!text-foreground [&_.mapboxgl-popup-content]:border [&_.mapboxgl-popup-content]:border-border [&_.mapboxgl-popup-content]:rounded-xl! [&_.mapboxgl-popup-content]:overflow-hidden [&_.mapboxgl-popup-content]:shadow-sm [&_.mapboxgl-popup-close-button]:p-1! [&_.mapboxgl-popup-close-button]:text-muted-foreground! [&_.mapboxgl-popup-close-button]:hover:bg-transparent!"
                   >
-                    <div className="min-w-56 rounded-lg border bg-card p-3 text-card-foreground shadow-sm">
+                    <div className="min-w-56 bg-card p-3 text-card-foreground">
                       <button
                         type="button"
                         className="font-semibold text-foreground leading-tight text-primary hover:underline block text-left w-full"

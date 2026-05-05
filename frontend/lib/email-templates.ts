@@ -92,7 +92,7 @@ export function trialEndingEmailHtml(params: {
   return wrapEmailTemplate("Your trial ends in 7 days", `
     ${p(greeting)}
     ${p(`Your Vantage free trial ends on <strong>${esc(endDate)}</strong>. To keep access to your donors, reports, and AI features, add a payment method now.`)}
-    ${p("Plans start at $29/month. Cancel anytime from billing settings.")}
+    ${p("Plans start at $49/month. Cancel anytime from billing settings.")}
     <div style="margin: 24px 0;">
       ${linkButton(params.upgradeUrl, "Add payment method")}
     </div>

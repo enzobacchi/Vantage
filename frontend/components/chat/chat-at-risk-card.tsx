@@ -123,7 +123,7 @@ export function ChatAtRiskCard({
                 </button>
                 <div className="text-[11px] text-muted-foreground">
                   {formatCurrency(d.lifetime_value)} lifetime
-                  {days != null && <> · last gift {days}d ago</>}
+                  {days != null && <> · last donation {days}d ago</>}
                 </div>
               </div>
               {d.suggested_ask != null && d.suggested_ask > 0 && (

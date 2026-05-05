@@ -411,7 +411,7 @@ export function buildTools(
 
     get_donation_metrics: tool({
       description:
-        "Get aggregate donation statistics for a single date range: total revenue, average gift, donor counts, and optional breakdowns by dimension. Use for summary questions like 'how much did we raise', 'what are our metrics', or 'revenue by campaign last quarter'. For two-window comparisons (Q1 vs Q2, YoY) use compare_periods. For charting over time use get_donation_timeseries. Do NOT use this to list individual donors — use search_donors instead.",
+        "Get aggregate donation statistics for a single date range: total revenue, average donation, donor counts, and optional breakdowns by dimension. Use for summary questions like 'how much did we raise', 'what are our metrics', or 'revenue by campaign last quarter'. For two-window comparisons (Q1 vs Q2, YoY) use compare_periods. For charting over time use get_donation_timeseries. Do NOT use this to list individual donors — use search_donors instead.",
       inputSchema: z.object({
         from_date: z
           .string()
@@ -793,7 +793,7 @@ export function buildTools(
 
     filter_donations: tool({
       description:
-        "Search individual donation transaction records. Use this when the user asks about specific gifts, donation amounts, or payment details. Do NOT use this to find 'top donors' — use search_donors instead.",
+        "Search individual donation transaction records. Use this when the user asks about specific donations, donation amounts, or payment details. Do NOT use this to find 'top donors' — use search_donors instead.",
       inputSchema: z.object({
         donor_id: z
           .string()

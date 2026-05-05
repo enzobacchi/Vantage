@@ -79,7 +79,7 @@ function isError(
 
 function describeFilter(f: FilterRowDisplay): string {
   if (f.field === "donation_activity") {
-    const verb = f.operator === "no_gift_between" ? "No gift between" : "Gave between"
+    const verb = f.operator === "no_gift_between" ? "No donation between" : "Gave between"
     return `${verb} ${f.value} and ${f.value2 ?? "?"}`
   }
   const val = Array.isArray(f.value) ? `[${f.value.length} items]` : String(f.value)

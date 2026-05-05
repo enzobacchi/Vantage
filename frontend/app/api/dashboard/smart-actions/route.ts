@@ -133,7 +133,7 @@ export async function GET() {
       type: "thank_donor",
       priority: amount >= 500 ? "high" : "medium",
       title: `Send thank-you to ${donor.display_name ?? "donor"}`,
-      description: `$${amount.toLocaleString()} gift on ${donation.date ?? "unknown date"} — no acknowledgment sent yet.`,
+      description: `$${amount.toLocaleString()} donation on ${donation.date ?? "unknown date"} — no acknowledgment sent yet.`,
       donorId: donor.id,
       donorName: donor.display_name ?? undefined,
       amount,

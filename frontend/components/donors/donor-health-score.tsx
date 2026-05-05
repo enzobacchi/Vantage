@@ -256,7 +256,7 @@ export function DonorHealthScoreCard({ donorId }: { donorId: string }) {
           <FactorBar
             label="Frequency"
             value={data.factors.frequency}
-            tooltip="How often they give. 12+ gifts in 2 years = 100."
+            tooltip="How often they give. 12+ donations in 2 years = 100."
           />
           <FactorBar
             label="Giving Trend"

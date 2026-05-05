@@ -99,7 +99,7 @@ export function ChatDonorCard({ donorId, onClose, onNavigate }: ChatDonorCardPro
                 <p className="text-sm font-semibold tabular-nums">{formatCurrency(ytdSum)}</p>
               </div>
               <div>
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Gifts</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Donations</p>
                 <p className="text-sm font-semibold tabular-nums">{donations.length}</p>
               </div>
             </div>

@@ -44,7 +44,9 @@ function applySecurityHeaders(response: NextResponse): void {
     "Content-Security-Policy",
     [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://va.vercel-scripts.com https://api.mapbox.com",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://va.vercel-scripts.com https://api.mapbox.com",
+      "worker-src 'self' blob:",
+      "child-src 'self' blob:",
       "style-src 'self' 'unsafe-inline' https://api.mapbox.com",
       "img-src 'self' data: blob: https: http:",
       "font-src 'self' data:",

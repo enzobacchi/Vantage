@@ -163,7 +163,7 @@ function TemplateDialog({
             <Label htmlFor="tpl-subject">Subject line</Label>
             <Input
               id="tpl-subject"
-              placeholder="e.g. Thank you for your gift, {{donor_name}}"
+              placeholder="e.g. Thank you for your donation, {{donor_name}}"
               value={form.subject}
               onChange={(e) => setForm((f) => ({ ...f, subject: e.target.value }))}
               required
@@ -176,7 +176,7 @@ function TemplateDialog({
             <Textarea
               id="tpl-body"
               className="min-h-[140px] font-mono text-xs"
-              placeholder={"Dear {{donor_name}},\n\nThank you for your generous gift…"}
+              placeholder={"Dear {{donor_name}},\n\nThank you for your generous donation…"}
               value={form.body}
               onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))}
               required

@@ -89,9 +89,9 @@ export function ChatMetricsCard({ part }: { part: ToolPart }) {
 
       <div className="grid grid-cols-2 gap-px bg-border/40 sm:grid-cols-4">
         <Kpi label="Revenue" value={formatCurrency(output.total_revenue)} />
-        <Kpi label="Gifts" value={String(output.total_count)} />
+        <Kpi label="Donations" value={String(output.total_count)} />
         <Kpi label="Donors" value={String(output.unique_donor_count)} />
-        <Kpi label="Avg gift" value={formatCurrency(output.average_gift)} />
+        <Kpi label="Avg donation" value={formatCurrency(output.average_gift)} />
       </div>
 
       {breakdown.length > 0 && (
@@ -133,7 +133,7 @@ export function ChatMetricsCard({ part }: { part: ToolPart }) {
                 <span className="shrink-0 tabular-nums text-foreground">
                   {formatCurrency(b.total)}{" "}
                   <span className="text-muted-foreground">
-                    · {b.gift_count} gifts · {b.donor_count} donors
+                    · {b.gift_count} donations · {b.donor_count} donors
                   </span>
                 </span>
               </li>

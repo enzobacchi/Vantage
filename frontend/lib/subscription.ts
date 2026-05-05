@@ -54,7 +54,7 @@ export const PLANS: Record<SubscriptionPlan, { name: string; description: string
     maxDonors: 500,
     maxAiInsightsPerMonth: 30,
     maxChatMessagesPerMonth: 200,
-    monthlyPrice: 29,
+    monthlyPrice: 49,
     features: ["Up to 500 donors", "30 AI insights per month", "200 AI chats per month", ...SHARED_FEATURES],
   },
   growth: {

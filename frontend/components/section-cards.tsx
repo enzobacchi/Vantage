@@ -106,7 +106,7 @@ export function SectionCards() {
           <div className="line-clamp-1 flex gap-2 font-medium">
             Revenue / Donors
           </div>
-          <div className="text-muted-foreground">Mean gift size</div>
+          <div className="text-muted-foreground">Mean donation size</div>
         </CardFooter>
       </Card>
       <Card className="@container/card">

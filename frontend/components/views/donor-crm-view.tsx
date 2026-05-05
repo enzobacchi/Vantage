@@ -94,8 +94,8 @@ type SortOption = "recent" | "highest" | "lowest" | "lifetime_highest" | "lifeti
 
 const SORT_OPTIONS: { value: SortOption; label: string }[] = [
   { value: "recent", label: "Most recent" },
-  { value: "highest", label: "Highest last gift" },
-  { value: "lowest", label: "Lowest last gift" },
+  { value: "highest", label: "Highest last donation" },
+  { value: "lowest", label: "Lowest last donation" },
   { value: "lifetime_highest", label: "Highest lifetime" },
   { value: "lifetime_lowest", label: "Lowest lifetime" },
 ]
@@ -286,7 +286,7 @@ function LogActivityDialog({
               <Input
                 id="email-subject"
                 className="mt-1"
-                placeholder="e.g. Thank you for your gift"
+                placeholder="e.g. Thank you for your donation"
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
               />
@@ -665,7 +665,7 @@ export function DonorCRMView() {
 
   const handleBulkExport = React.useCallback(() => {
     if (selectedDonors.length === 0) return
-    const headers = ["Name", "State", "Total Giving", "Last Gift Date", "Last Gift Amount"]
+    const headers = ["Name", "State", "Total Giving", "Last Donation Date", "Last Donation Amount"]
     const rows = selectedDonors.map((d) => [
       d.display_name ?? "",
       d.state ?? "",
@@ -1370,7 +1370,7 @@ export function DonorCRMView() {
                   {/* Recent Gifts — compact summary */}
                   {donations.length > 0 && (
                     <div className="space-y-2">
-                      <p className="text-xs font-medium text-muted-foreground px-1">Recent Gifts</p>
+                      <p className="text-xs font-medium text-muted-foreground px-1">Recent Donations</p>
                       <div className="space-y-1.5">
                         {donations.slice(0, 3).map((d) => (
                           <div key={d.id} className="flex items-center justify-between rounded-md border px-3 py-2">
@@ -1381,7 +1381,7 @@ export function DonorCRMView() {
                       </div>
                       {donations.length > 3 && (
                         <p className="text-xs text-muted-foreground text-center">
-                          +{donations.length - 3} more gift{donations.length - 3 !== 1 ? "s" : ""}
+                          +{donations.length - 3} more donation{donations.length - 3 !== 1 ? "s" : ""}
                         </p>
                       )}
                     </div>

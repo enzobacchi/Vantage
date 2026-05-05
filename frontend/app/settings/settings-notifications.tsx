@@ -70,7 +70,7 @@ const INAPP_PREFS: PrefItem[] = [
   {
     key: "inapp_donor_lapsed",
     label: "Lapsed donor alerts",
-    description: "Alert when donors become lapsed (no gift in 12+ months)",
+    description: "Alert when donors become lapsed (no donation in 12+ months)",
   },
 ]
 

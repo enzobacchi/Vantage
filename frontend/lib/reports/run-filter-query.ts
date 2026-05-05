@@ -29,8 +29,8 @@ export const REPORT_COLUMN_CONFIG: Record<
   mailing_zip: { dbColumns: ["mailing_zip"], label: "Mailing Zip" },
   lifetime_value: { dbColumns: ["total_lifetime_value"], label: "Donation Amount" },
   donation_date: { dbColumns: ["last_donation_date"], label: "Donation Date" },
-  last_gift_date: { dbColumns: ["last_donation_date"], label: "Last Gift Date" },
-  last_gift_amount: { dbColumns: ["last_donation_amount"], label: "Last Gift Amount" },
+  last_gift_date: { dbColumns: ["last_donation_date"], label: "Last Donation Date" },
+  last_gift_amount: { dbColumns: ["last_donation_amount"], label: "Last Donation Amount" },
 }
 
 export const VALID_COLUMN_IDS = new Set(Object.keys(REPORT_COLUMN_CONFIG))

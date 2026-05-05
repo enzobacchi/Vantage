@@ -167,7 +167,7 @@ export function createDonorColumns(options: {
       header: ({ column }) => (
         <DataTableColumnHeader
           column={column}
-          title="Last Gift Amount"
+          title="Last Donation Amount"
           className="justify-end"
         />
       ),
@@ -178,7 +178,7 @@ export function createDonorColumns(options: {
             <button
               type="button"
               className="text-primary hover:underline"
-              aria-label={`View donor profile for gift of ${formatCurrency(donor.last_donation_amount)}`}
+              aria-label={`View donor profile for donation of ${formatCurrency(donor.last_donation_amount)}`}
               onClick={() => onOpenDonorSheet(donor.id)}
             >
               {formatCurrency(donor.last_donation_amount)}
@@ -192,7 +192,7 @@ export function createDonorColumns(options: {
       header: ({ column }) => (
         <DataTableColumnHeader
           column={column}
-          title="Last Gift Date"
+          title="Last Donation Date"
           className="justify-end"
         />
       ),

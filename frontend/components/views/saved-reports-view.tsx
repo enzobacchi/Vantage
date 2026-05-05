@@ -39,6 +39,8 @@ import {
   type FilterRow,
 } from "@/components/report-filter-builder"
 import { TemplatesSection } from "@/components/views/saved-reports/templates-tab"
+import { SharingSection } from "@/components/views/saved-reports/sharing-section"
+import type { SavedReportListItem } from "@/app/api/reports/route"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Label } from "@/components/ui/label"
 import {
@@ -111,8 +113,8 @@ const COLUMN_GROUPS = [
     columns: [
       { id: "lifetime_value", label: "Donation Amount" },
       { id: "donation_date", label: "Donation Date" },
-      { id: "last_gift_date", label: "Last Gift Date" },
-      { id: "last_gift_amount", label: "Last Gift Amount" },
+      { id: "last_gift_date", label: "Last Donation Date" },
+      { id: "last_gift_amount", label: "Last Donation Amount" },
     ],
   },
 ] as const
@@ -234,7 +236,11 @@ export function SavedReportsView() {
   const [bulkMoveIds, setBulkMoveIds] = React.useState<string[] | null>(null)
   const [bulkDeleteIds, setBulkDeleteIds] = React.useState<string[] | null>(null)
   const [selectedReports, setSelectedReports] = React.useState<SavedReport[]>([])
-  const [view, setView] = React.useState<"templates" | "saved">("saved")
+  const [view, setView] = React.useState<"templates" | "saved" | "sharing">("saved")
+  const [sharingReports, setSharingReports] = React.useState<SavedReportListItem[]>([])
+  const [sharingLoading, setSharingLoading] = React.useState(false)
+  const [sharingError, setSharingError] = React.useState<string | null>(null)
+  const sharingLoadedRef = React.useRef(false)
   const [dragOverFolderId, setDragOverFolderId] = React.useState<string | "all" | null>(null)
   const [folderToDelete, setFolderToDelete] = React.useState<ReportFolder | null>(null)
   const [isDeletingFolder, setIsDeletingFolder] = React.useState(false)
@@ -377,6 +383,38 @@ export function SavedReportsView() {
       setLoading(false)
     }
   }, [loadFolders, selectedFolderId])
+
+  const loadSharing = React.useCallback(async () => {
+    try {
+      setSharingLoading(true)
+      setSharingError(null)
+      const res = await fetch("/api/reports?include=shares")
+      const data = (await res.json()) as unknown
+      if (!res.ok) {
+        const msg =
+          typeof data === "object" && data && "error" in data ? String((data as any).error) : ""
+        throw new Error(msg || `Failed to load shared reports (HTTP ${res.status}).`)
+      }
+      setSharingReports(Array.isArray(data) ? (data as SavedReportListItem[]) : [])
+      sharingLoadedRef.current = true
+    } catch (e) {
+      setSharingError(e instanceof Error ? e.message : "Failed to load shared reports.")
+    } finally {
+      setSharingLoading(false)
+    }
+  }, [])
+
+  const refreshSharing = React.useCallback(async () => {
+    if (sharingLoadedRef.current) {
+      await loadSharing()
+    }
+  }, [loadSharing])
+
+  React.useEffect(() => {
+    if (view === "sharing" && !sharingLoadedRef.current) {
+      void loadSharing()
+    }
+  }, [view, loadSharing])
 
   const handleUploadClick = () => {
     fileInputRef.current?.click()
@@ -629,6 +667,7 @@ export function SavedReportsView() {
       setRegenerateOpen(false)
       setEditReportId(null)
       await refresh()
+      await refreshSharing()
       if (previewReportId) {
         setPreviewLoading(true)
         const refetch = await fetch(`/api/reports/${encodeURIComponent(previewReportId)}`)
@@ -717,6 +756,7 @@ export function SavedReportsView() {
       setRenameId(null)
       setRenameTitle("")
       await refresh()
+      await refreshSharing()
     } catch (e) {
       toast.error("Rename failed", {
         description: e instanceof Error ? e.message : "Unknown error",
@@ -736,6 +776,7 @@ export function SavedReportsView() {
       }
       toast.success("Report deleted")
       await refresh()
+      await refreshSharing()
     } catch (e) {
       toast.error("Delete failed", {
         description: e instanceof Error ? e.message : "Unknown error",
@@ -807,6 +848,7 @@ export function SavedReportsView() {
       setBulkDeleteIds(null)
       dataTableRef.current?.clearSelection()
       await refresh()
+      await refreshSharing()
     } catch (e) {
       toast.error("Failed to delete reports", {
         description: e instanceof Error ? e.message : "Unknown error",
@@ -846,6 +888,7 @@ export function SavedReportsView() {
       setReportSharedWith([])
       setReportVisibility("private")
       await refresh()
+      await refreshSharing()
     } catch (e) {
       toast.error("Failed to create report", {
         description: e instanceof Error ? e.message : "Unknown error",
@@ -973,12 +1016,13 @@ export function SavedReportsView() {
             </div>
             <Tabs
               value={view}
-              onValueChange={(v) => setView(v as "templates" | "saved")}
+              onValueChange={(v) => setView(v as "templates" | "saved" | "sharing")}
               className="justify-self-center"
             >
               <TabsList>
                 <TabsTrigger value="saved">Saved Reports</TabsTrigger>
                 <TabsTrigger value="templates">Templates</TabsTrigger>
+                <TabsTrigger value="sharing">Sharing</TabsTrigger>
               </TabsList>
             </Tabs>
             <div className="flex items-center gap-2 justify-self-end">
@@ -1023,8 +1067,27 @@ export function SavedReportsView() {
               <TemplatesSection
                 onSavedReport={() => {
                   void refresh()
+                  void refreshSharing()
                   setView("saved")
                 }}
+              />
+            )}
+
+            {view === "sharing" && (
+              <SharingSection
+                reports={sharingReports}
+                currentUserId={currentUserId}
+                loading={sharingLoading}
+                error={sharingError}
+                onView={setPreviewReportId}
+                onDownloadCsv={handleDownloadCsv}
+                onEdit={handleEditReport}
+                onRename={(id, title) => {
+                  setRenameId(id)
+                  setRenameTitle(title)
+                  setRenameOpen(true)
+                }}
+                onDelete={handleDelete}
               />
             )}
 

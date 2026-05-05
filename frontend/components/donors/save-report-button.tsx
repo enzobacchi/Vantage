@@ -46,8 +46,8 @@ const COLUMN_GROUPS = [
     columns: [
       { id: "lifetime_value", label: "Donation Amount" },
       { id: "donation_date", label: "Donation Date" },
-      { id: "last_gift_date", label: "Last Gift Date" },
-      { id: "last_gift_amount", label: "Last Gift Amount" },
+      { id: "last_gift_date", label: "Last Donation Date" },
+      { id: "last_gift_amount", label: "Last Donation Amount" },
     ],
   },
 ] as const

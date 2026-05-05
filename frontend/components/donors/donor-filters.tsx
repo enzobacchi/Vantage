@@ -206,7 +206,7 @@ export function DonorBadges({
           <div className="space-y-3">
             <div>
               <Label htmlFor="badge-new-months" className="text-xs">
-                New — last gift within (months)
+                New — last donation within (months)
               </Label>
               <Input
                 id="badge-new-months"
@@ -221,7 +221,7 @@ export function DonorBadges({
             </div>
             <div>
               <Label htmlFor="badge-lapsed-months" className="text-xs">
-                Lapsed — no gift in (months)
+                Lapsed — no donation in (months)
               </Label>
               <Input
                 id="badge-lapsed-months"

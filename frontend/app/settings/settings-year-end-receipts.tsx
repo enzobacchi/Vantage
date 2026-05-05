@@ -45,9 +45,9 @@ const DEFAULT_BODY = `Dear {{donor_name}},
 Thank you for your generous support in {{year}}. Below is a summary of your giving for tax purposes.
 
 Total Contributions: {{total_giving}}
-Number of Gifts: {{donation_count}}
-First Gift: {{first_date}}
-Last Gift: {{last_date}}
+Number of Donations: {{donation_count}}
+First Donation: {{first_date}}
+Last Donation: {{last_date}}
 
 No goods or services were provided in exchange for these contributions.
 
@@ -273,7 +273,7 @@ export function SettingsYearEndReceipts() {
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium truncate">{s.displayName}</p>
                       <p className="text-xs text-muted-foreground">
-                        {s.email ?? "No email"} | {s.donationCount} gift{s.donationCount === 1 ? "" : "s"}
+                        {s.email ?? "No email"} | {s.donationCount} donation{s.donationCount === 1 ? "" : "s"}
                       </p>
                     </div>
                     <span className="shrink-0 text-sm font-medium">
@@ -342,9 +342,9 @@ export function SettingsYearEndReceipts() {
                     { token: "{{org_name}}", label: "Org name" },
                     { token: "{{year}}", label: "Tax year" },
                     { token: "{{total_giving}}", label: "Total giving" },
-                    { token: "{{donation_count}}", label: "Gift count" },
-                    { token: "{{first_date}}", label: "First gift" },
-                    { token: "{{last_date}}", label: "Last gift" },
+                    { token: "{{donation_count}}", label: "Donation count" },
+                    { token: "{{first_date}}", label: "First donation" },
+                    { token: "{{last_date}}", label: "Last donation" },
                   ].map(({ token, label }) => (
                     <button
                       key={token}

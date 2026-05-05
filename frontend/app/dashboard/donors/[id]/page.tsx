@@ -490,7 +490,7 @@ function LogActivityDialog({
           <TabsContent value="email" className="mt-0 space-y-4">
             <div>
               <Label htmlFor="dp-email-subject">Subject</Label>
-              <Input id="dp-email-subject" className="mt-1" placeholder="e.g. Thank you for your gift" value={subject} onChange={(e) => setSubject(e.target.value)} />
+              <Input id="dp-email-subject" className="mt-1" placeholder="e.g. Thank you for your donation" value={subject} onChange={(e) => setSubject(e.target.value)} />
             </div>
             <div>
               <Label htmlFor="dp-email-content">Content</Label>
@@ -636,7 +636,7 @@ export default function DonorProfilePage() {
           <h1 className="text-xl font-semibold truncate">{donor.display_name ?? "Donor"}</h1>
           <p className="text-sm text-muted-foreground">
             {donor.donor_type ? donor.donor_type.charAt(0).toUpperCase() + donor.donor_type.slice(1) : "Individual"}
-            {donor.last_donation_date && ` \u00b7 Last gift ${formatDate(donor.last_donation_date)}`}
+            {donor.last_donation_date && ` \u00b7 Last donation ${formatDate(donor.last_donation_date)}`}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -767,12 +767,12 @@ export default function DonorProfilePage() {
                 <p className="text-lg font-semibold tabular-nums">{formatCurrency(thisMonthSum)}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Avg. Gift</p>
+                <p className="text-xs text-muted-foreground">Avg. Donation</p>
                 <p className="text-lg font-semibold tabular-nums">{formatCurrency(avgDonation)}</p>
               </div>
             </div>
             <p className="text-xs text-muted-foreground mt-3">
-              {donations.length} total gift{donations.length !== 1 ? "s" : ""}
+              {donations.length} total donation{donations.length !== 1 ? "s" : ""}
             </p>
           </CardContent>
         </Card>

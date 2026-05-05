@@ -57,8 +57,8 @@ export const REPORT_COLUMN_GROUPS = [
     columns: [
       { id: "lifetime_value", label: "Donation Amount" },
       { id: "donation_date", label: "Donation Date" },
-      { id: "last_gift_date", label: "Last Gift Date" },
-      { id: "last_gift_amount", label: "Last Gift Amount" },
+      { id: "last_gift_date", label: "Last Donation Date" },
+      { id: "last_gift_amount", label: "Last Donation Amount" },
     ],
   },
 ] as const
@@ -79,8 +79,8 @@ export const REPORT_COLUMN_LABELS: Record<string, string> = {
   mailing_zip: "Mailing Zip",
   lifetime_value: "Lifetime Value",
   donation_date: "Donation Date",
-  last_gift_date: "Last Gift Date",
-  last_gift_amount: "Last Gift Amount",
+  last_gift_date: "Last Donation Date",
+  last_gift_amount: "Last Donation Amount",
 }
 
 export const ALL_REPORT_COLUMNS: string[] = REPORT_COLUMN_GROUPS.flatMap((g) =>

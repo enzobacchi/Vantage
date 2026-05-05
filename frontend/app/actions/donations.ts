@@ -23,6 +23,7 @@ const PAYMENT_METHODS: PaymentMethod[] = [
   "venmo",
   "other",
   "quickbooks",
+  "daf",
 ]
 
 function isValidPaymentMethod(v: string): v is PaymentMethod {
@@ -340,6 +341,151 @@ export async function markDonationsAcknowledged(input: {
 
   revalidatePath("/dashboard/donations")
   return validIds.length
+}
+
+export type BulkCreateDonationRow = {
+  donor_id: string
+  amount: number
+  date: string
+  payment_method: PaymentMethod
+  category_id?: string | null
+  campaign_id?: string | null
+  fund_id?: string | null
+  memo?: string | null
+}
+
+export type BulkCreateDonationsResult = {
+  created: number
+  errors: Array<{ index: number; message: string }>
+}
+
+/**
+ * Insert many donations in one call. Used by the voice-dictation flow and any
+ * future batch entry surface. Validates each row, verifies donor ownership in
+ * a single query, inserts in chunks, and recalculates donor totals once per
+ * affected donor (not per donation).
+ *
+ * Notification fanout is deduped per donor: a single new-donation email per
+ * unique donor regardless of how many donations were committed in this batch.
+ */
+export async function bulkCreateDonations(
+  rows: BulkCreateDonationRow[],
+  source: string = "manual"
+): Promise<BulkCreateDonationsResult> {
+  const org = await getCurrentUserOrg()
+  if (!org) throw new Error("Unauthorized")
+
+  const result: BulkCreateDonationsResult = { created: 0, errors: [] }
+  if (rows.length === 0) return result
+
+  const supabase = createAdminClient()
+
+  // Verify all referenced donors belong to this org in one query.
+  const donorIds = [...new Set(rows.map((r) => r.donor_id))]
+  const { data: orgDonors, error: donorErr } = await supabase
+    .from("donors")
+    .select("id, display_name, total_lifetime_value")
+    .eq("org_id", org.orgId)
+    .in("id", donorIds)
+  if (donorErr) throw new Error(donorErr.message)
+
+  const donorMap = new Map<string, { display_name: string | null; total_lifetime_value: number | string | null }>()
+  for (const d of orgDonors ?? []) {
+    donorMap.set(d.id as string, {
+      display_name: d.display_name as string | null,
+      total_lifetime_value: d.total_lifetime_value as number | string | null,
+    })
+  }
+
+  // Per-row validation. Build the validated payload and remember the original
+  // index so we can report errors with stable row numbers.
+  const validRows: Array<{ index: number; payload: Record<string, unknown> }> = []
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i]
+    const amount = Number(r.amount)
+    if (!Number.isFinite(amount) || amount <= 0) {
+      result.errors.push({ index: i, message: "Amount must be a positive number" })
+      continue
+    }
+    const dateStr = typeof r.date === "string" ? r.date.trim() : ""
+    if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      result.errors.push({ index: i, message: "Date must be YYYY-MM-DD" })
+      continue
+    }
+    if (!isValidPaymentMethod(r.payment_method)) {
+      result.errors.push({ index: i, message: "Invalid payment method" })
+      continue
+    }
+    if (!donorMap.has(r.donor_id)) {
+      result.errors.push({ index: i, message: "Donor not found in this organization" })
+      continue
+    }
+    validRows.push({
+      index: i,
+      payload: {
+        org_id: org.orgId,
+        donor_id: r.donor_id,
+        amount,
+        date: dateStr,
+        memo: r.memo?.trim() || null,
+        payment_method: r.payment_method,
+        category_id: r.category_id || null,
+        campaign_id: r.campaign_id || null,
+        fund_id: r.fund_id || null,
+        source,
+      },
+    })
+  }
+
+  if (validRows.length === 0) return result
+
+  // Insert in chunks. Per-chunk failure isolates that chunk's rows as errors;
+  // remaining chunks still proceed. Mirrors phase 5 of importDonorsFromCSV.
+  const INSERT_CHUNK = 500
+  for (let i = 0; i < validRows.length; i += INSERT_CHUNK) {
+    const chunk = validRows.slice(i, i + INSERT_CHUNK)
+    const { error } = await supabase
+      .from("donations")
+      .insert(chunk.map((c) => c.payload))
+    if (error) {
+      for (const c of chunk) {
+        result.errors.push({ index: c.index, message: error.message })
+      }
+      continue
+    }
+    result.created += chunk.length
+  }
+
+  // Recalc totals once per affected donor.
+  const affectedDonorIds = [
+    ...new Set(validRows.map((v) => v.payload.donor_id as string)),
+  ]
+  for (const donorId of affectedDonorIds) {
+    await recalcDonorTotals(supabase, donorId)
+  }
+
+  // Fire-and-forget notifications, deduped per donor. We sum the donor's batch
+  // amount for the milestone check so a single batch crossing a threshold is
+  // detected (rather than per-row noise).
+  const totalsByDonor = new Map<string, number>()
+  for (const v of validRows) {
+    const id = v.payload.donor_id as string
+    totalsByDonor.set(id, (totalsByDonor.get(id) ?? 0) + (v.payload.amount as number))
+  }
+  for (const [donorId, batchAmount] of totalsByDonor) {
+    const donor = donorMap.get(donorId)
+    const donorName = donor?.display_name?.trim() || "Unknown Donor"
+    const previousTotal = Number(donor?.total_lifetime_value ?? 0)
+    const newTotal = previousTotal + batchAmount
+    void notifyNewDonation(org.orgId, donorName, batchAmount, donorId).catch(console.error)
+    void checkAndNotifyMilestones(org.orgId, donorId, donorName, previousTotal, newTotal).catch(
+      console.error
+    )
+  }
+
+  revalidatePath("/dashboard")
+  revalidatePath("/dashboard/donations")
+  return result
 }
 
 /**

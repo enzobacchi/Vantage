@@ -98,9 +98,9 @@ export function ChatCompareCard({ part }: { part: ToolPart }) {
             formatCurrency(output.delta.total_revenue_abs)
           }
         />
-        <DeltaTile label="Gifts" pct={output.delta.gift_count_pct} />
+        <DeltaTile label="Donations" pct={output.delta.gift_count_pct} />
         <DeltaTile label="Donors" pct={output.delta.donor_count_pct} />
-        <DeltaTile label="Avg gift" pct={output.delta.average_gift_pct} />
+        <DeltaTile label="Avg donation" pct={output.delta.average_gift_pct} />
       </div>
 
       {output.by_group && output.by_group.length > 0 && (
@@ -184,7 +184,7 @@ function PeriodColumn({ period }: { period: PeriodStat }) {
         {formatCurrency(period.total_revenue)}
       </div>
       <div className="mt-1 text-[10px] text-muted-foreground tabular-nums">
-        {period.gift_count} gifts · {period.donor_count} donors ·{" "}
+        {period.gift_count} donations · {period.donor_count} donors ·{" "}
         {formatCurrency(period.average_gift)} avg
       </div>
     </div>

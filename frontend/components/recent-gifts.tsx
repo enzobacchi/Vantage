@@ -44,13 +44,13 @@ export function RecentGifts() {
         if (!res.ok) {
           const msg =
             typeof data === "object" && data && "error" in data ? String((data as any).error) : ""
-          throw new Error(msg || `Failed to load recent gifts (HTTP ${res.status}).`)
+          throw new Error(msg || `Failed to load recent donations (HTTP ${res.status}).`)
         }
         if (cancelled) return
         setGifts(Array.isArray(data) ? (data as RecentDonation[]) : [])
       } catch (e) {
         if (cancelled) return
-        setError(e instanceof Error ? e.message : "Failed to load recent gifts.")
+        setError(e instanceof Error ? e.message : "Failed to load recent donations.")
       } finally {
         if (cancelled) return
         setLoading(false)
@@ -65,7 +65,7 @@ export function RecentGifts() {
   return (
     <Card className="h-full bg-gradient-to-t from-primary/5 to-card shadow-xs">
       <CardHeader>
-        <CardTitle>Recent Gifts</CardTitle>
+        <CardTitle>Recent Donations</CardTitle>
         <CardDescription>Latest donations received</CardDescription>
       </CardHeader>
       <CardContent className="px-4">
@@ -84,7 +84,7 @@ export function RecentGifts() {
           ) : error ? (
             <p className="text-sm text-destructive">{error}</p>
           ) : gifts.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No gifts yet.</p>
+            <p className="text-sm text-muted-foreground">No donations yet.</p>
           ) : (
             gifts.slice(0, 8).map((gift) => {
               const name = gift.donor_name ?? "Unknown"

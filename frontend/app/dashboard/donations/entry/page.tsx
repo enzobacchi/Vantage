@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, DollarSign } from "lucide-react"
+import { ArrowLeft, DollarSign, Keyboard, Mic } from "lucide-react"
 import { toast } from "sonner"
 
 import { createDonor } from "@/app/actions/donors"
@@ -14,6 +14,8 @@ import {
   type OrgDonationOptionRow,
 } from "@/app/actions/donations"
 import type { PaymentMethod } from "@/types/database"
+import { VoiceEntryPanel } from "@/components/donations/voice-entry-panel"
+import { transcribeEnabled } from "@/lib/features"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -306,6 +308,26 @@ export default function DonationEntryPage() {
         </div>
       </div>
 
+      <Tabs defaultValue="manual" className="w-full max-w-5xl">
+        <TabsList
+          className={
+            transcribeEnabled
+              ? "grid w-full max-w-md grid-cols-2"
+              : "grid w-full max-w-xs grid-cols-1"
+          }
+        >
+          <TabsTrigger value="manual" className="gap-2">
+            <Keyboard className="size-4" strokeWidth={1.5} />
+            Manual
+          </TabsTrigger>
+          {transcribeEnabled && (
+            <TabsTrigger value="voice" className="gap-2">
+              <Mic className="size-4" strokeWidth={1.5} />
+              Voice
+            </TabsTrigger>
+          )}
+        </TabsList>
+        <TabsContent value="manual" className="mt-4">
       <Card className="max-w-xl">
         <CardHeader>
           <CardTitle>Rapid Entry</CardTitle>
@@ -660,6 +682,13 @@ export default function DonationEntryPage() {
           </form>
         </CardContent>
       </Card>
+        </TabsContent>
+        {transcribeEnabled && (
+          <TabsContent value="voice" className="mt-4">
+            <VoiceEntryPanel />
+          </TabsContent>
+        )}
+      </Tabs>
     </div>
   )
 }

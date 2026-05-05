@@ -231,7 +231,7 @@ export async function GET(
       content = await generateCrmReportContent(supabase, auth.orgId, criteria);
     } catch (e) {
       console.error("[reports] CRM content generation failed:", e instanceof Error ? e.message : String(e));
-      content = "Display Name,Email,Phone,Last Gift Date,Lifetime Value,Address\n(Unable to generate report. Criteria may be invalid.)";
+      content = "Display Name,Email,Phone,Last Donation Date,Lifetime Value,Address\n(Unable to generate report. Criteria may be invalid.)";
     }
   } else if (reportType.toLowerCase() === "route" && typeof row?.query === "string" && row.query.trim()) {
     try {

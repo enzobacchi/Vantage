@@ -30,7 +30,7 @@ const WIDGETS = [
   { key: "show_metric_cards" as const, label: "Metric Cards" },
   { key: "show_smart_actions" as const, label: "Daily Insights" },
   { key: "show_donations_chart" as const, label: "Giving Chart" },
-  { key: "show_recent_gifts" as const, label: "Recent Gifts" },
+  { key: "show_recent_gifts" as const, label: "Recent Donations" },
   { key: "show_top_donors" as const, label: "Top Donors" },
 ]
 

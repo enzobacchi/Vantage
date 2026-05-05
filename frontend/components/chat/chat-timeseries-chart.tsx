@@ -49,8 +49,8 @@ const SERIES_COLORS = [
 const METRIC_LABELS: Record<TimeseriesOutput["metric"], string> = {
   revenue: "Revenue",
   donor_count: "Donors",
-  gift_count: "Gifts",
-  avg_gift: "Avg gift",
+  gift_count: "Donations",
+  avg_gift: "Avg donation",
 }
 
 export function ChatTimeseriesChart({ part }: { part: ToolPart }) {
@@ -90,7 +90,7 @@ export function ChatTimeseriesChart({ part }: { part: ToolPart }) {
           {group_by ? ` · ${group_by}` : ""}
         </div>
         <div className="text-[11px] text-muted-foreground">
-          {formatCurrency(output.total_revenue)} · {output.total_gifts} gifts
+          {formatCurrency(output.total_revenue)} · {output.total_gifts} donations
         </div>
       </div>
 

@@ -365,7 +365,7 @@ export function ReportFilterBuilder({ filters, onChange, states = [], initialFil
         </div>
         <div className="flex items-center justify-between rounded-lg border px-3 py-2">
           <Label htmlFor="at-least-one-gift" className="cursor-pointer">
-            At least 1 gift
+            At least 1 donation
           </Label>
           <Switch
             id="at-least-one-gift"

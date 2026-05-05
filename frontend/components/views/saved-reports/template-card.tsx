@@ -537,7 +537,7 @@ function DonorsDrilldown({
           <TableHeader>
             <TableRow>
               <TableHead>Donor</TableHead>
-              <TableHead>First gift date</TableHead>
+              <TableHead>First donation date</TableHead>
               <TableHead className="text-right">Amount</TableHead>
             </TableRow>
           </TableHeader>
@@ -570,8 +570,8 @@ function DonorsDrilldown({
           <TableHeader>
             <TableRow>
               <TableHead>Donor</TableHead>
-              <TableHead>Previous gift</TableHead>
-              <TableHead>Recapture gift</TableHead>
+              <TableHead>Previous donation</TableHead>
+              <TableHead>Recapture donation</TableHead>
               <TableHead className="text-right">Amount</TableHead>
             </TableRow>
           </TableHeader>

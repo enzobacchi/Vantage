@@ -283,7 +283,7 @@ export default function RoutesPage() {
       isItinerary &&
       optimizedDonors?.some((d) => d.icebreaker && d.icebreaker.trim().length > 0)
 
-    const headers = ["Step", "Name", "Address", "Last Gift"]
+    const headers = ["Step", "Name", "Address", "Last Donation"]
     if (hasIcebreaker) headers.push("Icebreaker")
 
     const rows = displayList.map((d, i) => {
@@ -632,7 +632,7 @@ export default function RoutesPage() {
                                 {d.billing_address ?? "—"}
                               </span>
                               <span className="text-muted-foreground text-xs">
-                                Last gift: {formatLastGift(d.last_donation_date)}
+                                Last donation: {formatLastGift(d.last_donation_date)}
                               </span>
                             </li>
                           )

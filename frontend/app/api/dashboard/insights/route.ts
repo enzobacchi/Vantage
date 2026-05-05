@@ -25,7 +25,7 @@ You will receive aggregated donor and giving data. Write exactly 4 insights — 
 Focus on the most significant and actionable information:
 - Giving trends (amounts, frequency, comparisons to previous periods)
 - Donor health (who's thriving, who's at risk, lifecycle changes)
-- Notable events (milestones, reactivations, new donors, large gifts)
+- Notable events (milestones, reactivations, new donors, large donations)
 - Opportunities (pipeline, engagement patterns, follow-up needs)
 
 Each insight should have:

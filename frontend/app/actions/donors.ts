@@ -5,6 +5,41 @@ import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUserOrg } from "@/lib/auth"
 import { logAuditEvent } from "@/app/actions/audit"
 import { isLimitExceeded } from "@/lib/subscription"
+import { buildAddressForGeocode, geocodeAddress } from "@/lib/geocode"
+
+async function geocodeAndSaveDonor(
+  supabase: ReturnType<typeof createAdminClient>,
+  donorId: string,
+  parts: {
+    billing_address?: string | null
+    city?: string | null
+    state?: string | null
+    zip?: string | null
+  }
+): Promise<void> {
+  const address = buildAddressForGeocode(parts)
+  if (!address) {
+    await supabase
+      .from("donors")
+      .update({ location_lat: null, location_lng: null })
+      .eq("id", donorId)
+    return
+  }
+  try {
+    const coords = await geocodeAddress(address)
+    await supabase
+      .from("donors")
+      .update({
+        location_lat: coords?.lat ?? null,
+        location_lng: coords?.lng ?? null,
+      })
+      .eq("id", donorId)
+  } catch (err) {
+    console.warn(
+      `[donors] Geocoding failed for donor ${donorId}: ${(err as Error).message}`
+    )
+  }
+}
 
 export type CreateDonorInput = {
   display_name?: string
@@ -77,6 +112,13 @@ export async function createDonor(input: CreateDonorInput): Promise<{ id: string
 
   if (error) throw new Error(error.message)
   if (!data?.id) throw new Error("Failed to create donor")
+
+  await geocodeAndSaveDonor(supabase, data.id, {
+    billing_address: input.billing_address,
+    city: input.city,
+    state: input.state,
+    zip: input.zip,
+  })
 
   revalidatePath("/dashboard")
   revalidatePath("/dashboard/donations")
@@ -181,6 +223,35 @@ export async function updateDonor(donorId: string, input: UpdateDonorInput): Pro
 
   if (Object.keys(updates).length === 0) return
 
+  const addressFieldsTouched =
+    input.billing_address !== undefined ||
+    input.city !== undefined ||
+    input.state !== undefined ||
+    input.zip !== undefined
+
+  let existingAddress: {
+    billing_address: string | null
+    city: string | null
+    state: string | null
+    zip: string | null
+  } | null = null
+  if (addressFieldsTouched) {
+    const { data: existing } = await supabase
+      .from("donors")
+      .select("billing_address,city,state,zip")
+      .eq("id", donorId)
+      .eq("org_id", org.orgId)
+      .maybeSingle()
+    existingAddress = existing
+      ? {
+          billing_address: existing.billing_address ?? null,
+          city: existing.city ?? null,
+          state: existing.state ?? null,
+          zip: existing.zip ?? null,
+        }
+      : null
+  }
+
   const { error } = await supabase
     .from("donors")
     .update(updates)
@@ -188,6 +259,33 @@ export async function updateDonor(donorId: string, input: UpdateDonorInput): Pro
     .eq("org_id", org.orgId)
 
   if (error) throw new Error(error.message)
+
+  if (addressFieldsTouched && existingAddress) {
+    const nextAddress = {
+      billing_address:
+        input.billing_address !== undefined
+          ? input.billing_address?.trim() || null
+          : existingAddress.billing_address,
+      city:
+        input.city !== undefined
+          ? input.city?.trim() || null
+          : existingAddress.city,
+      state:
+        input.state !== undefined
+          ? input.state?.trim() || null
+          : existingAddress.state,
+      zip:
+        input.zip !== undefined
+          ? input.zip?.trim() || null
+          : existingAddress.zip,
+    }
+    const prevKey = buildAddressForGeocode(existingAddress) ?? ""
+    const nextKey = buildAddressForGeocode(nextAddress) ?? ""
+    if (prevKey !== nextKey) {
+      await geocodeAndSaveDonor(supabase, donorId, nextAddress)
+    }
+  }
+
   revalidatePath(`/donors/${donorId}`)
   revalidatePath(`/dashboard/donors/${donorId}`)
   revalidatePath("/dashboard?view=donor-crm")

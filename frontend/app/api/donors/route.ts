@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { requireUserOrg } from "@/lib/auth";
+import { buildAddressForGeocode, geocodeAddress } from "@/lib/geocode";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isLimitExceeded } from "@/lib/subscription";
 
@@ -407,6 +408,28 @@ export async function POST(request: Request) {
   if (error) {
     console.error("[donors] POST:", error.message);
     return NextResponse.json({ error: "Failed to create donor." }, { status: 500 });
+  }
+
+  const address = buildAddressForGeocode({
+    billing_address: body.billing_address,
+    city: body.city,
+    state: body.state,
+    zip: body.zip,
+  });
+  if (address) {
+    try {
+      const coords = await geocodeAddress(address);
+      if (coords) {
+        await supabase
+          .from("donors")
+          .update({ location_lat: coords.lat, location_lng: coords.lng })
+          .eq("id", data.id);
+      }
+    } catch (geoErr) {
+      console.warn(
+        `[donors] POST geocoding failed for donor ${data.id}: ${(geoErr as Error).message}`
+      );
+    }
   }
 
   return NextResponse.json({ id: data.id }, { status: 201 });

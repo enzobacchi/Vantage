@@ -4,6 +4,7 @@ import { z } from "zod"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getDonorLifecycleStatus } from "@/lib/donor-lifecycle"
 import { computeDonorHealthScore } from "@/lib/donor-score"
+import { buildAddressForGeocode, geocodeAddress } from "@/lib/geocode"
 import { recalcDonorTotals } from "@/lib/recalc-donor-totals"
 import { isLimitExceeded } from "@/lib/subscription"
 import {
@@ -998,6 +999,28 @@ export function buildTools(
           .single()
 
         if (insertErr) return { error: `Failed to create donor: ${insertErr.message}` }
+
+        const address = buildAddressForGeocode({
+          billing_address,
+          city,
+          state,
+          zip,
+        })
+        if (address) {
+          try {
+            const coords = await geocodeAddress(address)
+            if (coords) {
+              await supabase
+                .from("donors")
+                .update({ location_lat: coords.lat, location_lng: coords.lng })
+                .eq("id", data.id)
+            }
+          } catch (geoErr) {
+            console.warn(
+              `[chat/create_donor] Geocoding failed for donor ${data.id}: ${(geoErr as Error).message}`
+            )
+          }
+        }
 
         return {
           success: true,

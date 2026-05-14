@@ -1,6 +1,6 @@
 /**
  * Shared geocoding helper using Mapbox Geocoding API.
- * Used by QB sync and CSV import.
+ * Used by QB sync, CSV import, donor create/update, and geocode backfill.
  */
 
 export async function geocodeAddress(
@@ -26,4 +26,27 @@ export async function geocodeAddress(
   if (!center) return null;
   const [lng, lat] = center;
   return { lat, lng };
+}
+
+/** Build a single-line address string for geocoding from a donor's address fields. */
+export function buildAddressForGeocode(parts: {
+  billing_address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
+}): string | null {
+  const addr = parts.billing_address?.trim();
+  if (addr) {
+    const city = parts.city?.trim();
+    const state = parts.state?.trim();
+    const zip = parts.zip?.trim();
+    const tail = [city, state, zip].filter(Boolean).join(", ");
+    return tail ? `${addr}, ${tail}` : addr;
+  }
+  const city = parts.city?.trim();
+  const state = parts.state?.trim();
+  const zip = parts.zip?.trim();
+  if (city && state) return [city, state, zip].filter(Boolean).join(", ");
+  if (zip) return zip;
+  return null;
 }

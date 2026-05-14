@@ -401,25 +401,77 @@ export function DonorMapView() {
     }
   }, [filterParams, fetchMap, prefsLoaded])
 
-  const runGeocodeBackfill = useCallback(async () => {
-    setGeocodeMessage(null)
-    setGeocodeLoading(true)
-    try {
-      const res = await fetch("/api/donors/geocode-backfill", { method: "POST" })
-      const data = (await res.json()) as { geocoded?: number; failed?: number; message?: string; error?: string }
-      if (!res.ok) {
-        setGeocodeMessage(data.error ?? "Geocode backfill failed.")
-        return
+  const autoBackfillFiredRef = useRef(false)
+
+  const runGeocodeBackfill = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const silent = opts?.silent === true
+      if (!silent) {
+        setGeocodeMessage(null)
+        setGeocodeLoading(true)
       }
-      setGeocodeMessage(data.message ?? `Geocoded ${data.geocoded ?? 0} donors.`)
-      const list = await fetchMap(filterParams)
-      setPoints(list)
+      let totalGeocoded = 0
+      let madeProgress = false
+      try {
+        // Loop until server reports no more work, no progress was made,
+        // or we hit a safety ceiling (5 invocations × 2000 = 10k donors).
+        for (let i = 0; i < 5; i++) {
+          const res = await fetch("/api/donors/geocode-backfill", { method: "POST" })
+          const data = (await res.json()) as {
+            geocoded?: number
+            failed?: number
+            total?: number
+            hasMore?: boolean
+            message?: string
+            error?: string
+          }
+          if (!res.ok) {
+            if (!silent) {
+              setGeocodeMessage(data.error ?? "Geocode backfill failed.")
+            }
+            return
+          }
+          totalGeocoded += data.geocoded ?? 0
+          if (!silent) {
+            setGeocodeMessage(
+              data.hasMore
+                ? `Geocoded ${totalGeocoded} so far; still working…`
+                : `Geocoded ${totalGeocoded} donors.`
+            )
+          }
+          if ((data.geocoded ?? 0) > 0) madeProgress = true
+          if (!data.hasMore) break
+          if ((data.geocoded ?? 0) === 0) break // no progress this round; avoid infinite loop on unparseable addresses
+        }
+        if (madeProgress) {
+          const list = await fetchMap(filterParams)
+          setPoints(list)
+        }
+      } catch {
+        if (!silent) setGeocodeMessage("Failed to run geocode backfill.")
+      } finally {
+        if (!silent) setGeocodeLoading(false)
+      }
+    },
+    [fetchMap, filterParams]
+  )
+
+  // Silently backfill missing donor coordinates once per session. The endpoint
+  // is a no-op if nothing needs geocoding, so this is safe to fire on every
+  // first mount. Gated by sessionStorage so it doesn't refire on view switches.
+  useEffect(() => {
+    if (!prefsLoaded || !currentUserId) return
+    if (autoBackfillFiredRef.current) return
+    const key = `vantage-map-autobackfill-${currentUserId}`
+    try {
+      if (window.sessionStorage.getItem(key)) return
+      window.sessionStorage.setItem(key, "1")
     } catch {
-      setGeocodeMessage("Failed to run geocode backfill.")
-    } finally {
-      setGeocodeLoading(false)
+      /* ignore */
     }
-  }, [fetchMap, filterParams])
+    autoBackfillFiredRef.current = true
+    void runGeocodeBackfill({ silent: true })
+  }, [prefsLoaded, currentUserId, runGeocodeBackfill])
 
   useEffect(() => {
     if (selected && !points.some((p) => p.id === selected.id)) {
@@ -896,7 +948,7 @@ export function DonorMapView() {
           size="sm"
           className="h-9"
           disabled={geocodeLoading}
-          onClick={runGeocodeBackfill}
+          onClick={() => runGeocodeBackfill()}
         >
           <RefreshCw className="mr-2 size-4" />
           {geocodeLoading ? "Geocoding…" : "Load locations"}

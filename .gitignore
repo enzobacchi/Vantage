@@ -69,3 +69,4 @@ next-env.d.ts
 # Debug
 *.log
 .pnpm-debug.log*
+.gstack/

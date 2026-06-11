@@ -21,6 +21,10 @@ import {
   type DonationImportRow,
   type DonationImportResult,
 } from "@/app/actions/import"
+import {
+  getCustomFieldDefinitions,
+  type CustomFieldDefinition,
+} from "@/app/actions/custom-fields"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -174,8 +178,23 @@ export function CSVImportWizard() {
     ImportResult | DonationImportResult | null
   >(null)
   const [dragActive, setDragActive] = React.useState(false)
+  const [customFieldDefs, setCustomFieldDefs] = React.useState<CustomFieldDefinition[]>([])
 
-  const activeFields = mode === "donors" ? DONOR_FIELDS : DONATION_FIELDS
+  React.useEffect(() => {
+    getCustomFieldDefinitions().then(setCustomFieldDefs).catch(() => {})
+  }, [])
+
+  // Org-defined custom fields are mappable in donors mode as "cf:<key>"
+  const activeFields = React.useMemo(() => {
+    const base = mode === "donors" ? DONOR_FIELDS : DONATION_FIELDS
+    if (mode !== "donors" || customFieldDefs.length === 0) {
+      return base as ReadonlyArray<{ value: string; label: string; required?: boolean }>
+    }
+    return [
+      ...base,
+      ...customFieldDefs.map((d) => ({ value: `cf:${d.key}`, label: d.label })),
+    ] as ReadonlyArray<{ value: string; label: string; required?: boolean }>
+  }, [mode, customFieldDefs])
 
   // --- Step 1: Upload ---
   function handleFile(f: File) {
@@ -203,12 +222,20 @@ export function CSVImportWizard() {
         // Auto-map columns (only to fields valid for the active mode)
         const fields = mode === "donors" ? DONOR_FIELDS : DONATION_FIELDS
         const validValues = new Set<string>(fields.map((fd) => fd.value))
+        // Custom field labels auto-map by exact (case-insensitive) match
+        const customByLabel = new Map<string, string>(
+          mode === "donors"
+            ? customFieldDefs.map((d) => [d.label.toLowerCase().trim(), `cf:${d.key}`])
+            : []
+        )
         const autoMap: Record<number, string> = {}
         const usedFields = new Set<string>()
         headers.forEach((h, i) => {
           const normalized = h.toLowerCase().trim()
-          const field = AUTO_MAP[normalized]
-          if (field && validValues.has(field) && !usedFields.has(field)) {
+          const field = AUTO_MAP[normalized] ?? customByLabel.get(normalized)
+          const isValid =
+            field && (validValues.has(field) || field.startsWith("cf:"))
+          if (field && isValid && !usedFields.has(field)) {
             autoMap[i] = field
             usedFields.add(field)
           }
@@ -313,7 +340,14 @@ export function CSVImportWizard() {
       if (mode === "donors") {
         const importRows: ImportRow[] = parsedRows
           .filter((r) => r.display_name)
-          .map((r) => ({
+          .map((r) => {
+            const customFields: Record<string, string> = {}
+            for (const [key, value] of Object.entries(r)) {
+              if (key.startsWith("cf:") && value) {
+                customFields[key.slice(3)] = value
+              }
+            }
+            return {
             display_name: r.display_name,
             external_id: r.external_id || null,
             first_name: r.first_name || null,
@@ -329,7 +363,9 @@ export function CSVImportWizard() {
             date: r.date ? normalizeDate(r.date) : null,
             payment_method: r.payment_method || null,
             memo: r.memo || null,
-          }))
+            custom_fields: Object.keys(customFields).length > 0 ? customFields : null,
+          }
+          })
 
         const res = await importDonorsFromCSV(importRows)
         setResult(res)

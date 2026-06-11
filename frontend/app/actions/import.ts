@@ -27,6 +27,7 @@ export type ImportRow = {
   date?: string | null;
   payment_method?: string | null;
   memo?: string | null;
+  custom_fields?: Record<string, string> | null;
 };
 
 export type ImportResult = {
@@ -84,21 +85,26 @@ export async function importDonorsFromCSV(
   // (stable key from a previous CRM), then display_name + email.
   const { data: existingDonors } = await supabase
     .from("donors")
-    .select("id, display_name, email, external_id")
+    .select("id, display_name, email, external_id, custom_fields")
     .eq("org_id", orgId);
 
   const existingMap = new Map<string, string>();
+  const existingCustomFields = new Map<string, Record<string, unknown>>();
   for (const d of (existingDonors ?? []) as {
     id: string;
     display_name: string | null;
     email: string | null;
     external_id: string | null;
+    custom_fields: Record<string, unknown> | null;
   }[]) {
     if (d.external_id) {
       existingMap.set(buildExternalIdKey(d.external_id), d.id);
     }
     if (d.display_name) {
       existingMap.set(buildMatchKey(d.display_name, d.email), d.id);
+    }
+    if (d.custom_fields && Object.keys(d.custom_fields).length > 0) {
+      existingCustomFields.set(d.id, d.custom_fields);
     }
   }
 
@@ -163,6 +169,9 @@ export async function importDonorsFromCSV(
       // Only set when provided — a re-import without the column must not
       // wipe external_ids already on file.
       ...(externalId ? { external_id: externalId } : {}),
+      ...(row.custom_fields && Object.keys(row.custom_fields).length > 0
+        ? { custom_fields: row.custom_fields }
+        : {}),
       first_name: row.first_name?.trim() || null,
       last_name: row.last_name?.trim() || null,
       email,
@@ -280,6 +289,15 @@ export async function importDonorsFromCSV(
   // -----------------------------------------------------------------------
 
   for (const p of toUpdate) {
+    // Merge custom fields with what's already on file — a re-import that
+    // maps only some custom columns must not wipe the others.
+    if (p.donorPayload.custom_fields) {
+      const existing = existingCustomFields.get(p.existingDonorId!) ?? {};
+      p.donorPayload.custom_fields = {
+        ...existing,
+        ...(p.donorPayload.custom_fields as Record<string, unknown>),
+      };
+    }
     const { error } = await supabase
       .from("donors")
       .update(p.donorPayload)

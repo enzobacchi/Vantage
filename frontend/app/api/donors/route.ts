@@ -23,6 +23,7 @@ export type DonorListItem = {
   notes: string | null;
   tags: DonorTag[];
   assigned_to: string | null;
+  custom_fields: Record<string, string> | null;
 };
 
 const UNASSIGNED = "unassigned";
@@ -182,7 +183,7 @@ export async function GET(request: Request) {
     // Step 2: Fetch donor details and extras in parallel
     let donorsQueryInRange = supabase
       .from("donors")
-      .select("id, external_id, display_name, email, total_lifetime_value, last_donation_amount, last_donation_date, billing_address, state, notes, assigned_to")
+      .select("id, external_id, display_name, email, total_lifetime_value, last_donation_amount, last_donation_date, billing_address, state, notes, assigned_to, custom_fields")
       .in("id", donorIdsInRange)
       .eq("org_id", auth.orgId);
     if (assigneeFilter) {
@@ -320,7 +321,7 @@ export async function GET(request: Request) {
   // Data query with offset pagination
   let query = supabase
     .from("donors")
-    .select("id, external_id, display_name, email, total_lifetime_value, last_donation_amount, last_donation_date, billing_address, state, notes, assigned_to")
+    .select("id, external_id, display_name, email, total_lifetime_value, last_donation_amount, last_donation_date, billing_address, state, notes, assigned_to, custom_fields")
     .eq("org_id", auth.orgId)
     .order(orderColumn, { ascending, nullsFirst: false })
     .range(page * limit, page * limit + limit - 1);

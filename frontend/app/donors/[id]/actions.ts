@@ -27,6 +27,7 @@ export type DonorProfileDonor = {
   donor_type: "individual" | "corporate" | "school" | "church"
   acquisition_source: string | null
   assigned_to: string | null
+  custom_fields: Record<string, string> | null
 }
 
 export type DonorProfileDonation = {
@@ -57,7 +58,7 @@ export async function getDonorProfile(id: string): Promise<DonorProfileResult> {
   const { data: donor, error: donorError } = await supabase
     .from("donors")
     .select(
-      "id,org_id,external_id,display_name,first_name,last_name,email,phone,billing_address,city,state,zip,mailing_address,mailing_city,mailing_state,mailing_zip,total_lifetime_value,last_donation_date,notes,donor_type,acquisition_source,assigned_to"
+      "id,org_id,external_id,display_name,first_name,last_name,email,phone,billing_address,city,state,zip,mailing_address,mailing_city,mailing_state,mailing_zip,total_lifetime_value,last_donation_date,notes,donor_type,acquisition_source,assigned_to,custom_fields"
     )
     .eq("id", id)
     .eq("org_id", org.orgId)

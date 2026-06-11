@@ -34,6 +34,7 @@ import type { Interaction } from "@/types/database"
 import { EmailComposeDialog } from "@/components/email/email-compose-dialog"
 import { emailEnabled } from "@/lib/features"
 import { DonorInsightsPanel } from "@/components/donors/donor-insights-panel"
+import { DonorCustomFieldsCard } from "@/components/donors/donor-custom-fields-card"
 import { DonorHealthScoreCard } from "@/components/donors/donor-health-score"
 import { DonorNotesCard } from "@/components/donors/donor-notes-card"
 import { DonorPledgesCard } from "@/components/donors/donor-pledges-card"
@@ -806,6 +807,11 @@ export default function DonorProfilePage() {
           <DonorHealthScoreCard donorId={donor.id} />
           <DonorPledgesCard donorId={donor.id} />
           <DonorTagsCard donorId={donor.id} />
+          <DonorCustomFieldsCard
+            donorId={donor.id}
+            values={donor.custom_fields}
+            onSaved={loadData}
+          />
         </div>
 
         {/* Right column — tasks, activity, giving history, AI insights */}

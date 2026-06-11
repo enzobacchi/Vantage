@@ -33,6 +33,7 @@ export type Donor = {
   notes: string | null
   tags?: DonorTag[]
   assigned_to: string | null
+  custom_fields?: Record<string, string> | null
 }
 
 function formatDate(value: string | null | undefined) {

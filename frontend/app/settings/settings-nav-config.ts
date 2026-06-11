@@ -7,6 +7,7 @@ import {
   FileText,
   Link2,
   List,
+  ListPlus,
   Mail,
   User,
   Users,
@@ -29,6 +30,7 @@ export const VALID_TABS = [
   "team",
   "integrations",
   "donation-options",
+  "custom-fields",
   "email-templates",
   "year-end",
   "notifications",
@@ -52,6 +54,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
     label: "Donor Management",
     items: [
       { value: "donation-options", label: "Donation Options", icon: List },
+      { value: "custom-fields", label: "Custom Fields", icon: ListPlus },
       { value: "integrations", label: "Integrations", icon: Link2 },
     ],
   },

@@ -178,6 +178,47 @@ export type Database = {
           },
         ]
       }
+      custom_field_definitions: {
+        Row: {
+          created_at: string
+          field_type: string
+          id: string
+          key: string
+          label: string
+          options: Json | null
+          org_id: string
+          sort_order: number
+        }
+        Insert: {
+          created_at?: string
+          field_type?: string
+          id?: string
+          key: string
+          label: string
+          options?: Json | null
+          org_id: string
+          sort_order?: number
+        }
+        Update: {
+          created_at?: string
+          field_type?: string
+          id?: string
+          key?: string
+          label?: string
+          options?: Json | null
+          org_id?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "custom_field_definitions_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       donations: {
         Row: {
           acknowledgment_sent_at: string | null
@@ -428,6 +469,7 @@ export type Database = {
           billing_address: string | null
           city: string | null
           created_at: string
+          custom_fields: Json
           display_name: string | null
           donor_type: string
           email: string | null
@@ -459,6 +501,7 @@ export type Database = {
           billing_address?: string | null
           city?: string | null
           created_at?: string
+          custom_fields?: Json
           display_name?: string | null
           donor_type?: string
           email?: string | null
@@ -490,6 +533,7 @@ export type Database = {
           billing_address?: string | null
           city?: string | null
           created_at?: string
+          custom_fields?: Json
           display_name?: string | null
           donor_type?: string
           email?: string | null

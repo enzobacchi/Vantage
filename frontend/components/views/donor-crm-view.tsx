@@ -13,6 +13,7 @@ import { DEFAULT_LIFECYCLE_CONFIG } from "@/lib/donor-lifecycle"
 import type { Interaction } from "@/types/database"
 import { bulkAssignTag, bulkRemoveTag, getOrganizationTags } from "@/app/actions/tags"
 import { bulkAssignDonors, bulkDeleteDonors, mergeDonors } from "@/app/actions/donors"
+import { getCustomFieldDefinitions } from "@/app/actions/custom-fields"
 import { getOrgAssignees, getCurrentMemberInfo, type OrgAssignee } from "@/app/actions/team"
 import { DonorTagFilter, type TagForFilter } from "@/components/donors/donor-filters"
 import {
@@ -663,8 +664,15 @@ export function DonorCRMView() {
     }
   }, [selectedDonors, selectedTagIds, dateRange, page, searchQuery, sortBy, loadDonors])
 
-  const handleBulkExport = React.useCallback(() => {
+  const handleBulkExport = React.useCallback(async () => {
     if (selectedDonors.length === 0) return
+    // Append one column per org-defined custom field (fetched lazily)
+    let customDefs: Array<{ key: string; label: string }> = []
+    try {
+      customDefs = await getCustomFieldDefinitions()
+    } catch {
+      // export proceeds without custom columns
+    }
     const headers = [
       "ID",
       "External ID",
@@ -676,6 +684,7 @@ export function DonorCRMView() {
       "Last Donation Date",
       "Last Donation Amount",
       "Notes",
+      ...customDefs.map((c) => c.label),
     ]
     const rows = selectedDonors.map((d) => [
       d.id,
@@ -688,6 +697,7 @@ export function DonorCRMView() {
       d.last_donation_date ?? "",
       String(d.last_donation_amount ?? ""),
       d.notes ?? "",
+      ...customDefs.map((c) => d.custom_fields?.[c.key] ?? ""),
     ])
     const escape = (val: string) => {
       if (val.includes(",") || val.includes('"') || val.includes("\n")) {

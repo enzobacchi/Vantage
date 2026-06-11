@@ -66,12 +66,20 @@ async function buildDonorsExport(
   const { data, error } = await supabase
     .from("donors")
     .select(
-      "id, external_id, display_name, first_name, last_name, email, phone, donor_type, billing_address, city, state, zip, mailing_address, mailing_city, mailing_state, mailing_zip, total_lifetime_value, last_donation_date, last_donation_amount, notes"
+      "id, external_id, display_name, first_name, last_name, email, phone, donor_type, billing_address, city, state, zip, mailing_address, mailing_city, mailing_state, mailing_zip, total_lifetime_value, last_donation_date, last_donation_amount, notes, custom_fields"
     )
     .eq("org_id", orgId)
     .order("display_name")
 
   if (error) throw error
+
+  // Org-defined custom fields get one column each, after the fixed columns
+  const { data: fieldDefs } = await supabase
+    .from("custom_field_definitions")
+    .select("key, label")
+    .eq("org_id", orgId)
+    .order("sort_order")
+  const customDefs = (fieldDefs ?? []) as Array<{ key: string; label: string }>
 
   const headers = [
     "ID",
@@ -94,6 +102,7 @@ async function buildDonorsExport(
     "Last Donation Date",
     "Last Donation Amount",
     "Notes",
+    ...customDefs.map((c) => c.label),
   ]
 
   const rows = (data ?? []).map((d) => [
@@ -117,6 +126,9 @@ async function buildDonorsExport(
     d.last_donation_date,
     d.last_donation_amount,
     d.notes,
+    ...customDefs.map(
+      (c) => ((d.custom_fields as Record<string, unknown>) ?? {})[c.key] ?? null
+    ),
   ])
 
   return { csv: toCsv(headers, rows), filename: `vantage-donors-${timestamp}.csv` }

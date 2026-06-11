@@ -4,6 +4,7 @@ import { useSearchParams, useRouter } from "next/navigation"
 
 import { SettingsAuditLog } from "@/app/settings/settings-audit-log"
 import { SettingsBilling } from "@/app/settings/settings-billing"
+import { SettingsApiKeys } from "@/app/settings/settings-api-keys"
 import { SettingsCustomFields } from "@/app/settings/settings-custom-fields"
 import { SettingsDonationOptions } from "@/app/settings/settings-donation-options"
 import { SettingsEmailTemplates } from "@/app/settings/settings-email-templates"
@@ -84,6 +85,7 @@ export default function SettingsPage() {
         {activeTab === "integrations" && <SettingsIntegrations />}
         {activeTab === "donation-options" && <SettingsDonationOptions />}
         {activeTab === "custom-fields" && <SettingsCustomFields />}
+        {activeTab === "api-keys" && <SettingsApiKeys />}
         {activeTab === "email-templates" && <SettingsEmailTemplates />}
         {activeTab === "year-end" && <SettingsYearEndReceipts />}
         {activeTab === "notifications" && <SettingsNotifications />}

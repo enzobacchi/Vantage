@@ -5,6 +5,7 @@ import {
   ClipboardList,
   CreditCard,
   FileText,
+  KeyRound,
   Link2,
   List,
   ListPlus,
@@ -35,6 +36,7 @@ export const VALID_TABS = [
   "year-end",
   "notifications",
   "audit-log",
+  "api-keys",
   "billing",
 ] as const
 
@@ -69,6 +71,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
   {
     label: "System",
     items: [
+      { value: "api-keys", label: "API Keys", icon: KeyRound },
       { value: "audit-log", label: "Activity Log", icon: ClipboardList },
     ],
   },

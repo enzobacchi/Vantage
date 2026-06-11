@@ -11,6 +11,7 @@ export type DonorTag = { id: string; name: string; color: string };
 
 export type DonorListItem = {
   id: string;
+  external_id: string | null;
   display_name: string | null;
   email: string | null;
   total_lifetime_value: number | string | null;
@@ -181,7 +182,7 @@ export async function GET(request: Request) {
     // Step 2: Fetch donor details and extras in parallel
     let donorsQueryInRange = supabase
       .from("donors")
-      .select("id, display_name, email, total_lifetime_value, last_donation_amount, last_donation_date, billing_address, state, notes, assigned_to")
+      .select("id, external_id, display_name, email, total_lifetime_value, last_donation_amount, last_donation_date, billing_address, state, notes, assigned_to")
       .in("id", donorIdsInRange)
       .eq("org_id", auth.orgId);
     if (assigneeFilter) {
@@ -319,7 +320,7 @@ export async function GET(request: Request) {
   // Data query with offset pagination
   let query = supabase
     .from("donors")
-    .select("id, display_name, email, total_lifetime_value, last_donation_amount, last_donation_date, billing_address, state, notes, assigned_to")
+    .select("id, external_id, display_name, email, total_lifetime_value, last_donation_amount, last_donation_date, billing_address, state, notes, assigned_to")
     .eq("org_id", auth.orgId)
     .order(orderColumn, { ascending, nullsFirst: false })
     .range(page * limit, page * limit + limit - 1);

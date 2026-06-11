@@ -10,6 +10,7 @@ import {
   CheckSquare,
   Circle,
   FileText,
+  Hash,
   Mail,
   MapPin,
   Pencil,
@@ -134,6 +135,7 @@ function EditContactDialog({
     mailing_zip: donor.mailing_zip ?? "",
     donor_type: donor.donor_type ?? "individual",
     acquisition_source: donor.acquisition_source ?? "",
+    external_id: donor.external_id ?? "",
   })
   const [saving, setSaving] = React.useState(false)
 
@@ -155,6 +157,7 @@ function EditContactDialog({
         mailing_zip: donor.mailing_zip ?? "",
         donor_type: donor.donor_type ?? "individual",
         acquisition_source: donor.acquisition_source ?? "",
+        external_id: donor.external_id ?? "",
       })
     }
   }, [open, donor])
@@ -197,6 +200,7 @@ function EditContactDialog({
         mailing_zip: form.mailing_zip || null,
         donor_type: form.donor_type as UpdateDonorInput["donor_type"],
         acquisition_source: form.acquisition_source || null,
+        external_id: form.external_id || null,
       })
       toast.success("Donor profile updated")
       onOpenChange(false)
@@ -361,6 +365,15 @@ function EditContactDialog({
               value={form.acquisition_source}
               onChange={(e) => update("acquisition_source", e.target.value)}
               placeholder="e.g. event, referral, website"
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="edit-external-id">External ID</Label>
+            <Input
+              id="edit-external-id"
+              value={form.external_id}
+              onChange={(e) => update("external_id", e.target.value)}
+              placeholder="ID from a previous CRM (e.g. Bloomerang account number)"
             />
           </div>
         </div>
@@ -744,6 +757,14 @@ export default function DonorProfilePage() {
                   />
                 </div>
               </li>
+              {donor.external_id && (
+                <li className="flex items-center gap-2.5">
+                  <Hash className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.5} />
+                  <span className="text-sm text-muted-foreground truncate" title="External ID">
+                    {donor.external_id}
+                  </span>
+                </li>
+              )}
             </ul>
           </CardContent>
         </Card>

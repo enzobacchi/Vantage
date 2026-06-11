@@ -15,8 +15,11 @@ import { toast } from "sonner"
 
 import {
   importDonorsFromCSV,
+  importDonationsFromCSV,
   type ImportRow,
   type ImportResult,
+  type DonationImportRow,
+  type DonationImportResult,
 } from "@/app/actions/import"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -51,6 +54,7 @@ import {
 
 const DONOR_FIELDS = [
   { value: "display_name", label: "Name", required: true },
+  { value: "external_id", label: "External ID" },
   { value: "first_name", label: "First Name" },
   { value: "last_name", label: "Last Name" },
   { value: "email", label: "Email" },
@@ -66,12 +70,42 @@ const DONOR_FIELDS = [
   { value: "memo", label: "Memo / Notes" },
 ] as const
 
-type FieldValue = (typeof DONOR_FIELDS)[number]["value"]
+// Donations-history mode: one row per gift, matched to existing donors by
+// External ID → Email → Name. No donor creation in this mode.
+const DONATION_FIELDS = [
+  { value: "amount", label: "Amount", required: true },
+  { value: "date", label: "Date", required: true },
+  { value: "external_id", label: "Donor External ID" },
+  { value: "email", label: "Donor Email" },
+  { value: "display_name", label: "Donor Name" },
+  { value: "payment_method", label: "Payment Method" },
+  { value: "memo", label: "Memo / Notes" },
+  { value: "category", label: "Category" },
+  { value: "campaign", label: "Campaign" },
+  { value: "fund", label: "Fund" },
+] as const
+
+type FieldValue =
+  | (typeof DONOR_FIELDS)[number]["value"]
+  | (typeof DONATION_FIELDS)[number]["value"]
+
+type ImportMode = "donors" | "donations"
 
 const SKIP_VALUE = "__skip__"
 
 // Auto-detect common CSV column names
 const AUTO_MAP: Record<string, FieldValue> = {
+  "external id": "external_id",
+  "external_id": "external_id",
+  "account number": "external_id",
+  "account id": "external_id",
+  "account #": "external_id",
+  "bloomerang id": "external_id",
+  "constituent id": "external_id",
+  "donor id": "external_id",
+  category: "category",
+  campaign: "campaign",
+  fund: "fund",
   name: "display_name",
   "display name": "display_name",
   "display_name": "display_name",
@@ -130,13 +164,18 @@ type Step = "upload" | "map" | "review"
 
 export function CSVImportWizard() {
   const [step, setStep] = React.useState<Step>("upload")
+  const [mode, setMode] = React.useState<ImportMode>("donors")
   const [file, setFile] = React.useState<File | null>(null)
   const [csvHeaders, setCsvHeaders] = React.useState<string[]>([])
   const [csvRows, setCsvRows] = React.useState<string[][]>([])
   const [columnMap, setColumnMap] = React.useState<Record<number, string>>({})
   const [importing, setImporting] = React.useState(false)
-  const [result, setResult] = React.useState<ImportResult | null>(null)
+  const [result, setResult] = React.useState<
+    ImportResult | DonationImportResult | null
+  >(null)
   const [dragActive, setDragActive] = React.useState(false)
+
+  const activeFields = mode === "donors" ? DONOR_FIELDS : DONATION_FIELDS
 
   // --- Step 1: Upload ---
   function handleFile(f: File) {
@@ -161,13 +200,15 @@ export function CSVImportWizard() {
         setCsvRows(rows)
         setFile(f)
 
-        // Auto-map columns
+        // Auto-map columns (only to fields valid for the active mode)
+        const fields = mode === "donors" ? DONOR_FIELDS : DONATION_FIELDS
+        const validValues = new Set<string>(fields.map((fd) => fd.value))
         const autoMap: Record<number, string> = {}
         const usedFields = new Set<string>()
         headers.forEach((h, i) => {
           const normalized = h.toLowerCase().trim()
           const field = AUTO_MAP[normalized]
-          if (field && !usedFields.has(field)) {
+          if (field && validValues.has(field) && !usedFields.has(field)) {
             autoMap[i] = field
             usedFields.add(field)
           }
@@ -212,8 +253,19 @@ export function CSVImportWizard() {
     })
   }
 
-  const hasRequiredName = Object.values(columnMap).includes("display_name")
   const mappedFields = new Set(Object.values(columnMap))
+  const hasRequiredFields =
+    mode === "donors"
+      ? mappedFields.has("display_name")
+      : mappedFields.has("amount") &&
+        mappedFields.has("date") &&
+        (mappedFields.has("external_id") ||
+          mappedFields.has("email") ||
+          mappedFields.has("display_name"))
+  const requiredHint =
+    mode === "donors"
+      ? 'A "Name" column mapping is required to continue.'
+      : 'Map "Amount", "Date", and at least one donor identifier (External ID, Email, or Name) to continue.'
 
   // --- Step 3: Review & Import ---
   const parsedRows = React.useMemo(() => {
@@ -230,52 +282,93 @@ export function CSVImportWizard() {
   const validationErrors = React.useMemo(() => {
     const errors: Array<{ row: number; message: string }> = []
     parsedRows.forEach((row, i) => {
-      if (!row.display_name) {
-        errors.push({ row: i + 1, message: "Missing name" })
-      }
-      if (row.amount && isNaN(Number(row.amount))) {
-        errors.push({ row: i + 1, message: `Invalid amount: "${row.amount}"` })
-      }
-      if (row.date && isNaN(Date.parse(row.date))) {
-        errors.push({ row: i + 1, message: `Invalid date: "${row.date}"` })
+      if (mode === "donors") {
+        if (!row.display_name) {
+          errors.push({ row: i + 1, message: "Missing name" })
+        }
+        if (row.amount && isNaN(Number(row.amount))) {
+          errors.push({ row: i + 1, message: `Invalid amount: "${row.amount}"` })
+        }
+        if (row.date && isNaN(Date.parse(row.date))) {
+          errors.push({ row: i + 1, message: `Invalid date: "${row.date}"` })
+        }
+      } else {
+        if (!row.amount || isNaN(Number(row.amount))) {
+          errors.push({ row: i + 1, message: `Missing or invalid amount: "${row.amount ?? ""}"` })
+        }
+        if (!row.date || isNaN(Date.parse(row.date))) {
+          errors.push({ row: i + 1, message: `Missing or invalid date: "${row.date ?? ""}"` })
+        }
+        if (!row.external_id && !row.email && !row.display_name) {
+          errors.push({ row: i + 1, message: "No donor identifier (External ID, Email, or Name)" })
+        }
       }
     })
     return errors
-  }, [parsedRows])
+  }, [parsedRows, mode])
 
   async function runImport() {
     setImporting(true)
     try {
-      const importRows: ImportRow[] = parsedRows
-        .filter((r) => r.display_name)
-        .map((r) => ({
-          display_name: r.display_name,
-          first_name: r.first_name || null,
-          last_name: r.last_name || null,
-          email: r.email || null,
-          phone: r.phone || null,
-          billing_address: r.billing_address || null,
-          city: r.city || null,
-          state: r.state || null,
-          zip: r.zip || null,
-          donor_type: r.donor_type || null,
-          amount: r.amount ? Number(r.amount) : null,
-          date: r.date ? normalizeDate(r.date) : null,
-          payment_method: r.payment_method || null,
-          memo: r.memo || null,
-        }))
+      if (mode === "donors") {
+        const importRows: ImportRow[] = parsedRows
+          .filter((r) => r.display_name)
+          .map((r) => ({
+            display_name: r.display_name,
+            external_id: r.external_id || null,
+            first_name: r.first_name || null,
+            last_name: r.last_name || null,
+            email: r.email || null,
+            phone: r.phone || null,
+            billing_address: r.billing_address || null,
+            city: r.city || null,
+            state: r.state || null,
+            zip: r.zip || null,
+            donor_type: r.donor_type || null,
+            amount: r.amount ? Number(r.amount) : null,
+            date: r.date ? normalizeDate(r.date) : null,
+            payment_method: r.payment_method || null,
+            memo: r.memo || null,
+          }))
 
-      const res = await importDonorsFromCSV(importRows)
-      setResult(res)
-      const imported = res.donorsCreated + res.donorsUpdated
-      const donationsSuffix = res.donationsCreated ? ` and ${res.donationsCreated} donations` : ""
-      if (res.capReached && res.donorsSkipped > 0) {
-        toast.warning(
-          `Imported ${imported} donors${donationsSuffix}. ${res.donorsSkipped} skipped — you've hit your plan's ${res.planMaxDonors.toLocaleString()} donor limit. Upgrade to import the rest.`,
-          { duration: 10_000 }
-        )
+        const res = await importDonorsFromCSV(importRows)
+        setResult(res)
+        const imported = res.donorsCreated + res.donorsUpdated
+        const donationsSuffix = res.donationsCreated ? ` and ${res.donationsCreated} donations` : ""
+        if (res.capReached && res.donorsSkipped > 0) {
+          toast.warning(
+            `Imported ${imported} donors${donationsSuffix}. ${res.donorsSkipped} skipped — you've hit your plan's ${res.planMaxDonors.toLocaleString()} donor limit. Upgrade to import the rest.`,
+            { duration: 10_000 }
+          )
+        } else {
+          toast.success(`Imported ${imported} donors${donationsSuffix}`)
+        }
       } else {
-        toast.success(`Imported ${imported} donors${donationsSuffix}`)
+        const donationRows: DonationImportRow[] = parsedRows
+          .filter((r) => r.amount && r.date)
+          .map((r) => ({
+            external_id: r.external_id || null,
+            email: r.email || null,
+            display_name: r.display_name || null,
+            amount: Number(r.amount),
+            date: normalizeDate(r.date) ?? r.date,
+            payment_method: r.payment_method || null,
+            memo: r.memo || null,
+            category: r.category || null,
+            campaign: r.campaign || null,
+            fund: r.fund || null,
+          }))
+
+        const res = await importDonationsFromCSV(donationRows)
+        setResult(res)
+        if (res.rowsSkipped > 0) {
+          toast.warning(
+            `Imported ${res.donationsCreated} donations. ${res.rowsSkipped} rows skipped — see details below.`,
+            { duration: 10_000 }
+          )
+        } else {
+          toast.success(`Imported ${res.donationsCreated} donations`)
+        }
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Import failed")
@@ -318,10 +411,42 @@ export function CSVImportWizard() {
               Upload CSV
             </CardTitle>
             <CardDescription>
-              Upload a CSV file with your donor data. The first row should contain column headers.
+              {mode === "donors"
+                ? "Upload a CSV file with your donor data. The first row should contain column headers."
+                : "Upload a CSV with one row per donation. Each row is matched to an existing donor by External ID, Email, or Name — donors are not created in this mode."}
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setMode("donors")}
+                className={`rounded-lg border p-3 text-left transition-colors ${
+                  mode === "donors"
+                    ? "border-foreground bg-accent"
+                    : "border-border hover:bg-accent"
+                }`}
+              >
+                <p className="text-sm font-medium">Donors</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Import or update donors, optionally with one donation per row
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("donations")}
+                className={`rounded-lg border p-3 text-left transition-colors ${
+                  mode === "donations"
+                    ? "border-foreground bg-accent"
+                    : "border-border hover:bg-accent"
+                }`}
+              >
+                <p className="text-sm font-medium">Donations history</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Import full gift history — one row per donation, matched to existing donors
+                </p>
+              </button>
+            </div>
             <div
               className={`relative flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-12 transition-colors ${
                 dragActive
@@ -374,12 +499,10 @@ export function CSVImportWizard() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            {!hasRequiredName && (
+            {!hasRequiredFields && (
               <Alert variant="destructive">
                 <AlertCircle className="size-4" strokeWidth={1.5} />
-                <AlertDescription>
-                  A &quot;Name&quot; column mapping is required to continue.
-                </AlertDescription>
+                <AlertDescription>{requiredHint}</AlertDescription>
               </Alert>
             )}
 
@@ -408,7 +531,7 @@ export function CSVImportWizard() {
                             <SelectItem value={SKIP_VALUE}>
                               <span className="text-muted-foreground">Skip</span>
                             </SelectItem>
-                            {DONOR_FIELDS.map((f) => (
+                            {activeFields.map((f) => (
                               <SelectItem
                                 key={f.value}
                                 value={f.value}
@@ -444,7 +567,7 @@ export function CSVImportWizard() {
               </Button>
               <Button
                 onClick={() => setStep("review")}
-                disabled={!hasRequiredName}
+                disabled={!hasRequiredFields}
               >
                 Review
                 <ArrowRight className="size-4 ml-2" strokeWidth={1.5} />
@@ -466,9 +589,11 @@ export function CSVImportWizard() {
           <CardContent className="space-y-6">
             {/* Summary badges */}
             <div className="flex flex-wrap gap-2">
-              <Badge variant="secondary">
-                {parsedRows.filter((r) => r.display_name).length} donors
-              </Badge>
+              {mode === "donors" && (
+                <Badge variant="secondary">
+                  {parsedRows.filter((r) => r.display_name).length} donors
+                </Badge>
+              )}
               {mappedFields.has("amount") && (
                 <Badge variant="secondary">
                   {parsedRows.filter((r) => r.amount && !isNaN(Number(r.amount))).length} donations
@@ -508,7 +633,7 @@ export function CSVImportWizard() {
                     <TableHead className="w-12">#</TableHead>
                     {Object.values(columnMap).map((field) => (
                       <TableHead key={field}>
-                        {DONOR_FIELDS.find((f) => f.value === field)?.label ?? field}
+                        {activeFields.find((f) => f.value === field)?.label ?? field}
                       </TableHead>
                     ))}
                   </TableRow>
@@ -556,7 +681,9 @@ export function CSVImportWizard() {
                 ) : (
                   <>
                     <Upload className="size-4 mr-2" strokeWidth={1.5} />
-                    Import {parsedRows.filter((r) => r.display_name).length} Donors
+                    {mode === "donors"
+                      ? `Import ${parsedRows.filter((r) => r.display_name).length} Donors`
+                      : `Import ${parsedRows.filter((r) => r.amount && r.date).length} Donations`}
                   </>
                 )}
               </Button>
@@ -576,9 +703,58 @@ function ImportResults({
   result,
   onReset,
 }: {
-  result: ImportResult
+  result: ImportResult | DonationImportResult
   onReset: () => void
 }) {
+  // Donations-history results have a different shape — render a compact variant
+  if (!("donorsCreated" in result)) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <CheckCircle2 className="size-5 text-emerald-500" strokeWidth={1.5} />
+            Import Complete
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <StatCard label="Donations Created" value={result.donationsCreated} />
+            <StatCard label="Rows Skipped" value={result.rowsSkipped} />
+          </div>
+
+          {result.errors.length > 0 && (
+            <Alert variant="destructive">
+              <AlertCircle className="size-4" strokeWidth={1.5} />
+              <AlertDescription>
+                {result.errors.length} row(s) had errors:
+                <ul className="mt-1 list-disc list-inside text-xs">
+                  {result.errors.slice(0, 10).map((e, i) => (
+                    <li key={i}>
+                      Row {e.row}: {e.message}
+                    </li>
+                  ))}
+                  {result.errors.length > 10 && (
+                    <li>...and {result.errors.length - 10} more</li>
+                  )}
+                </ul>
+              </AlertDescription>
+            </Alert>
+          )}
+
+          <div className="flex gap-3">
+            <Button variant="outline" onClick={onReset}>
+              <X className="size-4 mr-2" strokeWidth={1.5} />
+              Import Another File
+            </Button>
+            <Button asChild>
+              <a href="/dashboard/donations">View Donations</a>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
     <Card>
       <CardHeader>

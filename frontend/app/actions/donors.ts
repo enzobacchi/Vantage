@@ -150,6 +150,7 @@ export async function updateDonorType(
 
 export type UpdateDonorInput = {
   display_name?: string
+  external_id?: string | null
   email?: string | null
   phone?: string | null
   billing_address?: string | null
@@ -192,6 +193,7 @@ export async function updateDonor(donorId: string, input: UpdateDonorInput): Pro
 
   const updates: Record<string, unknown> = {}
   if (input.display_name !== undefined) updates.display_name = input.display_name.trim() || null
+  if (input.external_id !== undefined) updates.external_id = input.external_id?.trim() || null
   if (input.email !== undefined) updates.email = input.email?.trim() || null
   if (input.phone !== undefined) updates.phone = input.phone?.trim() || null
   if (input.billing_address !== undefined) updates.billing_address = input.billing_address?.trim() || null

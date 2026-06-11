@@ -21,6 +21,7 @@ export type DonorTag = { id: string; name: string; color: string }
 
 export type Donor = {
   id: string
+  external_id?: string | null
   display_name: string | null
   email: string | null
   total_lifetime_value: number | string | null

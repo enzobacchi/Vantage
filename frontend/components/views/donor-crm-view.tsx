@@ -667,6 +667,7 @@ export function DonorCRMView() {
     if (selectedDonors.length === 0) return
     const headers = [
       "ID",
+      "External ID",
       "Name",
       "Email",
       "State",
@@ -678,6 +679,7 @@ export function DonorCRMView() {
     ]
     const rows = selectedDonors.map((d) => [
       d.id,
+      d.external_id ?? "",
       d.display_name ?? "",
       d.email ?? "",
       d.state ?? "",

@@ -432,6 +432,7 @@ export type Database = {
           donor_type: string
           email: string | null
           embedding: string | null
+          external_id: string | null
           first_name: string | null
           household_greeting: string | null
           id: string
@@ -462,6 +463,7 @@ export type Database = {
           donor_type?: string
           email?: string | null
           embedding?: string | null
+          external_id?: string | null
           first_name?: string | null
           household_greeting?: string | null
           id?: string
@@ -492,6 +494,7 @@ export type Database = {
           donor_type?: string
           email?: string | null
           embedding?: string | null
+          external_id?: string | null
           first_name?: string | null
           household_greeting?: string | null
           id?: string
@@ -1368,6 +1371,7 @@ export type Database = {
           stripe_subscription_id: string | null
           trial_ends_at: string | null
           trial_reminder_sent_at: string | null
+          trial_tier: string | null
           updated_at: string
         }
         Insert: {
@@ -1382,6 +1386,7 @@ export type Database = {
           stripe_subscription_id?: string | null
           trial_ends_at?: string | null
           trial_reminder_sent_at?: string | null
+          trial_tier?: string | null
           updated_at?: string
         }
         Update: {
@@ -1396,6 +1401,7 @@ export type Database = {
           stripe_subscription_id?: string | null
           trial_ends_at?: string | null
           trial_reminder_sent_at?: string | null
+          trial_tier?: string | null
           updated_at?: string
         }
         Relationships: [

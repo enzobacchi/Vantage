@@ -66,7 +66,7 @@ async function buildDonorsExport(
   const { data, error } = await supabase
     .from("donors")
     .select(
-      "id, display_name, first_name, last_name, email, phone, donor_type, billing_address, city, state, zip, mailing_address, mailing_city, mailing_state, mailing_zip, total_lifetime_value, last_donation_date, last_donation_amount, notes"
+      "id, external_id, display_name, first_name, last_name, email, phone, donor_type, billing_address, city, state, zip, mailing_address, mailing_city, mailing_state, mailing_zip, total_lifetime_value, last_donation_date, last_donation_amount, notes"
     )
     .eq("org_id", orgId)
     .order("display_name")
@@ -75,6 +75,7 @@ async function buildDonorsExport(
 
   const headers = [
     "ID",
+    "External ID",
     "Display Name",
     "First Name",
     "Last Name",
@@ -97,6 +98,7 @@ async function buildDonorsExport(
 
   const rows = (data ?? []).map((d) => [
     d.id,
+    d.external_id,
     d.display_name,
     d.first_name,
     d.last_name,

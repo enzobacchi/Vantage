@@ -7,6 +7,7 @@ import { getCurrentUserOrg } from "@/lib/auth"
 export type DonorProfileDonor = {
   id: string
   org_id: string
+  external_id: string | null
   display_name: string | null
   first_name: string | null
   last_name: string | null
@@ -56,7 +57,7 @@ export async function getDonorProfile(id: string): Promise<DonorProfileResult> {
   const { data: donor, error: donorError } = await supabase
     .from("donors")
     .select(
-      "id,org_id,display_name,first_name,last_name,email,phone,billing_address,city,state,zip,mailing_address,mailing_city,mailing_state,mailing_zip,total_lifetime_value,last_donation_date,notes,donor_type,acquisition_source,assigned_to"
+      "id,org_id,external_id,display_name,first_name,last_name,email,phone,billing_address,city,state,zip,mailing_address,mailing_city,mailing_state,mailing_zip,total_lifetime_value,last_donation_date,notes,donor_type,acquisition_source,assigned_to"
     )
     .eq("id", id)
     .eq("org_id", org.orgId)

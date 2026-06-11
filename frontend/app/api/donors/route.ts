@@ -28,6 +28,9 @@ export type DonorListItem = {
 
 const UNASSIGNED = "unassigned";
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function parseAssigneeFilter(raw: string | null): {
   userIds: string[];
   includeUnassigned: boolean;
@@ -40,10 +43,14 @@ function parseAssigneeFilter(raw: string | null): {
   for (const p of parts) {
     if (p === UNASSIGNED || p === "__unassigned__") {
       includeUnassigned = true;
-    } else {
+    } else if (UUID_RE.test(p)) {
+      // Strict UUID validation — these ids are spliced into PostgREST .or()
+      // filter syntax below, so anything non-UUID is dropped to prevent
+      // filter-injection (and pointless 500s on malformed input).
       userIds.push(p);
     }
   }
+  if (userIds.length === 0 && !includeUnassigned) return null;
   return { userIds, includeUnassigned };
 }
 

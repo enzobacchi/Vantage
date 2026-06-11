@@ -345,6 +345,26 @@ export async function PATCH(
   if (!auth.ok) return auth.response;
 
   const supabase = createAdminClient();
+
+  // Only the creator may edit a report (mirrors the shares endpoint —
+  // otherwise any org member could flip someone's private report to shared).
+  const { data: existing } = await supabase
+    .from("saved_reports")
+    .select("created_by_user_id")
+    .eq("id", id)
+    .eq("organization_id", auth.orgId)
+    .maybeSingle();
+  if (!existing) {
+    return NextResponse.json({ error: "Report not found." }, { status: 404 });
+  }
+  const createdByUserId = (existing as { created_by_user_id: string | null }).created_by_user_id;
+  if (createdByUserId && createdByUserId !== auth.userId) {
+    return NextResponse.json(
+      { error: "Only the report creator can edit this report." },
+      { status: 403 }
+    );
+  }
+
   const { data, error } = await supabase
     .from("saved_reports")
     .update(updates)

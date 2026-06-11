@@ -137,3 +137,30 @@ export async function updateProfile(form: {
 
   if (error) throw new Error(error.message)
 }
+
+/** QuickBooks write-back opt-in (Settings → Integrations). */
+export async function getQBWritebackEnabled(): Promise<boolean> {
+  const org = await getCurrentUserOrg()
+  if (!org) return false
+  const supabase = createAdminClient()
+  const { data } = await supabase
+    .from("organizations")
+    .select("qb_writeback_enabled")
+    .eq("id", org.orgId)
+    .maybeSingle()
+  return !!data?.qb_writeback_enabled
+}
+
+export async function setQBWritebackEnabled(enabled: boolean): Promise<void> {
+  const ctx = await getCurrentUserOrgWithRole()
+  if (!ctx) throw new Error("Unauthorized")
+  if (ctx.role !== "owner" && ctx.role !== "admin") {
+    throw new Error("Only owners and admins can change QuickBooks settings.")
+  }
+  const supabase = createAdminClient()
+  const { error } = await supabase
+    .from("organizations")
+    .update({ qb_writeback_enabled: enabled })
+    .eq("id", ctx.orgId)
+  if (error) throw new Error(error.message)
+}

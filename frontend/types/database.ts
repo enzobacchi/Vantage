@@ -245,6 +245,12 @@ export type Database = {
           payment_method: string
           payment_type_id: string | null
           pledge_id: string | null
+          qb_id: string | null
+          qb_sync_attempts: number
+          qb_sync_error: string | null
+          qb_sync_status: string | null
+          qb_synced_at: string | null
+          qb_txn_type: string | null
           source: string
         }
         Insert: {
@@ -272,6 +278,12 @@ export type Database = {
           payment_method?: string
           payment_type_id?: string | null
           pledge_id?: string | null
+          qb_id?: string | null
+          qb_sync_attempts?: number
+          qb_sync_error?: string | null
+          qb_sync_status?: string | null
+          qb_synced_at?: string | null
+          qb_txn_type?: string | null
           source?: string
         }
         Update: {
@@ -299,6 +311,12 @@ export type Database = {
           payment_method?: string
           payment_type_id?: string | null
           pledge_id?: string | null
+          qb_id?: string | null
+          qb_sync_attempts?: number
+          qb_sync_error?: string | null
+          qb_sync_status?: string | null
+          qb_synced_at?: string | null
+          qb_txn_type?: string | null
           source?: string
         }
         Relationships: [
@@ -1026,8 +1044,10 @@ export type Database = {
           name: string | null
           onboarding_completed_at: string | null
           qb_access_token: string | null
+          qb_donation_item_id: string | null
           qb_realm_id: string | null
           qb_refresh_token: string | null
+          qb_writeback_enabled: boolean
           stripe_customer_id: string | null
           tax_id: string | null
           updated_at: string | null
@@ -1043,8 +1063,10 @@ export type Database = {
           name?: string | null
           onboarding_completed_at?: string | null
           qb_access_token?: string | null
+          qb_donation_item_id?: string | null
           qb_realm_id?: string | null
           qb_refresh_token?: string | null
+          qb_writeback_enabled?: boolean
           stripe_customer_id?: string | null
           tax_id?: string | null
           updated_at?: string | null
@@ -1060,8 +1082,10 @@ export type Database = {
           name?: string | null
           onboarding_completed_at?: string | null
           qb_access_token?: string | null
+          qb_donation_item_id?: string | null
           qb_realm_id?: string | null
           qb_refresh_token?: string | null
+          qb_writeback_enabled?: boolean
           stripe_customer_id?: string | null
           tax_id?: string | null
           updated_at?: string | null

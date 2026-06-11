@@ -71,6 +71,10 @@ export async function importDonorsFromCSV(
   const supabase = createAdminClient();
   const orgId = org.orgId;
 
+  // QB write-back opt-in: imported donations are marked pending and pushed
+  // by the cron sweep (never inline — imports can be thousands of rows).
+  const writebackEnabled = await isWritebackEnabled(supabase, orgId);
+
   const result: ImportResult = {
     donorsCreated: 0,
     donorsUpdated: 0,
@@ -324,6 +328,7 @@ export async function importDonorsFromCSV(
     payment_method: string;
     memo: string | null;
     source: string;
+    qb_sync_status?: string;
   };
 
   const donationInserts: DonationInsert[] = [];
@@ -340,6 +345,7 @@ export async function importDonorsFromCSV(
       payment_method: p.donation.paymentMethod,
       memo: p.donation.memo,
       source: "csv_import",
+      ...(writebackEnabled ? { qb_sync_status: "pending" } : {}),
     });
     rowByDonation.push(p.rowIdx);
     donorIdsWithDonations.add(p.existingDonorId);
@@ -388,6 +394,19 @@ function buildMatchKey(
 /** Namespaced so an external_id can never collide with a name::email key. */
 function buildExternalIdKey(externalId: string): string {
   return `ext::${externalId.toLowerCase().trim()}`;
+}
+
+/** True when the org opted into QB write-back and has a live connection. */
+async function isWritebackEnabled(
+  supabase: ReturnType<typeof createAdminClient>,
+  orgId: string
+): Promise<boolean> {
+  const { data } = await supabase
+    .from("organizations")
+    .select("qb_writeback_enabled, qb_realm_id, qb_refresh_token")
+    .eq("id", orgId)
+    .maybeSingle();
+  return !!(data?.qb_writeback_enabled && data.qb_realm_id && data.qb_refresh_token);
 }
 
 // ---------------------------------------------------------------------------
@@ -486,7 +505,10 @@ export async function importDonationsFromCSV(
     campaign_id: string | null;
     fund_id: string | null;
     source: string;
+    qb_sync_status?: string;
   };
+
+  const writebackEnabled = await isWritebackEnabled(supabase, orgId);
 
   const inserts: DonationInsert[] = [];
   const rowByInsert: number[] = [];
@@ -547,6 +569,7 @@ export async function importDonationsFromCSV(
       campaign_id: optionId("campaign", row.campaign),
       fund_id: optionId("fund", row.fund),
       source: "csv_import",
+      ...(writebackEnabled ? { qb_sync_status: "pending" } : {}),
     });
     rowByInsert.push(i);
     donorIdsWithDonations.add(donorId);

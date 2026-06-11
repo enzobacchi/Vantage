@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUserOrg } from "@/lib/auth"
 import { notifyNewDonation, checkAndNotifyMilestones } from "@/lib/notifications"
+import { tryPushDonationInline } from "@/lib/quickbooks/writeback"
 import { recalcDonorTotals } from "@/lib/recalc-donor-totals"
 import type { PaymentMethod } from "@/types/database"
 
@@ -196,6 +197,19 @@ export async function createDonation(input: CreateDonationInput): Promise<string
   const previousTotal = Number(donor.total_lifetime_value ?? 0)
   const donorName = (donor.display_name as string) || "Unknown Donor"
 
+  // QB write-back: when the org opted in, new donations start `pending` and
+  // get a best-effort inline push below (cron sweeps any failures).
+  const { data: orgRow } = await supabase
+    .from("organizations")
+    .select("qb_writeback_enabled, qb_realm_id, qb_refresh_token")
+    .eq("id", org.orgId)
+    .maybeSingle()
+  const writebackEnabled = !!(
+    orgRow?.qb_writeback_enabled &&
+    orgRow.qb_realm_id &&
+    orgRow.qb_refresh_token
+  )
+
   const { data: donation, error } = await supabase
     .from("donations")
     .insert({
@@ -209,12 +223,18 @@ export async function createDonation(input: CreateDonationInput): Promise<string
       campaign_id: input.campaign_id || null,
       fund_id: input.fund_id || null,
       source: "manual",
+      ...(writebackEnabled ? { qb_sync_status: "pending" } : {}),
     })
     .select("id")
     .single()
 
   if (error) throw new Error(error.message)
   if (!donation?.id) throw new Error("Failed to create donation")
+
+  if (writebackEnabled) {
+    // Inline best-effort — a QB failure never fails donation creation
+    await tryPushDonationInline(supabase, org.orgId, donation.id)
+  }
 
   await recalcDonorTotals(supabase, input.donor_id)
 
@@ -528,4 +548,44 @@ export async function clearDonationAcknowledgment(donationIds: string[]): Promis
 
   revalidatePath("/dashboard/donations")
   return validIds.length
+}
+
+/**
+ * Re-attempt a failed QuickBooks push for one donation. Resets the attempt
+ * counter so the push isn't blocked by the max-attempts cap.
+ */
+export async function retryQBPush(
+  donationId: string
+): Promise<{ ok: boolean; error?: string }> {
+  const org = await getCurrentUserOrg()
+  if (!org) throw new Error("Unauthorized")
+
+  const supabase = createAdminClient()
+
+  const { data: donation } = await supabase
+    .from("donations")
+    .select("id")
+    .eq("id", donationId)
+    .eq("org_id", org.orgId)
+    .maybeSingle()
+  if (!donation) throw new Error("Donation not found")
+
+  await supabase
+    .from("donations")
+    .update({ qb_sync_status: "pending", qb_sync_attempts: 0, qb_sync_error: null })
+    .eq("id", donationId)
+    .eq("org_id", org.orgId)
+
+  await tryPushDonationInline(supabase, org.orgId, donationId)
+
+  const { data: after } = await supabase
+    .from("donations")
+    .select("qb_sync_status, qb_sync_error")
+    .eq("id", donationId)
+    .eq("org_id", org.orgId)
+    .maybeSingle()
+
+  revalidatePath("/dashboard/donations")
+  if (after?.qb_sync_status === "synced") return { ok: true }
+  return { ok: false, error: (after?.qb_sync_error as string | null) ?? "Push did not complete" }
 }

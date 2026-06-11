@@ -24,6 +24,8 @@ export type DonationListItem = {
   fund_name: string | null;
   acknowledgment_sent_at: string | null;
   acknowledgment_sent_by: string | null;
+  qb_sync_status: "pending" | "synced" | "failed" | null;
+  qb_sync_error: string | null;
 };
 
 const VALID_PAYMENT_METHODS = new Set([
@@ -56,7 +58,7 @@ export async function GET(request: Request) {
 
   let query = supabase
     .from("donations")
-    .select("id,donor_id,amount,date,memo,payment_method,category_id,campaign_id,fund_id,acknowledgment_sent_at,acknowledgment_sent_by,donors(display_name)", {
+    .select("id,donor_id,amount,date,memo,payment_method,category_id,campaign_id,fund_id,acknowledgment_sent_at,acknowledgment_sent_by,qb_sync_status,qb_sync_error,donors(display_name)", {
       count: "exact",
     })
     .eq("org_id", auth.orgId)
@@ -102,6 +104,8 @@ export async function GET(request: Request) {
     fund_id: string | null;
     acknowledgment_sent_at: string | null;
     acknowledgment_sent_by: string | null;
+    qb_sync_status: "pending" | "synced" | "failed" | null;
+    qb_sync_error: string | null;
     donors?: { display_name?: string | null } | null;
   }>;
 
@@ -142,6 +146,8 @@ export async function GET(request: Request) {
     fund_name: r.fund_id ? optionNames[r.fund_id] ?? null : null,
     acknowledgment_sent_at: r.acknowledgment_sent_at ?? null,
     acknowledgment_sent_by: r.acknowledgment_sent_by ?? null,
+    qb_sync_status: r.qb_sync_status ?? null,
+    qb_sync_error: r.qb_sync_error ?? null,
   }));
 
   return NextResponse.json({

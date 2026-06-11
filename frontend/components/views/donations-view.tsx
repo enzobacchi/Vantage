@@ -3,10 +3,10 @@
 import * as React from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { Banknote, Check, ChevronLeft, ChevronRight, DollarSign, Minus } from "lucide-react"
+import { AlertCircle, Banknote, Check, ChevronLeft, ChevronRight, Clock, DollarSign, Minus, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 
-import { bulkUpdateDonations, markDonationsAcknowledged, clearDonationAcknowledgment, getOrgDonationOptions, type OrgDonationOptionRow } from "@/app/actions/donations"
+import { bulkUpdateDonations, markDonationsAcknowledged, clearDonationAcknowledgment, getOrgDonationOptions, retryQBPush, type OrgDonationOptionRow } from "@/app/actions/donations"
 import type { PaymentMethod } from "@/types/database"
 import { formatCurrency } from "@/lib/format"
 import { Button } from "@/components/ui/button"
@@ -52,6 +52,8 @@ type DonationListItem = {
   fund_name: string | null
   acknowledgment_sent_at: string | null
   acknowledgment_sent_by: string | null
+  qb_sync_status: "pending" | "synced" | "failed" | null
+  qb_sync_error: string | null
 }
 
 const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
@@ -101,6 +103,13 @@ export function DonationsView() {
   const [bulkSaving, setBulkSaving] = React.useState(false)
   const [bulkDialog, setBulkDialog] = React.useState<"payment" | "category" | "campaign" | "fund" | "thanked" | null>(null)
   const [thankSentBy, setThankSentBy] = React.useState("")
+  const [retryingId, setRetryingId] = React.useState<string | null>(null)
+
+  // Only show the QB column when the org actually has synced/pending rows
+  const anyQBStatus = React.useMemo(
+    () => donations.some((d) => d.qb_sync_status !== null),
+    [donations]
+  )
 
   const [categories, setCategories] = React.useState<OrgDonationOptionRow[]>([])
   const [campaigns, setCampaigns] = React.useState<OrgDonationOptionRow[]>([])
@@ -185,6 +194,15 @@ export function DonationsView() {
         ...updates,
       })
       toast.success(`Updated ${count} donation${count === 1 ? "" : "s"}`)
+      const syncedSelected = donations.filter(
+        (d) => selectedIds.has(d.id) && d.qb_sync_status === "synced"
+      ).length
+      if (syncedSelected > 0) {
+        toast.info(
+          `${syncedSelected} of these donation${syncedSelected === 1 ? " is" : "s are"} synced to QuickBooks — edits here don't propagate, so update QuickBooks too.`,
+          { duration: 8000 }
+        )
+      }
       setSelectedIds(new Set())
       setBulkDialog(null)
       loadDonations()
@@ -192,6 +210,23 @@ export function DonationsView() {
       toast.error(e instanceof Error ? e.message : "Bulk update failed")
     } finally {
       setBulkSaving(false)
+    }
+  }
+
+  const handleRetryQBPush = async (donationId: string) => {
+    setRetryingId(donationId)
+    try {
+      const result = await retryQBPush(donationId)
+      if (result.ok) {
+        toast.success("Pushed to QuickBooks")
+      } else {
+        toast.error(result.error ?? "Push failed")
+      }
+      loadDonations()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Push failed")
+    } finally {
+      setRetryingId(null)
     }
   }
 
@@ -524,6 +559,7 @@ export function DonationsView() {
                   <TableHead>Fund</TableHead>
                   <TableHead className="max-w-[200px]">Memo</TableHead>
                   <TableHead className="text-center">Thanked</TableHead>
+                  {anyQBStatus && <TableHead className="text-center">QB</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -573,6 +609,16 @@ export function DonationsView() {
                         <Minus className="size-4 text-muted-foreground/40 mx-auto" strokeWidth={1.5} />
                       )}
                     </TableCell>
+                    {anyQBStatus && (
+                      <TableCell className="text-center">
+                        <QBSyncBadge
+                          status={d.qb_sync_status}
+                          error={d.qb_sync_error}
+                          onRetry={() => handleRetryQBPush(d.id)}
+                          retrying={retryingId === d.id}
+                        />
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>
@@ -621,5 +667,78 @@ export function DonationsView() {
         )}
       </div>
     </div>
+  )
+}
+
+function QBSyncBadge({
+  status,
+  error,
+  onRetry,
+  retrying,
+}: {
+  status: "pending" | "synced" | "failed" | null
+  error: string | null
+  onRetry: () => void
+  retrying: boolean
+}) {
+  if (!status) {
+    return <Minus className="size-4 text-muted-foreground/40 mx-auto" strokeWidth={1.5} />
+  }
+  if (status === "synced") {
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex items-center justify-center size-6 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
+              <Check className="size-3.5" strokeWidth={1.5} />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Synced to QuickBooks</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    )
+  }
+  if (status === "pending") {
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex items-center justify-center size-6 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400">
+              <Clock className="size-3.5" strokeWidth={1.5} />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Waiting to sync to QuickBooks</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    )
+  }
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={onRetry}
+            disabled={retrying}
+            className="inline-flex items-center justify-center size-6 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 hover:opacity-80 disabled:opacity-50"
+            aria-label="Retry QuickBooks sync"
+          >
+            {retrying ? (
+              <RefreshCw className="size-3.5 animate-spin" strokeWidth={1.5} />
+            ) : (
+              <AlertCircle className="size-3.5" strokeWidth={1.5} />
+            )}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-[280px]">
+          <p className="font-medium">QuickBooks sync failed — click to retry</p>
+          {error && <p className="text-muted-foreground mt-0.5 text-xs">{error}</p>}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   )
 }

@@ -11,7 +11,9 @@ import {
   parseFirstAndLastName,
   stringifyBillAddr as stringifyBillAddrHelper,
 } from "@/lib/quickbooks-helpers";
-import { createQBOAuthClient, getQBApiBaseUrl } from "@/lib/quickbooks/client";
+import { getQBApiBaseUrl } from "@/lib/quickbooks/client";
+import { QBApiError, createQBTokenManager } from "@/lib/quickbooks/request";
+import { parseVantageMarker, pushPendingForOrg } from "@/lib/quickbooks/writeback";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { geocodeAddress } from "@/lib/geocode";
 import { ABSOLUTE_DONOR_CEILING, getOrgSubscription, resolveTrialLimits } from "@/lib/subscription";
@@ -97,20 +99,6 @@ type QBInvoice = {
   Balance?: number;
   CustomerRef?: { value?: string; name?: string };
 };
-
-// ---------------------------------------------------------------------------
-// QB API error class
-// ---------------------------------------------------------------------------
-
-class QBApiError extends Error {
-  status: number;
-  body: string;
-  constructor(message: string, status: number, body: string) {
-    super(message);
-    this.status = status;
-    this.body = body;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -442,93 +430,29 @@ export async function runSyncForOrg(
   }
 
   const orgRealmId = org.qb_realm_id;
-  let accessToken = org.qb_access_token ?? "";
-  let refreshToken = org.qb_refresh_token ?? "";
 
-  const oauthClient = createQBOAuthClient();
-  oauthClient.setToken({
-    access_token: accessToken,
-    refresh_token: refreshToken,
+  const tokens = createQBTokenManager(supabase, orgId, {
+    accessToken: org.qb_access_token ?? "",
+    refreshToken: org.qb_refresh_token ?? "",
   });
+  const withTokenRefreshRetry = tokens.withTokenRefreshRetry;
 
   console.log(
-    `[Sync] org=${orgId} realm=${orgRealmId} env=${process.env.QB_ENVIRONMENT} hasAccessToken=${!!accessToken} hasRefreshToken=${!!refreshToken}`
+    `[Sync] org=${orgId} realm=${orgRealmId} env=${process.env.QB_ENVIRONMENT} hasAccessToken=${!!tokens.accessToken} hasRefreshToken=${!!tokens.refreshToken}`
   );
 
-  // --- Token refresh helper ---
-  async function refreshTokens() {
-    // Re-read from DB: another concurrent sync may have already refreshed
-    const { data: freshOrg, error: freshOrgError } = await supabase
-      .from("organizations")
-      .select("qb_access_token, qb_refresh_token")
-      .eq("id", orgId)
-      .maybeSingle();
-
-    if (
-      !freshOrgError &&
-      freshOrg?.qb_refresh_token &&
-      freshOrg.qb_refresh_token !== refreshToken
-    ) {
-      // Another process already refreshed — adopt the newer tokens
-      accessToken = freshOrg.qb_access_token ?? "";
-      refreshToken = freshOrg.qb_refresh_token;
-      oauthClient.setToken({
-        access_token: accessToken,
-        refresh_token: refreshToken,
-      });
-      console.log(
-        `[Sync] org=${orgId} adopted tokens refreshed by another process`
-      );
-      return;
-    }
-
-    // Use refreshUsingToken() instead of refresh() — the latter calls
-    // validateToken() which always fails when tokens are loaded from DB
-    // without x_refresh_token_expires_in metadata.
-    const refreshed = await oauthClient.refreshUsingToken(refreshToken);
-    const refreshedJson = refreshed.getJson();
-    const newAccess = refreshedJson.access_token;
-    const newRefresh = refreshedJson.refresh_token;
-    if (!newAccess || !newRefresh) {
-      throw new Error("QuickBooks token refresh returned missing tokens.");
-    }
-
-    accessToken = newAccess;
-    refreshToken = newRefresh;
-
-    const { error: tokenSaveError } = await supabase
-      .from("organizations")
-      .update({
-        qb_access_token: accessToken,
-        qb_refresh_token: refreshToken,
-      })
-      .eq("id", orgId);
-
-    if (tokenSaveError) {
-      throw new Error(
-        `Failed to persist refreshed tokens: ${tokenSaveError.message}`
-      );
-    }
-  }
-
-  // --- Retry wrapper for QB API calls ---
-  async function withTokenRefreshRetry<T>(fn: () => Promise<T>): Promise<T> {
-    try {
-      if (!accessToken) await refreshTokens();
-      return await fn();
-    } catch (e) {
-      const qbErr = e instanceof QBApiError ? e : null;
-      const shouldRetry =
-        qbErr?.status === 401 ||
-        (typeof qbErr?.body === "string" &&
-          qbErr.body.toLowerCase().includes("token"));
-      if (!shouldRetry) throw e;
-      await refreshTokens();
-      return await fn();
-    }
-  }
-
   try {
+    // --- Push phase: write-back pending Vantage donations BEFORE pulling, so
+    // this run's pull immediately sees and links its own pushes. Push failure
+    // never blocks the pull.
+    if (org.qb_writeback_enabled) {
+      try {
+        await pushPendingForOrg(supabase, orgId, orgRealmId, tokens);
+      } catch (e) {
+        console.error(`[Sync] org=${orgId} push phase failed:`, e);
+      }
+    }
+
     const forceFull = options?.full ?? false;
     const lastSyncedAt = org?.last_synced_at ?? null;
     const isFullSync = !lastSyncedAt || forceFull;
@@ -543,19 +467,19 @@ export async function runSyncForOrg(
     const customers = await withTokenRefreshRetry(() =>
       fetchQBCustomers(
         orgRealmId,
-        accessToken,
+        tokens.accessToken,
         isFullSync ? undefined : { since: sinceIso }
       )
     );
 
     const receipts = isFullSync
       ? await withTokenRefreshRetry(() =>
-          fetchQBSalesReceiptsAllForLTV(orgRealmId, accessToken)
+          fetchQBSalesReceiptsAllForLTV(orgRealmId, tokens.accessToken)
         )
       : await withTokenRefreshRetry(() =>
           fetchQBSalesReceipts({
             realmId: orgRealmId,
-            accessToken,
+            accessToken: tokens.accessToken,
             maxToFetch: 1000,
             since: sinceIso,
           })
@@ -564,7 +488,7 @@ export async function runSyncForOrg(
     const invoices = await withTokenRefreshRetry(() =>
       fetchQBInvoices(
         orgRealmId,
-        accessToken,
+        tokens.accessToken,
         isFullSync ? undefined : { since: sinceIso }
       )
     );
@@ -756,6 +680,56 @@ export async function runSyncForOrg(
         donorLookupOffset += donorLookupPageSize;
       }
 
+      // --- Write-back dedup pre-pass (CRITICAL) ---
+      // Receipts we pushed FROM Vantage come back in this pull. Without these
+      // checks the (donor_id, memo) upsert would import each pushed receipt
+      // as a second donation row (its memo is user content, not the
+      // qb_sales_receipt_id:<id> encoding).
+      //
+      // 1. PrivateNote marker "vantage_donation_id:<uuid>" → link/skip.
+      // 2. Receipt id already linked on a donation (qb_id) → skip.
+      // 3. Otherwise: genuine QB-originated receipt → import as before.
+      const UUID_RE =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const markerByReceiptId = new Map<string, string>();
+      for (const r of receipts) {
+        const marker = parseVantageMarker(r.PrivateNote);
+        if (marker && UUID_RE.test(marker) && r.Id) {
+          markerByReceiptId.set(r.Id, marker);
+        }
+      }
+
+      // Donations referenced by markers (batched lookup, org-scoped)
+      const markerDonations = new Map<string, { qb_id: string | null }>();
+      const markerIds = Array.from(new Set(markerByReceiptId.values()));
+      for (let i = 0; i < markerIds.length; i += 100) {
+        const { data: rows } = await supabase
+          .from("donations")
+          .select("id, qb_id")
+          .eq("org_id", orgId)
+          .in("id", markerIds.slice(i, i + 100));
+        for (const row of (rows ?? []) as { id: string; qb_id: string | null }[]) {
+          markerDonations.set(row.id, { qb_id: row.qb_id });
+        }
+      }
+
+      // Receipt ids linked to a VANTAGE-pushed donation (source != quickbooks)
+      // via qb_id. Only those are skipped — QB-originated rows must still
+      // flow through the memo upsert so QB-side edits keep propagating.
+      const linkedReceiptIds = new Set<string>();
+      const receiptIds = receipts.map((r) => r.Id).filter((id): id is string => !!id);
+      for (let i = 0; i < receiptIds.length; i += 100) {
+        const { data: rows } = await supabase
+          .from("donations")
+          .select("qb_id, source")
+          .eq("org_id", orgId)
+          .eq("qb_txn_type", "SalesReceipt")
+          .in("qb_id", receiptIds.slice(i, i + 100));
+        for (const row of (rows ?? []) as { qb_id: string | null; source: string }[]) {
+          if (row.qb_id && row.source !== "quickbooks") linkedReceiptIds.add(row.qb_id);
+        }
+      }
+
       // Build donation records from receipts
       const donationsToUpsert: Array<Record<string, unknown>> = [];
       for (const r of receipts) {
@@ -769,6 +743,34 @@ export async function runSyncForOrg(
         if (amount == null || !date) continue;
 
         const receiptId = r.Id ?? "";
+
+        // 1. Vantage-pushed receipt (PrivateNote marker)
+        const markerId = markerByReceiptId.get(receiptId);
+        if (markerId) {
+          const linked = markerDonations.get(markerId);
+          if (linked && !linked.qb_id && receiptId) {
+            // Crash-recovery: push reached QB but the local link write
+            // failed — link it now instead of importing a duplicate.
+            await supabase
+              .from("donations")
+              .update({
+                qb_id: receiptId,
+                qb_txn_type: "SalesReceipt",
+                qb_sync_status: "synced",
+                qb_sync_error: null,
+                qb_synced_at: new Date().toISOString(),
+              })
+              .eq("id", markerId)
+              .eq("org_id", orgId);
+          }
+          // Linked, just-linked, or deleted in Vantage — never re-import.
+          continue;
+        }
+
+        // 2. Already linked by qb_id (marker edited/stripped in QB)
+        if (receiptId && linkedReceiptIds.has(receiptId)) continue;
+
+        // 3. Genuine QB-originated receipt.
         // Use only the QB receipt ID as the dedup key — PrivateNote and
         // DocNumber are mutable fields whose changes would create duplicate
         // donation rows on re-sync.
@@ -782,6 +784,8 @@ export async function runSyncForOrg(
           memo,
           payment_method: normalizePaymentMethod(r.PaymentMethodRef?.name),
           source: "quickbooks",
+          qb_id: receiptId || null,
+          qb_txn_type: receiptId ? "SalesReceipt" : null,
         });
       }
 
@@ -809,6 +813,8 @@ export async function runSyncForOrg(
           memo,
           payment_method: "quickbooks",
           source: "quickbooks",
+          qb_id: invoiceId || null,
+          qb_txn_type: invoiceId ? "Invoice" : null,
         });
       }
 
@@ -961,7 +967,7 @@ export async function runSyncForOrg(
 
       if (
         !currentOrg?.qb_refresh_token ||
-        currentOrg.qb_refresh_token === refreshToken
+        currentOrg.qb_refresh_token === tokens.refreshToken
       ) {
         await supabase
           .from("organizations")

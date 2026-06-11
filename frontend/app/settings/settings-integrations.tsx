@@ -7,9 +7,12 @@ import { AlertCircle, AlertTriangle, FileSpreadsheet, Link2, Mail } from "lucide
 import { toast } from "sonner"
 
 import { resetOnboarding } from "@/app/actions/onboarding"
+import { getQBWritebackEnabled, setQBWritebackEnabled } from "@/app/actions/settings"
 import { CSVImportWizard } from "@/components/import/csv-import-wizard"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import {
   Card,
   CardContent,
@@ -33,6 +36,8 @@ export function SettingsIntegrations() {
   const [gmailDisconnecting, setGmailDisconnecting] = React.useState(false)
   const [syncState, setSyncState] = React.useState<SyncState>({ status: "idle" })
   const [resettingTour, setResettingTour] = React.useState(false)
+  const [writebackEnabled, setWritebackEnabled] = React.useState(false)
+  const [writebackSaving, setWritebackSaving] = React.useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
   const qbError = searchParams.get("qb_error")
@@ -46,10 +51,32 @@ export function SettingsIntegrations() {
         connected: !!data?.connected,
         realmId: data?.realmId ?? undefined,
       })
+      if (data?.connected) {
+        getQBWritebackEnabled().then(setWritebackEnabled).catch(() => {})
+      }
     } catch {
       setQbStatus({ connected: false })
     }
   }, [])
+
+  const handleWritebackToggle = React.useCallback(async (enabled: boolean) => {
+    setWritebackSaving(true)
+    const previous = writebackEnabled
+    setWritebackEnabled(enabled)
+    try {
+      await setQBWritebackEnabled(enabled)
+      toast.success(
+        enabled
+          ? "Donations will now sync to QuickBooks"
+          : "Donation sync to QuickBooks turned off"
+      )
+    } catch (e) {
+      setWritebackEnabled(previous)
+      toast.error(e instanceof Error ? e.message : "Failed to update setting")
+    } finally {
+      setWritebackSaving(false)
+    }
+  }, [writebackEnabled])
 
   const fetchGmailStatus = React.useCallback(async () => {
     try {
@@ -279,6 +306,26 @@ export function SettingsIntegrations() {
               )}
             </Button>
           </div>
+
+          {qbStatus.connected && (
+            <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
+              <div>
+                <Label htmlFor="qb-writeback" className="text-sm font-medium">
+                  Sync donations to QuickBooks
+                </Label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Donations entered in Vantage are pushed to QuickBooks as sales
+                  receipts. Only donations created after enabling are pushed.
+                </p>
+              </div>
+              <Switch
+                id="qb-writeback"
+                checked={writebackEnabled}
+                disabled={writebackSaving}
+                onCheckedChange={handleWritebackToggle}
+              />
+            </div>
+          )}
 
           <div className="space-y-2 border-t pt-4">
             <p className="text-sm text-muted-foreground">

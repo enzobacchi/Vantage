@@ -665,13 +665,27 @@ export function DonorCRMView() {
 
   const handleBulkExport = React.useCallback(() => {
     if (selectedDonors.length === 0) return
-    const headers = ["Name", "State", "Total Giving", "Last Donation Date", "Last Donation Amount"]
+    const headers = [
+      "ID",
+      "Name",
+      "Email",
+      "State",
+      "Billing Address",
+      "Total Giving",
+      "Last Donation Date",
+      "Last Donation Amount",
+      "Notes",
+    ]
     const rows = selectedDonors.map((d) => [
+      d.id,
       d.display_name ?? "",
+      d.email ?? "",
       d.state ?? "",
+      d.billing_address ?? "",
       String(d.total_lifetime_value ?? ""),
       d.last_donation_date ?? "",
       String(d.last_donation_amount ?? ""),
+      d.notes ?? "",
     ])
     const escape = (val: string) => {
       if (val.includes(",") || val.includes('"') || val.includes("\n")) {

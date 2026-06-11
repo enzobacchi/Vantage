@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr"
 import { type NextRequest, NextResponse } from "next/server"
 
 // Routes that do NOT require an active subscription
-const PUBLIC_PATHS = ["/login", "/signup", "/auth", "/terms", "/privacy", "/settings"]
+const PUBLIC_PATHS = ["/login", "/signup", "/auth", "/terms", "/privacy", "/settings", "/docs"]
 
 const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"])
 

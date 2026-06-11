@@ -124,7 +124,15 @@ export function SettingsApiKeys() {
         <p className="text-sm text-muted-foreground mt-1">
           Authenticate requests to the Vantage REST API. Keys grant read access
           to your organization&apos;s contacts and donations — treat them like
-          passwords.
+          passwords.{" "}
+          <a
+            href="/docs/api"
+            target="_blank"
+            rel="noreferrer"
+            className="text-primary hover:underline"
+          >
+            View API documentation
+          </a>
         </p>
       </div>
 

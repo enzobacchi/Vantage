@@ -33,9 +33,10 @@ export async function getOnboardingProgress(): Promise<OnboardingProgress> {
       .eq("id", org.orgId)
       .maybeSingle(),
     supabase
+      // interactions has no org_id — scope via the donor join.
       .from("interactions")
-      .select("id", { count: "exact", head: true })
-      .eq("org_id", org.orgId)
+      .select("id,donors!inner(org_id)", { count: "exact", head: true })
+      .eq("donors.org_id", org.orgId)
       .eq("type", "email")
       .limit(1),
     supabase

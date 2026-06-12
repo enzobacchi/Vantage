@@ -119,10 +119,12 @@ export async function GET(request: Request) {
   const optionNames: Record<string, string> = {};
   if (optionIds.size > 0) {
     const ids = [...optionIds];
+    // Scope the name lookups to this org so a stray foreign option id on a
+    // legacy row can't leak another org's option name.
     const [cats, camps, funds] = await Promise.all([
-      supabase.from("gift_categories").select("id,name").in("id", ids),
-      supabase.from("gift_campaigns").select("id,name").in("id", ids),
-      supabase.from("gift_funds").select("id,name").in("id", ids),
+      supabase.from("gift_categories").select("id,name").eq("organization_id", auth.orgId).in("id", ids),
+      supabase.from("gift_campaigns").select("id,name").eq("organization_id", auth.orgId).in("id", ids),
+      supabase.from("gift_funds").select("id,name").eq("organization_id", auth.orgId).in("id", ids),
     ]);
     for (const o of [...(cats.data ?? []), ...(camps.data ?? []), ...(funds.data ?? [])]) {
       optionNames[o.id] = o.name ?? "";
@@ -194,6 +196,22 @@ export async function POST(request: Request) {
 
   const previousTotal = Number(donor.total_lifetime_value ?? 0);
 
+  // Keep only option ids that belong to this org (foreign ids → null), so a
+  // donation can't reference another org's category/campaign/fund.
+  const wantedOptionIds = [body.category_id, body.campaign_id, body.fund_id].filter(
+    (v): v is string => typeof v === "string" && v.length > 0
+  );
+  let validOptions = new Set<string>();
+  if (wantedOptionIds.length > 0) {
+    const { data: opts } = await supabase
+      .from("org_donation_options")
+      .select("id")
+      .eq("org_id", auth.orgId)
+      .in("id", wantedOptionIds);
+    validOptions = new Set((opts ?? []).map((o) => o.id));
+  }
+  const keepOpt = (v?: string | null) => (v && validOptions.has(v) ? v : null);
+
   const { data: donation, error } = await supabase
     .from("donations")
     .insert({
@@ -203,9 +221,9 @@ export async function POST(request: Request) {
       date: dateStr,
       memo: body.memo?.trim() || null,
       payment_method: body.payment_method,
-      category_id: body.category_id || null,
-      campaign_id: body.campaign_id || null,
-      fund_id: body.fund_id || null,
+      category_id: keepOpt(body.category_id),
+      campaign_id: keepOpt(body.campaign_id),
+      fund_id: keepOpt(body.fund_id),
       source: "manual",
     })
     .select("id")

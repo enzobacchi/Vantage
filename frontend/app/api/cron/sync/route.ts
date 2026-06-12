@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isSyncError, runSyncForOrg, type SyncResult, type SyncError } from "@/lib/sync/run-sync";
 import { notifySystemAlert } from "@/lib/notifications";
+import { isAuthorizedCron } from "@/lib/cron-auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 300; // 5 minutes — cron may sync multiple orgs
@@ -12,10 +13,7 @@ export const maxDuration = 300; // 5 minutes — cron may sync multiple orgs
  * Secured via CRON_SECRET (Vercel automatically sends this header for cron jobs).
  */
 export async function GET(request: Request) {
-  const authHeader = request.headers.get("authorization");
-  const cronSecret = process.env.CRON_SECRET;
-
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+  if (!isAuthorizedCron(request.headers.get("authorization"))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

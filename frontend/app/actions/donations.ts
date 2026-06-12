@@ -27,6 +27,37 @@ const PAYMENT_METHODS: PaymentMethod[] = [
   "daf",
 ]
 
+/**
+ * Given category/campaign/fund ids from a request, return a map keeping only
+ * those that actually belong to the org (others → null). Prevents attaching a
+ * foreign org's donation-option id to a donation (which would otherwise leak
+ * the option name back on read).
+ */
+async function sanitizeOptionIds(
+  supabase: ReturnType<typeof createAdminClient>,
+  orgId: string,
+  ids: { category_id?: string | null; campaign_id?: string | null; fund_id?: string | null }
+): Promise<{ category_id: string | null; campaign_id: string | null; fund_id: string | null }> {
+  const wanted = [ids.category_id, ids.campaign_id, ids.fund_id].filter(
+    (v): v is string => typeof v === "string" && v.length > 0
+  )
+  if (wanted.length === 0) {
+    return { category_id: null, campaign_id: null, fund_id: null }
+  }
+  const { data } = await supabase
+    .from("org_donation_options")
+    .select("id")
+    .eq("org_id", orgId)
+    .in("id", wanted)
+  const valid = new Set((data ?? []).map((o: { id: string }) => o.id))
+  const keep = (v?: string | null) => (v && valid.has(v) ? v : null)
+  return {
+    category_id: keep(ids.category_id),
+    campaign_id: keep(ids.campaign_id),
+    fund_id: keep(ids.fund_id),
+  }
+}
+
 function isValidPaymentMethod(v: string): v is PaymentMethod {
   return PAYMENT_METHODS.includes(v as PaymentMethod)
 }
@@ -210,6 +241,8 @@ export async function createDonation(input: CreateDonationInput): Promise<string
     orgRow.qb_refresh_token
   )
 
+  const options = await sanitizeOptionIds(supabase, org.orgId, input)
+
   const { data: donation, error } = await supabase
     .from("donations")
     .insert({
@@ -219,9 +252,9 @@ export async function createDonation(input: CreateDonationInput): Promise<string
       date: dateStr,
       memo: input.memo?.trim() || null,
       payment_method: input.payment_method,
-      category_id: input.category_id || null,
-      campaign_id: input.campaign_id || null,
-      fund_id: input.fund_id || null,
+      category_id: options.category_id,
+      campaign_id: options.campaign_id,
+      fund_id: options.fund_id,
       source: "manual",
       ...(writebackEnabled ? { qb_sync_status: "pending" } : {}),
     })
@@ -268,18 +301,26 @@ export async function bulkUpdateDonations(input: BulkUpdateDonationsInput): Prom
 
   if (input.donationIds.length === 0) return 0
 
+  const supabase = createAdminClient()
+
   const updates: Record<string, unknown> = {}
   if (input.payment_method !== undefined) {
     if (!isValidPaymentMethod(input.payment_method)) throw new Error("Invalid payment method")
     updates.payment_method = input.payment_method
   }
-  if (input.category_id !== undefined) updates.category_id = input.category_id
-  if (input.campaign_id !== undefined) updates.campaign_id = input.campaign_id
-  if (input.fund_id !== undefined) updates.fund_id = input.fund_id
+  // Only accept option ids that belong to this org (foreign ids → null).
+  if (
+    input.category_id !== undefined ||
+    input.campaign_id !== undefined ||
+    input.fund_id !== undefined
+  ) {
+    const options = await sanitizeOptionIds(supabase, org.orgId, input)
+    if (input.category_id !== undefined) updates.category_id = options.category_id
+    if (input.campaign_id !== undefined) updates.campaign_id = options.campaign_id
+    if (input.fund_id !== undefined) updates.fund_id = options.fund_id
+  }
 
   if (Object.keys(updates).length === 0) return 0
-
-  const supabase = createAdminClient()
 
   const { data: orgDonors } = await supabase
     .from("donors")
@@ -417,6 +458,26 @@ export async function bulkCreateDonations(
     })
   }
 
+  // Pre-fetch this org's donation-option ids so foreign category/campaign/fund
+  // ids on any row are dropped to null (can't attach another org's option).
+  const requestedOptionIds = [
+    ...new Set(
+      rows
+        .flatMap((r) => [r.category_id, r.campaign_id, r.fund_id])
+        .filter((v): v is string => typeof v === "string" && v.length > 0)
+    ),
+  ]
+  let validOptionIds = new Set<string>()
+  if (requestedOptionIds.length > 0) {
+    const { data: opts } = await supabase
+      .from("org_donation_options")
+      .select("id")
+      .eq("org_id", org.orgId)
+      .in("id", requestedOptionIds)
+    validOptionIds = new Set((opts ?? []).map((o: { id: string }) => o.id))
+  }
+  const keepOption = (v?: string | null) => (v && validOptionIds.has(v) ? v : null)
+
   // Per-row validation. Build the validated payload and remember the original
   // index so we can report errors with stable row numbers.
   const validRows: Array<{ index: number; payload: Record<string, unknown> }> = []
@@ -449,9 +510,9 @@ export async function bulkCreateDonations(
         date: dateStr,
         memo: r.memo?.trim() || null,
         payment_method: r.payment_method,
-        category_id: r.category_id || null,
-        campaign_id: r.campaign_id || null,
-        fund_id: r.fund_id || null,
+        category_id: keepOption(r.category_id),
+        campaign_id: keepOption(r.campaign_id),
+        fund_id: keepOption(r.fund_id),
         source,
       },
     })

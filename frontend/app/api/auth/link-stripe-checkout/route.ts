@@ -117,6 +117,22 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  // 2.5. A checkout session can only be claimed once: if this Stripe
+  // subscription is already linked to a different org, reject — otherwise a
+  // leaked/shared session ID could hijack someone else's paid subscription.
+  const { data: existingLink } = await admin
+    .from("subscriptions")
+    .select("org_id")
+    .eq("stripe_subscription_id", stripeSub.id)
+    .maybeSingle()
+
+  if (existingLink && existingLink.org_id !== orgId) {
+    return NextResponse.json(
+      { error: "This checkout session is already linked to another account" },
+      { status: 409 }
+    )
+  }
+
   // 3. Update the org name from the custom field if it's still the default
   const orgNameFromStripe =
     getCustomFieldValue(session, "organization_name") ?? stripeCustomer.name

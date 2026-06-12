@@ -82,11 +82,13 @@ export async function POST(request: Request) {
     )
   }
 
-  // Validate all donors belong to org
+  // Validate all donors belong to org, and pull the email + name from the
+  // verified row — never trust the body-supplied address (prevents sending to
+  // arbitrary addresses and CRLF header injection into the To: field).
   const donorIds = recipients.map((r) => r.donorId)
   const { data: validDonors, error: donorError } = await supabase
     .from("donors")
-    .select("id")
+    .select("id, email, display_name")
     .in("id", donorIds)
     .eq("org_id", auth.orgId)
 
@@ -94,27 +96,40 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Failed to validate donors" }, { status: 500 })
   }
 
-  const validIds = new Set((validDonors ?? []).map((d) => d.id))
+  const donorById = new Map(
+    (validDonors ?? []).map((d) => [
+      d.id,
+      { email: d.email as string | null, name: d.display_name as string | null },
+    ])
+  )
+  const validIds = new Set(donorById.keys())
 
   let sent = 0
   const failed: FailedRecipient[] = []
   let skipped = 0
 
+  // Reject anything that isn't a clean single-line email (no CRLF → no header
+  // injection into the raw RFC-822 To: field).
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
   for (const recipient of recipients) {
-    if (!validIds.has(recipient.donorId)) {
+    const donor = donorById.get(recipient.donorId)
+    if (!donor) {
       skipped++
       continue
     }
-    if (!recipient.donorEmail?.trim()) {
+    const donorEmail = donor.email?.trim() ?? ""
+    if (!donorEmail || !EMAIL_RE.test(donorEmail)) {
       skipped++
       continue
     }
+    const donorName = donor.name ?? ""
 
     const personalizedMessage = message
-      .replace(/\{\{donor_name\}\}/g, recipient.donorName ?? "")
+      .replace(/\{\{donor_name\}\}/g, donorName)
       .replace(/\{\{date\}\}/g, new Date().toLocaleDateString())
     const personalizedSubject = subject
-      .replace(/\{\{donor_name\}\}/g, recipient.donorName ?? "")
+      .replace(/\{\{donor_name\}\}/g, donorName)
       .replace(/\{\{date\}\}/g, new Date().toLocaleDateString())
     const html = `<p>${personalizedMessage
       .replace(/</g, "&lt;")
@@ -125,7 +140,7 @@ export async function POST(request: Request) {
       await sendGmailMessage({
         userId: auth.userId,
         orgId: auth.orgId,
-        to: recipient.donorEmail.trim(),
+        to: donorEmail,
         subject: personalizedSubject.trim(),
         html,
       })
@@ -169,12 +184,12 @@ export async function POST(request: Request) {
       }
       const errMsg = err instanceof Error ? err.message : "Unknown error"
       console.error(
-        `[email/bulk-send] Failed for ${recipient.donorEmail}:`,
+        `[email/bulk-send] Failed for donor ${recipient.donorId}:`,
         errMsg
       )
       failed.push({
         donorId: recipient.donorId,
-        donorEmail: recipient.donorEmail,
+        donorEmail,
         error: errMsg.slice(0, 200),
       })
     }

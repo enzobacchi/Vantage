@@ -178,10 +178,20 @@ export async function updatePledge(
   const org = await getCurrentUserOrg()
   if (!org) return { ok: false, error: "Unauthorized" }
 
+  // Allowlist the mutable columns — `updates` is attacker-controlled at
+  // runtime (the TS type is erased), so a raw spread could set org_id/donor_id/id.
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
+  if (updates.amount !== undefined) patch.amount = updates.amount
+  if (updates.frequency !== undefined) patch.frequency = updates.frequency
+  if (updates.start_date !== undefined) patch.start_date = updates.start_date
+  if (updates.end_date !== undefined) patch.end_date = updates.end_date
+  if (updates.status !== undefined) patch.status = updates.status
+  if (updates.notes !== undefined) patch.notes = updates.notes
+
   const supabase = createAdminClient()
   const { error } = await supabase
     .from("pledges")
-    .update({ ...updates, updated_at: new Date().toISOString() })
+    .update(patch)
     .eq("id", id)
     .eq("org_id", org.orgId)
 
@@ -201,11 +211,22 @@ export async function deletePledge(
 
   const supabase = createAdminClient()
 
-  // Unlink any donations from this pledge first
+  // Verify the pledge belongs to this org BEFORE touching any donations —
+  // otherwise a foreign pledge id would unlink another org's donations.
+  const { data: pledge } = await supabase
+    .from("pledges")
+    .select("id")
+    .eq("id", id)
+    .eq("org_id", org.orgId)
+    .maybeSingle()
+  if (!pledge) return { ok: false, error: "Pledge not found" }
+
+  // Unlink this org's donations from the pledge first
   await supabase
     .from("donations")
     .update({ pledge_id: null })
     .eq("pledge_id", id)
+    .eq("org_id", org.orgId)
 
   const { error } = await supabase
     .from("pledges")

@@ -2,7 +2,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUserOrg } from "@/lib/auth"
-import { logAuditEvent } from "@/app/actions/audit"
+import { logAuditEvent } from "@/lib/audit"
 import {
   GmailNeedsReauthError,
   GmailNotConnectedError,

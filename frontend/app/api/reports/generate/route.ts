@@ -173,6 +173,24 @@ export async function POST(request: Request) {
     ]
 
     if (regenerateReportId) {
+      // Only the creator may overwrite an existing report (mirrors PATCH).
+      const { data: existingReport } = await supabase
+        .from("saved_reports")
+        .select("created_by_user_id")
+        .eq("id", regenerateReportId)
+        .eq("organization_id", auth.orgId)
+        .maybeSingle()
+      if (!existingReport) {
+        return NextResponse.json({ error: "Report not found." }, { status: 404 })
+      }
+      const reportCreator = (existingReport as { created_by_user_id: string | null }).created_by_user_id
+      if (reportCreator && reportCreator !== auth.userId) {
+        return NextResponse.json(
+          { error: "Only the report creator can regenerate this report." },
+          { status: 403 }
+        )
+      }
+
       const updatePayloads: Array<Record<string, unknown>> = [
         { type: "CSV", content: csv, query: queryValue, summary, records_count: rowCount, filter_criteria: filterCriteria },
         { content: csv, filter_criteria: filterCriteria },

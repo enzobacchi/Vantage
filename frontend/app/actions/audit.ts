@@ -1,37 +1,11 @@
 "use server"
 
 import { createAdminClient } from "@/lib/supabase/admin"
-import { getCurrentUserOrg, getCurrentUserOrgWithRole } from "@/lib/auth"
+import { getCurrentUserOrgWithRole } from "@/lib/auth"
 import type { AuditLog } from "@/types/database"
 
-/**
- * Log an auditable action. Call this from other server actions after mutations.
- * Does NOT throw on failure — audit logging should never block the primary operation.
- */
-export async function logAuditEvent(input: {
-  orgId: string
-  userId: string
-  action: string
-  entityType: string
-  entityId?: string | null
-  summary: string
-  details?: Record<string, unknown>
-}): Promise<void> {
-  try {
-    const supabase = createAdminClient()
-    await supabase.from("audit_logs").insert({
-      org_id: input.orgId,
-      user_id: input.userId,
-      action: input.action,
-      entity_type: input.entityType,
-      entity_id: input.entityId ?? null,
-      summary: input.summary,
-      details: input.details ?? {},
-    })
-  } catch (e) {
-    console.error("[audit] Failed to log event:", e)
-  }
-}
+// NOTE: logAuditEvent moved to lib/audit.ts — it must not be a callable server
+// action (it would let any client forge audit entries into an arbitrary org).
 
 export type AuditLogEntry = AuditLog & {
   user_email?: string | null

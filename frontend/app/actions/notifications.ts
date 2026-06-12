@@ -59,18 +59,32 @@ export async function updateNotificationPreferences(
 
   const supabase = createAdminClient()
 
+  // Allowlist only the known boolean keys — `updates` is attacker-controlled
+  // at runtime, and a raw spread after org_id/user_id would let a crafted
+  // payload overwrite another user's preferences (later keys win).
+  const row: Record<string, unknown> = {
+    org_id: org.orgId,
+    user_id: org.userId,
+    updated_at: new Date().toISOString(),
+  }
+  const BOOLEAN_KEYS: (keyof NotificationPrefsUpdate)[] = [
+    "email_new_donation",
+    "email_donor_milestone",
+    "email_weekly_digest",
+    "email_team_activity",
+    "email_system_alerts",
+    "inapp_new_donation",
+    "inapp_task_reminders",
+    "inapp_donor_lapsed",
+  ]
+  for (const key of BOOLEAN_KEYS) {
+    if (typeof updates[key] === "boolean") row[key] = updates[key]
+  }
+
   // Upsert to handle case where preferences don't exist yet
   const { error } = await supabase
     .from("notification_preferences")
-    .upsert(
-      {
-        org_id: org.orgId,
-        user_id: org.userId,
-        ...updates,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "org_id,user_id" }
-    )
+    .upsert(row, { onConflict: "org_id,user_id" })
 
   if (error) throw new Error(error.message)
 }

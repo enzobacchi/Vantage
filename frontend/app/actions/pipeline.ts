@@ -71,6 +71,17 @@ export async function createOpportunity(
       : "identified"
 
     const supabase = createAdminClient()
+
+    // Verify the donor belongs to this org before linking — otherwise a
+    // foreign donor_id would surface that donor's name via the pipeline join.
+    const { data: donor } = await supabase
+      .from("donors")
+      .select("id")
+      .eq("id", data.donor_id)
+      .eq("org_id", org.orgId)
+      .maybeSingle()
+    if (!donor) return { ok: false, error: "Donor not found" }
+
     const { data: row, error } = await supabase
       .from("opportunities")
       .insert({

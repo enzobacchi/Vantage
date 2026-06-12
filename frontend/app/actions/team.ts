@@ -81,10 +81,14 @@ export async function getOrgAssignees(): Promise<OrgAssignee[]> {
 export async function createInvitation(
   email: string,
   role: "admin" | "member"
-): Promise<{ link: string; error?: string }> {
+): Promise<{ link: string; token?: string; error?: string }> {
   const ctx = await getCurrentUserOrgWithRole()
   if (!ctx) return { link: "", error: "Unauthorized" }
   if (!canManageTeam(ctx.role)) return { link: "", error: "Only owners and admins can invite." }
+
+  // Clamp the role at runtime — the TS union is erased, so a crafted call
+  // could otherwise pass role:"owner" and (after accept) self-escalate.
+  const safeRole: "admin" | "member" = role === "admin" ? "admin" : "member"
 
   const trimmed = email.trim().toLowerCase()
   if (!trimmed) return { link: "", error: "Email is required." }
@@ -98,22 +102,24 @@ export async function createInvitation(
     email: trimmed,
     organization_id: ctx.orgId,
     token,
-    role,
+    role: safeRole,
     expires_at: expiresAt.toISOString(),
   })
 
   if (error) return { link: "", error: error.message }
-  return { link: `/join?token=${encodeURIComponent(token)}` }
+  return { link: `/join?token=${encodeURIComponent(token)}`, token }
 }
 
 /**
- * Sends the invite link to the invitee's email. Call after createInvitation.
+ * Sends the invite link to the invitee's email. Call after createInvitation
+ * with the returned token. The recipient email, role, and link are all
+ * derived server-side from the org-scoped invitation row — nothing the caller
+ * passes (beyond the token + their own display name) reaches the email — so
+ * this can't be used as a branded relay to arbitrary addresses/URLs.
  * Requires RESEND_API_KEY. Fails gracefully if email is not configured.
  */
 export async function sendInviteEmail(
-  toEmail: string,
-  inviteLinkFullUrl: string,
-  role: "admin" | "member",
+  token: string,
   inviterName?: string
 ): Promise<{ error?: string }> {
   const ctx = await getCurrentUserOrgWithRole()
@@ -124,6 +130,23 @@ export async function sendInviteEmail(
   if (!apiKey) return { error: "Email is not configured. Invite link was still created—copy and share it manually." }
 
   const supabase = createAdminClient()
+
+  // Resolve the invitation server-side, scoped to this org. Email + role come
+  // from the row, not the caller.
+  const { data: invite } = await supabase
+    .from("invitations")
+    .select("email, role")
+    .eq("token", token)
+    .eq("organization_id", ctx.orgId)
+    .maybeSingle()
+  if (!invite) return { error: "Invitation not found." }
+  const toEmail = (invite as { email: string }).email
+  const role = (invite as { role: "admin" | "member" }).role
+
+  // Build the link from our own origin, never a caller-supplied URL.
+  const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || "https://app.vantagedonorai.com").replace(/\/$/, "")
+  const inviteLinkFullUrl = `${baseUrl}/join?token=${encodeURIComponent(token)}`
+
   const { data: org } = await supabase
     .from("organizations")
     .select("name")

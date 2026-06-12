@@ -27,8 +27,9 @@ import {
 } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Spinner } from "@/components/ui/spinner"
+import { Switch } from "@/components/ui/switch"
 
-import { PLANS } from "@/lib/subscription"
+import { PLANS, type BillingInterval } from "@/lib/subscription"
 import type { SubscriptionPlan } from "@/types/database"
 
 type SubStatus = {
@@ -71,6 +72,7 @@ export function SettingsBilling() {
   const [data, setData] = React.useState<SubStatus | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [actionLoading, setActionLoading] = React.useState<string | null>(null)
+  const [billingInterval, setBillingInterval] = React.useState<BillingInterval>("monthly")
   const searchParams = useSearchParams()
 
   const fetchStatus = React.useCallback(async () => {
@@ -104,7 +106,7 @@ export function SettingsBilling() {
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan }),
+        body: JSON.stringify({ plan, interval: billingInterval }),
       })
       const json = (await res.json()) as { url?: string; error?: string }
       if (json.url) {
@@ -303,6 +305,20 @@ export function SettingsBilling() {
         <h4 className="text-base font-medium mb-4">
           {isTrialing || isCanceled ? "Choose a plan" : "Change plan"}
         </h4>
+        <div className="mb-4 flex items-center gap-3">
+          <span className={`text-sm ${billingInterval === "monthly" ? "font-medium" : "text-muted-foreground"}`}>
+            Monthly
+          </span>
+          <Switch
+            checked={billingInterval === "annual"}
+            onCheckedChange={(checked) => setBillingInterval(checked ? "annual" : "monthly")}
+            aria-label="Toggle annual billing"
+          />
+          <span className={`text-sm ${billingInterval === "annual" ? "font-medium" : "text-muted-foreground"}`}>
+            Annual
+          </span>
+          <Badge variant="secondary" className="text-xs">Save 20%</Badge>
+        </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {(["essentials", "growth", "pro"] as const).map((planKey) => {
             const plan = PLANS[planKey]
@@ -330,8 +346,13 @@ export function SettingsBilling() {
                   </div>
                   <CardDescription>{plan.description}</CardDescription>
                   <div className="pt-2">
-                    <span className="text-3xl font-bold">${plan.monthlyPrice}</span>
+                    <span className="text-3xl font-bold">
+                      ${billingInterval === "annual" ? plan.annualMonthlyPrice : plan.monthlyPrice}
+                    </span>
                     <span className="text-sm text-muted-foreground">/month</span>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {billingInterval === "annual" ? "billed annually" : "billed monthly"}
+                    </p>
                   </div>
                 </CardHeader>
                 <CardContent className="flex-1 space-y-4">

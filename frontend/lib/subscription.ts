@@ -1,7 +1,7 @@
 import type { SubscriptionPlan, SubscriptionStatus } from "@/types/database"
 
 /** Free trial length for new signups (QR-code lead flow, email signup, etc). */
-export const TRIAL_DURATION_DAYS = 30
+export const TRIAL_DURATION_DAYS = 14
 
 // ---------------------------------------------------------------------------
 // Plan definitions — tiers designed for small-to-midsize nonprofits
@@ -12,8 +12,11 @@ export type PlanLimits = {
   maxAiInsightsPerMonth: number // 0 = unlimited
   maxChatMessagesPerMonth: number // 0 = unlimited
   monthlyPrice: number // USD, 0 = free
+  annualMonthlyPrice: number // USD per month when billed annually (20% off), 0 = n/a
   features: string[]
 }
+
+export type BillingInterval = "monthly" | "annual"
 
 /**
  * Absolute ceiling on donors per org regardless of plan. Pro's nominal cap is
@@ -46,6 +49,7 @@ export const PLANS: Record<SubscriptionPlan, { name: string; description: string
     maxAiInsightsPerMonth: 30,
     maxChatMessagesPerMonth: 200,
     monthlyPrice: 0,
+    annualMonthlyPrice: 0,
     features: ["Up to 500 donors", "30 AI insights per month", "200 AI chats per month", ...SHARED_FEATURES],
   },
   essentials: {
@@ -55,6 +59,7 @@ export const PLANS: Record<SubscriptionPlan, { name: string; description: string
     maxAiInsightsPerMonth: 30,
     maxChatMessagesPerMonth: 200,
     monthlyPrice: 49,
+    annualMonthlyPrice: 39,
     features: ["Up to 500 donors", "30 AI insights per month", "200 AI chats per month", ...SHARED_FEATURES],
   },
   growth: {
@@ -63,7 +68,8 @@ export const PLANS: Record<SubscriptionPlan, { name: string; description: string
     maxDonors: 2_500,
     maxAiInsightsPerMonth: 100,
     maxChatMessagesPerMonth: 1_000,
-    monthlyPrice: 59,
+    monthlyPrice: 99,
+    annualMonthlyPrice: 79,
     features: ["Up to 2,500 donors", "100 AI insights per month", "1,000 AI chats per month", ...SHARED_FEATURES],
   },
   pro: {
@@ -72,7 +78,8 @@ export const PLANS: Record<SubscriptionPlan, { name: string; description: string
     maxDonors: 10_000,
     maxAiInsightsPerMonth: 0,
     maxChatMessagesPerMonth: 0,
-    monthlyPrice: 99,
+    monthlyPrice: 179,
+    annualMonthlyPrice: 143,
     features: ["Up to 10,000 donors", "Unlimited AI insights", "Unlimited AI chats", ...SHARED_FEATURES],
   },
   enterprise: {
@@ -82,6 +89,7 @@ export const PLANS: Record<SubscriptionPlan, { name: string; description: string
     maxAiInsightsPerMonth: 0,
     maxChatMessagesPerMonth: 0,
     monthlyPrice: 0,
+    annualMonthlyPrice: 0,
     features: ["Unlimited donors", "Unlimited AI insights", "Unlimited AI chats", ...SHARED_FEATURES],
   },
 }
@@ -111,9 +119,12 @@ export function resolveTrialLimits(
 }
 
 // Stripe Price IDs — set these in env vars once created in Stripe dashboard.
-// Format: STRIPE_PRICE_<PLAN>_MONTHLY
-export function getStripePriceId(plan: Exclude<SubscriptionPlan, "trial" | "enterprise">): string {
-  const envKey = `STRIPE_PRICE_${plan.toUpperCase()}_MONTHLY`
+// Format: STRIPE_PRICE_<PLAN>_<MONTHLY|ANNUAL>
+export function getStripePriceId(
+  plan: Exclude<SubscriptionPlan, "trial" | "enterprise">,
+  interval: BillingInterval = "monthly"
+): string {
+  const envKey = `STRIPE_PRICE_${plan.toUpperCase()}_${interval === "annual" ? "ANNUAL" : "MONTHLY"}`
   const priceId = process.env[envKey]
   if (!priceId) {
     throw new Error(`Missing ${envKey} env var. Create the price in Stripe and set it.`)

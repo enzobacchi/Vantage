@@ -52,6 +52,19 @@ export async function POST(request: Request) {
     : (typeof body.expected_date === "string" ? body.expected_date.trim() : null) || null;
 
   const supabase = createAdminClient();
+
+  // Verify the donor belongs to this org before linking — otherwise a
+  // foreign donor_id would surface that donor's name via the pipeline join.
+  const { data: donor } = await supabase
+    .from("donors")
+    .select("id")
+    .eq("id", donorId)
+    .eq("org_id", auth.orgId)
+    .maybeSingle();
+  if (!donor) {
+    return NextResponse.json({ error: "Donor not found" }, { status: 404 });
+  }
+
   const { data: row, error } = await supabase
     .from("opportunities")
     .insert({

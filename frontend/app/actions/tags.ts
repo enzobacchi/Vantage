@@ -12,6 +12,41 @@ export type Tag = {
 }
 
 /**
+ * Verify a donor + tag both belong to the given org. donor_tags has no org
+ * column and the admin client bypasses RLS, so every donor_tags mutation
+ * must gate on this first — otherwise any caller who knows two UUIDs can tag
+ * another org's donor (cross-org write).
+ */
+async function assertDonorAndTagInOrg(
+  supabase: ReturnType<typeof createAdminClient>,
+  orgId: string,
+  donorId: string,
+  tagId: string
+): Promise<void> {
+  const [{ data: donor }, { data: tag }] = await Promise.all([
+    supabase.from("donors").select("id").eq("id", donorId).eq("org_id", orgId).maybeSingle(),
+    supabase.from("tags").select("id").eq("id", tagId).eq("organization_id", orgId).maybeSingle(),
+  ])
+  if (!donor) throw new Error("Donor not found")
+  if (!tag) throw new Error("Tag not found")
+}
+
+/** Verify a tag belongs to the org (for bulk ops that already check donors). */
+async function assertTagInOrg(
+  supabase: ReturnType<typeof createAdminClient>,
+  orgId: string,
+  tagId: string
+): Promise<void> {
+  const { data: tag } = await supabase
+    .from("tags")
+    .select("id")
+    .eq("id", tagId)
+    .eq("organization_id", orgId)
+    .maybeSingle()
+  if (!tag) throw new Error("Tag not found")
+}
+
+/**
  * Create a new tag for the current organization. Name must be unique per org.
  */
 export async function createTag(name: string, color: string): Promise<Tag> {
@@ -50,6 +85,8 @@ export async function assignTag(donorId: string, tagId: string): Promise<void> {
   if (!org) throw new Error("Unauthorized")
 
   const supabase = createAdminClient()
+  await assertDonorAndTagInOrg(supabase, org.orgId, donorId, tagId)
+
   const { error } = await supabase.from("donor_tags").upsert(
     { donor_id: donorId, tag_id: tagId },
     { onConflict: "donor_id,tag_id" }
@@ -69,6 +106,8 @@ export async function removeTag(donorId: string, tagId: string): Promise<void> {
   if (!org) throw new Error("Unauthorized")
 
   const supabase = createAdminClient()
+  await assertDonorAndTagInOrg(supabase, org.orgId, donorId, tagId)
+
   const { error } = await supabase
     .from("donor_tags")
     .delete()
@@ -94,6 +133,7 @@ export async function bulkAssignTag(
   if (donorIds.length === 0) return 0
 
   const supabase = createAdminClient()
+  await assertTagInOrg(supabase, org.orgId, tagId)
 
   const { data: orgDonors } = await supabase
     .from("donors")

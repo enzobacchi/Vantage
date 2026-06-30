@@ -12,8 +12,24 @@ import {
   FieldLabel,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { TRIAL_DURATION_DAYS } from "@/lib/subscription"
 
 type TrialSize = "essentials" | "growth" | "pro"
+
+/** Map the website's public plan slugs to internal trial tiers. */
+function planParamToTrialSize(param: string | null): TrialSize | null {
+  switch (param) {
+    case "starter":
+    case "essentials":
+      return "essentials"
+    case "growth":
+      return "growth"
+    case "pro":
+      return "pro"
+    default:
+      return null
+  }
+}
 
 const TRIAL_SIZES: Array<{
   value: TrialSize
@@ -55,7 +71,9 @@ export function SignupForm({
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
-  const [trialSize, setTrialSize] = useState<TrialSize>("essentials")
+  const [trialSize, setTrialSize] = useState<TrialSize>(
+    () => planParamToTrialSize(searchParams.get("plan")) ?? "essentials"
+  )
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [emailConfirmRequired, setEmailConfirmRequired] = useState(false)
@@ -174,7 +192,7 @@ export function SignupForm({
             <p className="text-sm text-balance text-muted-foreground">
               {next && next.includes("/join")
                 ? "Create your account to join the team."
-                : "Start your 30-day free trial. No credit card required."}
+                : `Start your ${TRIAL_DURATION_DAYS}-day free trial. No credit card required.`}
             </p>
           </div>
           <Field>
@@ -261,7 +279,7 @@ export function SignupForm({
               <FieldDescription>
                 More than 10,000 donors?{" "}
                 <a
-                  href="mailto:efbacchiocchi@gmail.com?subject=Vantage%20Enterprise%20inquiry"
+                  href="mailto:sales@vantagedonorai.com?subject=Vantage%20Enterprise%20inquiry"
                   className="underline hover:text-foreground"
                 >
                   Contact us

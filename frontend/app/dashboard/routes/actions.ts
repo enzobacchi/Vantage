@@ -87,6 +87,11 @@ export async function sortRouteByDistance(
   startLocation: { lat: number; lng: number },
   donors: RouteDonorWithCoords[]
 ): Promise<RouteDonorWithCoords[]> {
+  // Exported "use server" function — gate it even though it only does CPU work,
+  // so it can't be used as free unauthenticated compute on attacker-sized input.
+  const org = await getCurrentUserOrg()
+  if (!org) throw new Error("Unauthorized")
+
   if (donors.length === 0) return []
 
   const sorted: RouteDonorWithCoords[] = []
@@ -230,6 +235,11 @@ export async function optimizeRoute(
   donors: RouteDonorWithCoords[],
   startLocation: string
 ): Promise<RouteDonorWithIcebreaker[]> {
+  // Gate before the Mapbox geocode call — otherwise this is a free
+  // unauthenticated endpoint that burns the org's Mapbox quota.
+  const org = await getCurrentUserOrg()
+  if (!org) throw new Error("Unauthorized")
+
   if (donors.length === 0) return []
 
   const coords = await geocodeStartLocation(startLocation.trim())

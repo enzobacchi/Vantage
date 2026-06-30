@@ -127,16 +127,12 @@ export function SettingsTeam() {
   const handleGenerateInvite = async () => {
     setGenerating(true)
     const result = await createInvitation(inviteEmail, inviteRole)
-    if (result.error) {
-      toast.error(result.error)
+    if (result.error || !result.token) {
+      toast.error(result.error ?? "Could not create invitation.")
       setGenerating(false)
       return
     }
-    const baseUrl =
-      process.env.NEXT_PUBLIC_APP_URL ||
-      (typeof window !== "undefined" ? window.location.origin : "")
-    const fullUrl = baseUrl ? `${baseUrl.replace(/\/$/, "")}${result.link}` : result.link
-    const emailResult = await sendInviteEmail(inviteEmail.trim(), fullUrl, inviteRole, inviterName.trim() || undefined)
+    const emailResult = await sendInviteEmail(result.token, inviterName.trim() || undefined)
     setGenerating(false)
     if (emailResult.error) {
       toast.error(`Invite created, but email could not be sent: ${emailResult.error}`)

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUserOrg } from "@/lib/auth"
-import { logAuditEvent } from "@/app/actions/audit"
+import { logAuditEvent } from "@/lib/audit"
 import { isLimitExceeded } from "@/lib/subscription"
 import { buildAddressForGeocode, geocodeAddress } from "@/lib/geocode"
 

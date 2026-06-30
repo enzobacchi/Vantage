@@ -1,8 +1,8 @@
 "use server"
 
 import { createAdminClient } from "@/lib/supabase/admin"
-import { getCurrentUserOrg } from "@/lib/auth"
-import { logAuditEvent } from "@/app/actions/audit"
+import { getCurrentUserOrg, getCurrentUserOrgWithRole } from "@/lib/auth"
+import { logAuditEvent } from "@/lib/audit"
 import {
   GmailNeedsReauthError,
   GmailNotConnectedError,
@@ -119,8 +119,13 @@ export async function sendYearEndReceipts(input: {
   bodyTemplate: string
   orgName: string
 }): Promise<SendYearEndReceiptsResult> {
-  const org = await getCurrentUserOrg()
+  // Bulk donor email is an owner/admin action — a `member` shouldn't be able
+  // to send branded tax receipts to the whole donor base.
+  const org = await getCurrentUserOrgWithRole()
   if (!org) throw new Error("Unauthorized")
+  if (org.role !== "owner" && org.role !== "admin") {
+    throw new Error("Only owners and admins can send year-end receipts.")
+  }
 
   if (input.donorIds.length === 0) return { sent: 0, skipped: 0, errors: [] }
 

@@ -3,6 +3,7 @@
 import { Resend } from "resend"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { passwordResetEmailHtml } from "@/lib/email-templates"
+import { checkRateLimit } from "@/lib/rate-limit"
 
 const FROM_EMAIL = "Vantage <notifications@vantagedonorai.com>"
 
@@ -11,6 +12,12 @@ export async function sendPasswordResetEmail(
 ): Promise<{ error?: string }> {
   const trimmed = email.trim().toLowerCase()
   if (!trimmed) return { error: "Email is required." }
+
+  // This endpoint is public (pre-auth). Throttle per email address so it can't
+  // be used to spam-bomb reset emails to an arbitrary inbox. Always returns the
+  // generic success shape so it never reveals whether the account exists.
+  const rl = checkRateLimit(`pwreset:${trimmed}`, 3, 60 * 60 * 1000)
+  if (rl.limited) return {}
 
   const apiKey = process.env.RESEND_API_KEY
   if (!apiKey) return { error: "Email is not configured." }

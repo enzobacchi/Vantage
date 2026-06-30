@@ -7,6 +7,10 @@ const nextConfig = {
       { source: "/", destination: "https://vantagedonorai.com/", permanent: false },
     ];
   },
+  // NOTE: Security headers (CSP, HSTS, X-Frame-Options, Permissions-Policy)
+  // and CSRF protection live in proxy.ts (the Next.js 16 middleware) — see
+  // applySecurityHeaders(). Don't duplicate them here: two CSP sources are
+  // intersected by the browser and would silently break the richer allowlist.
   typescript: {
     ignoreBuildErrors: false,
   },

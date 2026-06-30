@@ -202,7 +202,8 @@ export async function GET(
     .from("saved_reports")
     .select("id,title,type,content,summary,created_at,organization_id,query,filter_criteria,created_by_user_id,visibility")
     .eq("id", id)
-    .single();
+    .eq("organization_id", auth.orgId)
+    .maybeSingle();
 
   if (error) {
     console.error("[reports/[id]] GET:", error.message);
@@ -217,8 +218,12 @@ export async function GET(
   }
 
   const row = data as Record<string, unknown>;
-  const orgId = row?.organization_id;
-  if (orgId != null && orgId !== auth.orgId) {
+
+  // Enforce visibility: a private report is readable only by its creator.
+  // (Shared/null-visibility reports remain org-readable.)
+  const reportVisibility = (row?.visibility as string | null) ?? null;
+  const reportCreatedBy = (row?.created_by_user_id as string | null) ?? null;
+  if (reportVisibility === "private" && reportCreatedBy && reportCreatedBy !== auth.userId) {
     return NextResponse.json({ error: "Report not found." }, { status: 404 });
   }
 
@@ -395,6 +400,26 @@ export async function DELETE(
   if (!auth.ok) return auth.response;
 
   const supabase = createAdminClient();
+
+  // Only the creator may delete a report (mirrors PATCH — otherwise any org
+  // member could destroy a colleague's private report by id).
+  const { data: existing } = await supabase
+    .from("saved_reports")
+    .select("created_by_user_id")
+    .eq("id", id)
+    .eq("organization_id", auth.orgId)
+    .maybeSingle();
+  if (!existing) {
+    return NextResponse.json({ error: "Report not found." }, { status: 404 });
+  }
+  const createdByUserId = (existing as { created_by_user_id: string | null }).created_by_user_id;
+  if (createdByUserId && createdByUserId !== auth.userId) {
+    return NextResponse.json(
+      { error: "Only the report creator can delete this report." },
+      { status: 403 }
+    );
+  }
+
   const { error } = await supabase
     .from("saved_reports")
     .delete()

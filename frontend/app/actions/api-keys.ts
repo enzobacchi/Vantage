@@ -1,6 +1,6 @@
 "use server"
 
-import { logAuditEvent } from "@/app/actions/audit"
+import { logAuditEvent } from "@/lib/audit"
 import { generateApiKey } from "@/lib/api-auth"
 import { getCurrentUserOrgWithRole } from "@/lib/auth"
 import { createAdminClient } from "@/lib/supabase/admin"

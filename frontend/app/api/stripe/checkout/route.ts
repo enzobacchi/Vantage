@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireUserOrg } from "@/lib/auth"
 import { getStripe, getOrCreateStripeCustomer } from "@/lib/stripe"
-import { getStripePriceId } from "@/lib/subscription"
+import { getStripePriceId, type BillingInterval } from "@/lib/subscription"
 import { createAdminClient } from "@/lib/supabase/admin"
 import type { SubscriptionPlan } from "@/types/database"
 
 const VALID_PLANS: SubscriptionPlan[] = ["essentials", "growth", "pro"]
+const VALID_INTERVALS: BillingInterval[] = ["monthly", "annual"]
 
 /**
  * POST /api/stripe/checkout
@@ -15,12 +16,19 @@ export async function POST(req: NextRequest) {
   const auth = await requireUserOrg()
   if (!auth.ok) return auth.response
 
-  const body = (await req.json()) as { plan?: string }
+  const body = (await req.json()) as { plan?: string; interval?: string }
   const plan = body.plan as SubscriptionPlan | undefined
+  const interval = (body.interval ?? "monthly") as BillingInterval
 
   if (!plan || !VALID_PLANS.includes(plan)) {
     return NextResponse.json(
       { error: "Invalid plan. Must be one of: essentials, growth, pro" },
+      { status: 400 }
+    )
+  }
+  if (!VALID_INTERVALS.includes(interval)) {
+    return NextResponse.json(
+      { error: "Invalid interval. Must be one of: monthly, annual" },
       { status: 400 }
     )
   }
@@ -46,7 +54,10 @@ export async function POST(req: NextRequest) {
 
     const stripe = getStripe()
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
-    const priceId = getStripePriceId(plan as Exclude<SubscriptionPlan, "trial" | "enterprise">)
+    const priceId = getStripePriceId(
+      plan as Exclude<SubscriptionPlan, "trial" | "enterprise">,
+      interval
+    )
 
     const session = await stripe.checkout.sessions.create({
       customer: customerId,

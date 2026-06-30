@@ -353,8 +353,9 @@ export function buildTools(
               .limit(10),
             supabase
               .from("donor_tags")
-              .select("tags(name)")
-              .eq("donor_id", donor_id),
+              .select("tags(name),donors!inner(org_id)")
+              .eq("donor_id", donor_id)
+              .eq("donors.org_id", orgId),
             supabase
               .from("opportunities")
               .select("id,title,amount,status,expected_date")
@@ -1227,8 +1228,9 @@ export function buildTools(
             .order("date", { ascending: true }),
           supabase
             .from("interactions")
-            .select("date,type")
+            .select("date,type,donors!inner(org_id)")
             .eq("donor_id", donor_id)
+            .eq("donors.org_id", orgId)
             .order("date", { ascending: true }),
         ])
 

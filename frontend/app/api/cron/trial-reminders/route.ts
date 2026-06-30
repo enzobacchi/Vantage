@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { Resend } from "resend"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { trialEndingEmailHtml } from "@/lib/email-templates"
+import { isAuthorizedCron } from "@/lib/cron-auth"
 
 export const runtime = "nodejs"
 export const maxDuration = 120
@@ -16,10 +17,7 @@ const FROM_EMAIL = "Vantage <notifications@vantagedonorai.com>"
  * Fires from Vercel Cron (see vercel.json). Auth via CRON_SECRET header.
  */
 export async function GET(request: Request) {
-  const authHeader = request.headers.get("authorization")
-  const cronSecret = process.env.CRON_SECRET
-
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+  if (!isAuthorizedCron(request.headers.get("authorization"))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 

@@ -75,6 +75,23 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  // Bind the claim to the buyer: the authenticated user's email must match the
+  // email that paid for the checkout. Otherwise anyone who obtains a valid
+  // checkout_session_id (it appears in the Payment-Link success URL) could
+  // attach someone else's paid subscription to their own org.
+  const buyerEmail = (
+    session.customer_details?.email ??
+    stripeCustomer.email ??
+    ""
+  ).trim().toLowerCase()
+  const userEmail = (user.email ?? "").trim().toLowerCase()
+  if (!buyerEmail || !userEmail || buyerEmail !== userEmail) {
+    return NextResponse.json(
+      { error: "This checkout session belongs to a different email address." },
+      { status: 403 }
+    )
+  }
+
   // 2. Get the user's org (getCurrentUserOrg auto-creates one on first login)
   const { data: membership } = await admin
     .from("organization_members")
@@ -114,6 +131,22 @@ export async function POST(req: NextRequest) {
     await admin.from("organization_members").upsert(
       { user_id: user.id, organization_id: orgId, role: "owner" },
       { onConflict: "user_id,organization_id" }
+    )
+  }
+
+  // 2.5. A checkout session can only be claimed once: if this Stripe
+  // subscription is already linked to a different org, reject — otherwise a
+  // leaked/shared session ID could hijack someone else's paid subscription.
+  const { data: existingLink } = await admin
+    .from("subscriptions")
+    .select("org_id")
+    .eq("stripe_subscription_id", stripeSub.id)
+    .maybeSingle()
+
+  if (existingLink && existingLink.org_id !== orgId) {
+    return NextResponse.json(
+      { error: "This checkout session is already linked to another account" },
+      { status: 409 }
     )
   }
 

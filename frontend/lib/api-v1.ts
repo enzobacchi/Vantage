@@ -9,7 +9,10 @@
 
 import { apiErrorResponse, requireApiKeyOrg } from "@/lib/api-auth";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { getOrgSubscription } from "@/lib/subscription";
+import { getOrgSubscription, isTrialExpired } from "@/lib/subscription";
+import { encodeCursor, decodeCursor } from "@/lib/api-cursor";
+
+export { encodeCursor, decodeCursor };
 
 const RATE_LIMIT_MAX = 60; // requests
 const RATE_LIMIT_WINDOW_MS = 60_000; // per minute, per key (per instance)
@@ -36,7 +39,8 @@ async function hasApiAccess(orgId: string): Promise<boolean> {
   const sub = await getOrgSubscription(orgId);
   if (["growth", "pro", "enterprise"].includes(sub.planId)) return true;
   if (sub.planId === "trial" && sub.trialTier && ["growth", "pro"].includes(sub.trialTier)) {
-    return true;
+    // A lapsed trial keeps planId "trial"; don't grant API access past expiry.
+    return !isTrialExpired(sub.trialEndsAt);
   }
   return false;
 }
@@ -125,30 +129,6 @@ export function jsonList(
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
-}
-
-/**
- * Keyset cursor: base64("created_at|id"). Stable under concurrent inserts,
- * unlike offset pagination.
- */
-export function encodeCursor(createdAt: string, id: string): string {
-  return Buffer.from(`${createdAt}|${id}`).toString("base64url");
-}
-
-export function decodeCursor(
-  cursor: string
-): { createdAt: string; id: string } | null {
-  try {
-    const decoded = Buffer.from(cursor, "base64url").toString("utf8");
-    const sep = decoded.lastIndexOf("|");
-    if (sep === -1) return null;
-    const createdAt = decoded.slice(0, sep);
-    const id = decoded.slice(sep + 1);
-    if (!createdAt || !id) return null;
-    return { createdAt, id };
-  } catch {
-    return null;
-  }
 }
 
 export function parseLimit(searchParams: URLSearchParams): number {

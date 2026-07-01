@@ -219,12 +219,27 @@ export async function GET(
 
   const row = data as Record<string, unknown>;
 
-  // Enforce visibility: a private report is readable only by its creator.
-  // (Shared/null-visibility reports remain org-readable.)
+  // Enforce visibility (mirrors the list endpoint's filter):
+  //  - private:  creator only
+  //  - specific: creator or a user listed in report_shares
+  //  - shared/null/other: org-readable
   const reportVisibility = (row?.visibility as string | null) ?? null;
   const reportCreatedBy = (row?.created_by_user_id as string | null) ?? null;
-  if (reportVisibility === "private" && reportCreatedBy && reportCreatedBy !== auth.userId) {
+  const isCreator = !!reportCreatedBy && reportCreatedBy === auth.userId;
+
+  if (reportVisibility === "private" && reportCreatedBy && !isCreator) {
     return NextResponse.json({ error: "Report not found." }, { status: 404 });
+  }
+  if (reportVisibility === "specific" && !isCreator) {
+    const { data: share } = await supabase
+      .from("report_shares")
+      .select("user_id")
+      .eq("report_id", id)
+      .eq("user_id", auth.userId)
+      .maybeSingle();
+    if (!share) {
+      return NextResponse.json({ error: "Report not found." }, { status: 404 });
+    }
   }
 
   let content = typeof row?.content === "string" ? row.content : "";

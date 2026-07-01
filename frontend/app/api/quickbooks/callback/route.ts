@@ -7,6 +7,7 @@ import {
 } from "@/lib/quickbooks/client";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { encrypt } from "@/lib/encryption";
 
 export const runtime = "nodejs";
 
@@ -208,7 +209,10 @@ export async function GET(request: Request) {
 
     res.cookies.delete("qb_oauth_state");
     if (!user?.id && orgId) {
-      res.cookies.set("qb_pending_org_id", orgId, {
+      // Encrypt (AES-256-GCM) so the cookie can't be forged: only the browser
+      // that actually completed this QB OAuth holds a valid token. link-pending-org
+      // rejects anything that doesn't decrypt.
+      res.cookies.set("qb_pending_org_id", encrypt(orgId), {
         httpOnly: true,
         sameSite: "lax",
         secure: process.env.NODE_ENV === "production",

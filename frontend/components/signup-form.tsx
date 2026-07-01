@@ -68,6 +68,7 @@ export function SignupForm({
   const checkoutSessionId = searchParams.get("checkout_session_id")
   const isJoinFlow = !!(next && next.includes("/join"))
   const [name, setName] = useState("")
+  const [orgName, setOrgName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
@@ -89,6 +90,10 @@ export function SignupForm({
     }
     if (password !== confirmPassword) {
       setError("Passwords do not match.")
+      return
+    }
+    if (!isJoinFlow && !orgName.trim()) {
+      setError("Please enter your organization's name.")
       return
     }
 
@@ -113,7 +118,12 @@ export function SignupForm({
         email,
         password,
         options: {
-          data: { full_name: name.trim() || undefined },
+          data: {
+            full_name: name.trim() || undefined,
+            // Names the org on first load (lib/auth.ts). Team-join inherits the
+            // inviter's org, so no org name is collected there.
+            org_name: isJoinFlow ? undefined : orgName.trim() || undefined,
+          },
           emailRedirectTo: callbackUrl,
         },
       })
@@ -206,6 +216,23 @@ export function SignupForm({
               autoComplete="name"
             />
           </Field>
+          {!isJoinFlow && (
+            <Field>
+              <FieldLabel htmlFor="org-name">Organization / ministry name</FieldLabel>
+              <Input
+                id="org-name"
+                type="text"
+                placeholder="Grace Community Church"
+                value={orgName}
+                onChange={(e) => setOrgName(e.target.value)}
+                autoComplete="organization"
+                required
+              />
+              <FieldDescription>
+                This is your workspace name. You can change it later in settings.
+              </FieldDescription>
+            </Field>
+          )}
           <Field>
             <FieldLabel htmlFor="email">Email</FieldLabel>
             <Input

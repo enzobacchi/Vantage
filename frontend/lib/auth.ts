@@ -85,11 +85,15 @@ export async function getCurrentUserOrg(): Promise<CurrentUserOrg | null> {
   const membership = await pickBestMembership(user.id);
 
   if (!membership) {
-    // User has no org (e.g. email signup). Create a default org and add them so dashboard loads.
+    // User has no org (e.g. email signup). Create their org and add them so
+    // the dashboard loads. Name it from the org_name they entered at signup;
+    // fall back to a generic name for legacy/blank signups.
+    const orgName =
+      (user.user_metadata?.org_name as string | undefined)?.trim() || "My Organization";
     const admin = createAdminClient();
     const { data: newOrg, error: orgError } = await admin
       .from("organizations")
-      .insert({ name: "My Organization" })
+      .insert({ name: orgName })
       .select("id")
       .single();
 

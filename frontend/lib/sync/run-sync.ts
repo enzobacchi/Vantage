@@ -13,6 +13,7 @@ import {
 } from "@/lib/quickbooks-helpers";
 import { getQBApiBaseUrl } from "@/lib/quickbooks/client";
 import { QBApiError, createQBTokenManager } from "@/lib/quickbooks/request";
+import { decryptQbToken } from "@/lib/quickbooks/token-crypto";
 import { parseVantageMarker, pushPendingForOrg } from "@/lib/quickbooks/writeback";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { geocodeAddress } from "@/lib/geocode";
@@ -464,8 +465,8 @@ export async function runSyncForOrg(
   const orgRealmId = org.qb_realm_id;
 
   const tokens = createQBTokenManager(supabase, orgId, {
-    accessToken: org.qb_access_token ?? "",
-    refreshToken: org.qb_refresh_token ?? "",
+    accessToken: decryptQbToken(org.qb_access_token) ?? "",
+    refreshToken: decryptQbToken(org.qb_refresh_token) ?? "",
   });
   const withTokenRefreshRetry = tokens.withTokenRefreshRetry;
 
@@ -1081,7 +1082,7 @@ export async function runSyncForOrg(
 
       if (
         !currentOrg?.qb_refresh_token ||
-        currentOrg.qb_refresh_token === tokens.refreshToken
+        decryptQbToken(currentOrg.qb_refresh_token) === tokens.refreshToken
       ) {
         await supabase
           .from("organizations")

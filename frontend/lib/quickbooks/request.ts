@@ -6,6 +6,7 @@
  */
 
 import { createQBOAuthClient, getQBApiBaseUrl } from "@/lib/quickbooks/client";
+import { decryptQbToken, encryptQbToken } from "@/lib/quickbooks/token-crypto";
 import type { createAdminClient } from "@/lib/supabase/admin";
 
 export class QBApiError extends Error {
@@ -54,14 +55,13 @@ export function createQBTokenManager(
       .eq("id", orgId)
       .maybeSingle();
 
-    if (
-      !freshOrgError &&
-      freshOrg?.qb_refresh_token &&
-      freshOrg.qb_refresh_token !== refreshToken
-    ) {
+    // Stored tokens are encrypted at rest (AES-GCM produces fresh ciphertext
+    // per write), so compare decrypted values, never the stored blobs.
+    const freshRefresh = decryptQbToken(freshOrg?.qb_refresh_token);
+    if (!freshOrgError && freshRefresh && freshRefresh !== refreshToken) {
       // Another process already refreshed — adopt the newer tokens
-      accessToken = freshOrg.qb_access_token ?? "";
-      refreshToken = freshOrg.qb_refresh_token;
+      accessToken = decryptQbToken(freshOrg?.qb_access_token) ?? "";
+      refreshToken = freshRefresh;
       oauthClient.setToken({
         access_token: accessToken,
         refresh_token: refreshToken,
@@ -84,8 +84,8 @@ export function createQBTokenManager(
     const { error: tokenSaveError } = await supabase
       .from("organizations")
       .update({
-        qb_access_token: accessToken,
-        qb_refresh_token: refreshToken,
+        qb_access_token: encryptQbToken(accessToken),
+        qb_refresh_token: encryptQbToken(refreshToken),
       })
       .eq("id", orgId);
 

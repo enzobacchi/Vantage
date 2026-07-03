@@ -8,6 +8,7 @@ import {
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { encrypt } from "@/lib/encryption";
+import { encryptQbToken } from "@/lib/quickbooks/token-crypto";
 
 export const runtime = "nodejs";
 
@@ -70,6 +71,11 @@ export async function GET(request: Request) {
       );
     }
 
+    // Tokens are encrypted at rest; decryption happens in the sync/writeback
+    // paths via decryptQbToken (with plaintext fallback for legacy rows).
+    const storedAccessToken = encryptQbToken(accessToken);
+    const storedRefreshToken = encryptQbToken(refreshToken);
+
     const admin = createAdminClient();
     const serverSupabase = await createServerSupabaseClient();
     const {
@@ -110,8 +116,8 @@ export async function GET(request: Request) {
           .from("organizations")
           .update({
             qb_realm_id: realmId,
-            qb_access_token: accessToken,
-            qb_refresh_token: refreshToken,
+            qb_access_token: storedAccessToken,
+            qb_refresh_token: storedRefreshToken,
             updated_at: new Date().toISOString(),
           })
           .eq("id", membership.organization_id);
@@ -132,8 +138,8 @@ export async function GET(request: Request) {
           .insert({
             name: "Default Organization",
             qb_realm_id: realmId,
-            qb_access_token: accessToken,
-            qb_refresh_token: refreshToken,
+            qb_access_token: storedAccessToken,
+            qb_refresh_token: storedRefreshToken,
             updated_at: new Date().toISOString(),
           })
           .select("id")
@@ -163,8 +169,8 @@ export async function GET(request: Request) {
           {
             name: "Default Organization",
             qb_realm_id: realmId,
-            qb_access_token: accessToken,
-            qb_refresh_token: refreshToken,
+            qb_access_token: storedAccessToken,
+            qb_refresh_token: storedRefreshToken,
             updated_at: new Date().toISOString(),
           },
           { onConflict: "qb_realm_id" }

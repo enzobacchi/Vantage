@@ -362,9 +362,10 @@ export async function tryPushDonationInline(
     if (!org?.qb_writeback_enabled || !org.qb_realm_id || !org.qb_refresh_token) return;
 
     const { createQBTokenManager } = await import("@/lib/quickbooks/request");
+    const { decryptQbToken } = await import("@/lib/quickbooks/token-crypto");
     const tokens = createQBTokenManager(supabase, orgId, {
-      accessToken: org.qb_access_token ?? "",
-      refreshToken: org.qb_refresh_token,
+      accessToken: decryptQbToken(org.qb_access_token) ?? "",
+      refreshToken: decryptQbToken(org.qb_refresh_token) ?? "",
     });
     await pushDonationToQB(supabase, orgId, org.qb_realm_id, tokens, donationId);
   } catch (e) {

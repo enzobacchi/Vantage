@@ -269,8 +269,9 @@ export async function POST(request: Request) {
     }
 
     if (!inserted) {
+      console.error("[reports/generate] insert failed:", errors)
       return NextResponse.json(
-        { error: errors[0] ?? "Failed to save report.", details: errors },
+        { error: "Failed to save report." },
         { status: 500 }
       )
     }
@@ -291,11 +292,9 @@ export async function POST(request: Request) {
       summary: stripSqlArtifacts(summary),
     })
   } catch (e: unknown) {
-    const err = e as { message?: string; details?: string; hint?: string }
-    const message = err?.message ?? (e instanceof Error ? e.message : "Unknown error")
-    console.error("Report generate error:", message)
+    console.error("Report generate error:", e)
     return NextResponse.json(
-      { error: message, details: err?.details ?? err?.hint ?? message },
+      { error: "Failed to generate report." },
       { status: 500 }
     )
   }

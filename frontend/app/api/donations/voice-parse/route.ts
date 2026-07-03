@@ -78,7 +78,7 @@ export async function POST(request: Request) {
   const auth = await requireUserOrg()
   if (!auth.ok) return auth.response
 
-  const rl = checkRateLimit(`voice-parse:${auth.orgId}`, 30, 60_000)
+  const rl = await checkRateLimit(`voice-parse:${auth.orgId}`, 30, 60_000)
   if (rl.limited) return rateLimitResponse(rl.retryAfterMs)
 
   const apiKey = process.env.OPENAI_API_KEY
@@ -133,8 +133,9 @@ export async function POST(request: Request) {
   })
   if (!whisperRes.ok) {
     const detail = await whisperRes.text().catch(() => "")
+    console.error("[voice-parse] transcription failed:", detail.slice(0, 500))
     return NextResponse.json(
-      { error: "Transcription failed.", detail: detail.slice(0, 500) },
+      { error: "Transcription failed." },
       { status: 502 }
     )
   }

@@ -772,12 +772,9 @@ export async function POST(request: Request) {
       errors.push(insErr.message);
     }
     if (!inserted) {
+      console.error("[reports/create] insert failed:", errors);
       return NextResponse.json(
-        {
-          error:
-            "Failed to store report. Your `saved_reports` table schema does not match either supported shape.",
-          details: errors,
-        },
+        { error: "Failed to store report." },
         { status: 500 }
       );
     }
@@ -900,12 +897,9 @@ export async function POST(request: Request) {
   }
 
   if (!inserted) {
+    console.error("[reports/create] insert failed:", errors);
     return NextResponse.json(
-      {
-        error:
-          "Failed to store report. Your `saved_reports` table schema does not match either supported shape.",
-        details: errors,
-      },
+      { error: "Failed to store report." },
       { status: 500 }
     );
   }

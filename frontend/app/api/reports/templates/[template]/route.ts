@@ -187,8 +187,9 @@ export async function GET(
   }
 
   if (error) {
+    console.error("[reports/templates] query:", error.message);
     return NextResponse.json(
-      { error: "Report query failed", details: error.message },
+      { error: "Report query failed" },
       { status: 500 }
     );
   }

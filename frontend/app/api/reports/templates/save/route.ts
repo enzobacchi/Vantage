@@ -49,8 +49,9 @@ export async function POST(request: Request) {
     .single();
 
   if (error) {
+    console.error("[reports/templates/save] insert:", error.message);
     return NextResponse.json(
-      { error: "Failed to save report", details: error.message },
+      { error: "Failed to save report" },
       { status: 500 }
     );
   }

@@ -89,10 +89,9 @@ export async function POST(request: Request) {
     }
 
     if (!inserted?.id) {
-      const firstError = errors[0] ?? "Unknown error";
-      console.error("[reports/upload] All insert attempts failed");
+      console.error("[reports/upload] All insert attempts failed:", errors);
       return NextResponse.json(
-        { error: firstError, details: errors },
+        { error: "Failed to save uploaded report." },
         { status: 500 }
       );
     }
@@ -104,10 +103,9 @@ export async function POST(request: Request) {
       rowCount,
     });
   } catch (err) {
-    console.error("[reports/upload] Unexpected error:", err instanceof Error ? err.message : "Upload failed.");
-    const message = err instanceof Error ? err.message : "Upload failed.";
+    console.error("[reports/upload] Unexpected error:", err);
     return NextResponse.json(
-      { error: message, details: [String(err)] },
+      { error: "Upload failed." },
       { status: 500 }
     );
   }

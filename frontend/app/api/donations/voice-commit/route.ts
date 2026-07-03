@@ -80,7 +80,7 @@ export async function POST(request: Request) {
   const auth = await requireUserOrg()
   if (!auth.ok) return auth.response
 
-  const rl = checkRateLimit(`voice-commit:${auth.orgId}`, 30, 60_000)
+  const rl = await checkRateLimit(`voice-commit:${auth.orgId}`, 30, 60_000)
   if (rl.limited) return rateLimitResponse(rl.retryAfterMs)
 
   let body: unknown
@@ -167,8 +167,9 @@ export async function POST(request: Request) {
         })
       }
     } catch (e) {
+      console.error("[voice-commit] bulk insert:", e)
       return NextResponse.json(
-        { error: e instanceof Error ? e.message : "Bulk insert failed" },
+        { error: "Failed to save donations." },
         { status: 500 }
       )
     }

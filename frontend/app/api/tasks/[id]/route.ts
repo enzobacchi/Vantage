@@ -48,9 +48,9 @@ export async function PATCH(
 
     return NextResponse.json({ task });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Unknown error";
+    console.error("[tasks/[id]] PATCH:", e);
     return NextResponse.json(
-      { error: "Task update failed.", details: message },
+      { error: "Failed to update task." },
       { status: 500 }
     );
   }
@@ -86,9 +86,9 @@ export async function DELETE(
 
     return NextResponse.json({ ok: true });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Unknown error";
+    console.error("[tasks/[id]] DELETE:", e);
     return NextResponse.json(
-      { error: "Task delete failed.", details: message },
+      { error: "Failed to delete task." },
       { status: 500 }
     );
   }

@@ -28,9 +28,9 @@ export async function GET() {
 
     return NextResponse.json({ tasks: tasks ?? [] });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Unknown error";
+    console.error("[tasks] GET:", e);
     return NextResponse.json(
-      { error: "Tasks fetch failed.", details: message },
+      { error: "Failed to fetch tasks." },
       { status: 500 }
     );
   }
@@ -71,9 +71,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ task });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Unknown error";
+    console.error("[tasks] POST:", e);
     return NextResponse.json(
-      { error: "Task create failed.", details: message },
+      { error: "Failed to create task." },
       { status: 500 }
     );
   }

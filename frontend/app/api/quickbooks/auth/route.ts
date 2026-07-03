@@ -49,6 +49,19 @@ export async function GET(request: NextRequest) {
         path: "/",
         maxAge: 60 * 30, // 30 minutes
       });
+      // Explicit user consent to move a QB company that is already linked
+      // to another Vantage org (see callback realm-conflict guard).
+      if (request.nextUrl.searchParams.get("confirmRealmMove") === "1") {
+        res.cookies.set({
+          name: "qb_confirm_realm_move",
+          value: "1",
+          httpOnly: true,
+          sameSite: "lax",
+          secure: process.env.NODE_ENV === "production",
+          path: "/",
+          maxAge: 60 * 10, // 10 minutes
+        });
+      }
       return res;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);

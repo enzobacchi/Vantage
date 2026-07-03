@@ -9,6 +9,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { encrypt } from "@/lib/encryption";
 import { encryptQbToken } from "@/lib/quickbooks/token-crypto";
+import { logAuditEvent } from "@/lib/audit";
 
 export const runtime = "nodejs";
 
@@ -89,27 +90,69 @@ export async function GET(request: Request) {
       // instead of creating a second org via upsert-on-realm-id.
       const { data: membership } = await admin
         .from("organization_members")
-        .select("organization_id")
+        .select("organization_id, role")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
 
       if (membership?.organization_id) {
-        // Clear QB tokens from any other org that has this realm ID
-        // to avoid unique constraint violation on qb_realm_id.
+        // Realm-takeover guard (P2-D): if this QB company is already linked
+        // to a different Vantage org, moving it silently would cut off that
+        // org's sync. Require an explicit owner-confirmed reconnect.
         const { data: existingQbOrg } = await admin
           .from("organizations")
-          .select("id")
+          .select("id, name")
           .eq("qb_realm_id", realmId)
           .neq("id", membership.organization_id)
           .maybeSingle();
 
         if (existingQbOrg) {
+          const confirmedMove =
+            cookieStore.get("qb_confirm_realm_move")?.value === "1";
+          const isOwner = membership.role === "owner";
+
+          if (!confirmedMove || !isOwner) {
+            const forwardedHost = request.headers.get("x-forwarded-host");
+            const host = forwardedHost ?? request.headers.get("host") ?? url.host;
+            const forwardedProto = request.headers.get("x-forwarded-proto");
+            const proto = isLocalhostHost(host) ? "http" : (forwardedProto ?? "https");
+            const conflictUrl = new URL("/settings", `${proto}://${host}`);
+            conflictUrl.searchParams.set("tab", "integrations");
+            conflictUrl.searchParams.set(
+              "qb",
+              !isOwner && confirmedMove ? "realm_conflict_owner_only" : "realm_conflict"
+            );
+            const conflictRes = NextResponse.redirect(conflictUrl.toString());
+            conflictRes.cookies.delete("qb_oauth_state");
+            conflictRes.cookies.delete("qb_confirm_realm_move");
+            return conflictRes;
+          }
+
+          // Owner-confirmed move: release the realm from the other org,
+          // flag it for reconnect so its members see why sync stopped,
+          // and leave an audit trail in the acquiring org.
           await admin
             .from("organizations")
-            .update({ qb_realm_id: null, qb_access_token: null, qb_refresh_token: null })
+            .update({
+              qb_realm_id: null,
+              qb_access_token: null,
+              qb_refresh_token: null,
+              qb_needs_reconnect: true,
+              qb_last_sync_error:
+                "This QuickBooks company was reconnected to a different Vantage organization.",
+            })
             .eq("id", existingQbOrg.id);
+
+          await logAuditEvent({
+            orgId: membership.organization_id,
+            userId: user.id,
+            action: "quickbooks.realm_moved",
+            entityType: "organization",
+            entityId: existingQbOrg.id,
+            summary: `QuickBooks company (realm ${realmId}) moved from another organization after owner confirmation`,
+            details: { realm_id: realmId, previous_org_id: existingQbOrg.id },
+          });
         }
 
         const { error: updateError } = await admin
@@ -214,6 +257,7 @@ export async function GET(request: Request) {
     const res = NextResponse.redirect(redirectTo);
 
     res.cookies.delete("qb_oauth_state");
+    res.cookies.delete("qb_confirm_realm_move");
     if (!user?.id && orgId) {
       // Encrypt (AES-256-GCM) so the cookie can't be forged: only the browser
       // that actually completed this QB OAuth holds a valid token. link-pending-org

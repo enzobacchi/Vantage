@@ -165,6 +165,25 @@ export function SettingsIntegrations() {
   React.useEffect(() => {
     const qb = searchParams.get("qb")
     const realmId = searchParams.get("realmId")
+    if (qb === "realm_conflict") {
+      toast.warning("QuickBooks company already connected", {
+        description:
+          "This QuickBooks company is linked to another Vantage organization. Reconnecting here will stop its sync there.",
+        duration: 12000,
+        action: {
+          label: "Connect anyway",
+          onClick: () => {
+            window.location.href = "/api/quickbooks/auth?confirmRealmMove=1"
+          },
+        },
+      })
+    } else if (qb === "realm_conflict_owner_only") {
+      toast.error("Owner approval required", {
+        description:
+          "Only the organization owner can move a QuickBooks company that is connected to another organization.",
+        duration: 10000,
+      })
+    }
     if (qb === "connected" && realmId && !autoSyncTriggered.current) {
       autoSyncTriggered.current = true
       toast.success("Connected to QuickBooks", {

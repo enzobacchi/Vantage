@@ -22,7 +22,12 @@ import {
 } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
 
-type QBStatus = { connected: boolean; realmId?: string }
+type QBStatus = {
+  connected: boolean
+  realmId?: string
+  needsReconnect?: boolean
+  lastSyncError?: string | null
+}
 type GmailStatus = { connected: boolean; email?: string; needsReauth?: boolean }
 type SyncState =
   | { status: "idle" }
@@ -46,10 +51,17 @@ export function SettingsIntegrations() {
   const fetchStatus = React.useCallback(async () => {
     try {
       const res = await fetch("/api/quickbooks/status")
-      const data = (await res.json()) as { connected?: boolean; realmId?: string }
+      const data = (await res.json()) as {
+        connected?: boolean
+        realmId?: string
+        needsReconnect?: boolean
+        lastSyncError?: string | null
+      }
       setQbStatus({
         connected: !!data?.connected,
         realmId: data?.realmId ?? undefined,
+        needsReconnect: !!data?.needsReconnect,
+        lastSyncError: data?.lastSyncError ?? null,
       })
       if (data?.connected) {
         getQBWritebackEnabled().then(setWritebackEnabled).catch(() => {})
@@ -258,6 +270,20 @@ export function SettingsIntegrations() {
               </div>
             </div>
           )}
+          {qbStatus.needsReconnect && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2.5 text-sm dark:border-amber-400/30 dark:bg-amber-400/10">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" strokeWidth={1.5} />
+              <div className="flex-1 text-amber-700 dark:text-amber-300">
+                <p className="font-medium">QuickBooks connection expired</p>
+                <p className="mt-0.5 text-xs opacity-90">
+                  Your last sync failed because QuickBooks revoked access. Reconnect to resume importing donations and donors.
+                </p>
+                {qbStatus.lastSyncError && (
+                  <p className="mt-1 text-xs opacity-70">{qbStatus.lastSyncError}</p>
+                )}
+              </div>
+            </div>
+          )}
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="flex size-10 items-center justify-center rounded-lg bg-muted font-semibold text-sm">
@@ -266,19 +292,26 @@ export function SettingsIntegrations() {
               <div>
                 <div className="flex items-center gap-2">
                   <span className="font-medium">QuickBooks</span>
-                  <span
-                    className={qbStatus.connected ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}
-                    title={qbStatus.connected ? "Connected" : "Disconnected"}
-                  >
-                    <span className="inline-flex items-center gap-1.5">
-                      <span
-                        className={`size-2 rounded-full ${
-                          qbStatus.connected ? "bg-emerald-500" : "bg-gray-400 dark:bg-gray-500"
-                        }`}
-                      />
-                      {qbStatus.connected ? "Connected" : "Disconnected"}
+                  {qbStatus.needsReconnect ? (
+                    <span className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+                      <span className="size-2 rounded-full bg-amber-500" />
+                      Reconnect required
                     </span>
-                  </span>
+                  ) : (
+                    <span
+                      className={qbStatus.connected ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}
+                      title={qbStatus.connected ? "Connected" : "Disconnected"}
+                    >
+                      <span className="inline-flex items-center gap-1.5">
+                        <span
+                          className={`size-2 rounded-full ${
+                            qbStatus.connected ? "bg-emerald-500" : "bg-gray-400 dark:bg-gray-500"
+                          }`}
+                        />
+                        {qbStatus.connected ? "Connected" : "Disconnected"}
+                      </span>
+                    </span>
+                  )}
                 </div>
                 {qbStatus.connected && qbStatus.realmId && (
                   <p className="text-xs text-muted-foreground mt-0.5">Realm ID: {qbStatus.realmId}</p>
@@ -289,7 +322,9 @@ export function SettingsIntegrations() {
 
           <div className="flex flex-wrap gap-3">
             <Button asChild>
-              <Link href="/api/quickbooks/auth">Connect to QuickBooks</Link>
+              <Link href="/api/quickbooks/auth">
+                {qbStatus.needsReconnect ? "Reconnect QuickBooks" : "Connect to QuickBooks"}
+              </Link>
             </Button>
             <Button
               variant="outline"

@@ -1092,6 +1092,8 @@ export type Database = {
           onboarding_completed_at: string | null
           qb_access_token: string | null
           qb_donation_item_id: string | null
+          qb_last_sync_error: string | null
+          qb_needs_reconnect: boolean
           qb_realm_id: string | null
           qb_refresh_token: string | null
           qb_writeback_enabled: boolean
@@ -1111,6 +1113,8 @@ export type Database = {
           onboarding_completed_at?: string | null
           qb_access_token?: string | null
           qb_donation_item_id?: string | null
+          qb_last_sync_error?: string | null
+          qb_needs_reconnect?: boolean
           qb_realm_id?: string | null
           qb_refresh_token?: string | null
           qb_writeback_enabled?: boolean
@@ -1130,6 +1134,8 @@ export type Database = {
           onboarding_completed_at?: string | null
           qb_access_token?: string | null
           qb_donation_item_id?: string | null
+          qb_last_sync_error?: string | null
+          qb_needs_reconnect?: boolean
           qb_realm_id?: string | null
           qb_refresh_token?: string | null
           qb_writeback_enabled?: boolean

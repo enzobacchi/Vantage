@@ -19,9 +19,6 @@ export async function POST(request: Request) {
     const auth = await requireUserOrg();
     if (!auth.ok) return auth.response;
 
-    let file: File;
-    let titleInput: string | null = null;
-
     const formData = await request.formData();
     const f = formData.get("file");
     if (!f || !(f instanceof File)) {
@@ -30,9 +27,9 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    file = f;
+    const file: File = f;
     const t = formData.get("title");
-    titleInput = typeof t === "string" ? t.trim() || null : null;
+    const titleInput: string | null = typeof t === "string" ? t.trim() || null : null;
 
     if (file.size > MAX_CSV_BYTES) {
       return NextResponse.json(

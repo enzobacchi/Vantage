@@ -1,5 +1,5 @@
 'use client';
-import { type JSX } from 'react';
+import { useMemo, type JSX } from 'react';
 import { motion, Transition } from 'framer-motion';
 import { cn } from '@/lib/utils';
 
@@ -30,11 +30,13 @@ export function TextShimmerWave({
   rotateYDistance = 10,
   transition,
 }: TextShimmerWave) {
-  const MotionComponent = motion.create(
-    Component as keyof JSX.IntrinsicElements
+  const MotionComponent = useMemo(
+    () => motion.create(Component as keyof JSX.IntrinsicElements),
+    [Component]
   );
 
   return (
+    // eslint-disable-next-line react-hooks/static-components -- the dynamic `as` prop requires a render-time motion factory; memoized on Component above
     <MotionComponent
       className={cn(
         'relative inline-block [perspective:500px]',

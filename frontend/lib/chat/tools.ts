@@ -1569,10 +1569,10 @@ export function buildTools(
   if (!redactor) return rawTools
 
   // Wrap each tool's execute to redact PII from results before the LLM sees them.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const wrapped: Record<string, any> = {}
   for (const [name, t] of Object.entries(rawTools)) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const orig = t as any
     wrapped[name] = {
       ...orig,

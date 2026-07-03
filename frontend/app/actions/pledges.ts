@@ -33,7 +33,7 @@ export async function getPledges(): Promise<Pledge[]> {
   const pledgeIds = (data ?? []).map((p: any) => p.id)
 
   // Fetch linked donation totals
-  let paymentTotals: Record<string, { total: number; count: number }> = {}
+  const paymentTotals: Record<string, { total: number; count: number }> = {}
   if (pledgeIds.length > 0) {
     const { data: donations } = await supabase
       .from("donations")
@@ -84,7 +84,7 @@ export async function getDonorPledges(donorId: string): Promise<Pledge[]> {
 
   const pledgeIds = (data ?? []).map((p: any) => p.id)
 
-  let paymentTotals: Record<string, { total: number; count: number }> = {}
+  const paymentTotals: Record<string, { total: number; count: number }> = {}
   if (pledgeIds.length > 0) {
     const { data: donations } = await supabase
       .from("donations")

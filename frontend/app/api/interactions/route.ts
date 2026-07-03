@@ -9,7 +9,7 @@ export async function POST(request: Request) {
   const auth = await requireUserOrg();
   if (!auth.ok) return auth.response;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   let body: any;
   try {
     body = await request.json();

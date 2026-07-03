@@ -71,3 +71,4 @@ next-env.d.ts
 .pnpm-debug.log*
 .gstack/
 .env*
+.playwright-mcp/

@@ -4,7 +4,7 @@ import Link from "next/link"
 export const metadata: Metadata = {
   title: "API Documentation - Vantage",
   description:
-    "Vantage REST API v1 reference — read-only access to your organization's contacts and donations.",
+    "Vantage REST API v1 reference — read-only access to your organization's donors and donations.",
 }
 
 function Code({ children }: { children: React.ReactNode }) {
@@ -61,8 +61,8 @@ export default function ApiDocsPage() {
           Vantage REST API <span className="text-muted-foreground">v1</span>
         </h1>
         <p className="mb-10 text-sm text-muted-foreground">
-          Read-only access to your organization&apos;s contacts (donors) and
-          donations. Available on the Growth plan and above.
+          Read-only access to your organization&apos;s donors and donations.
+          Available on the Growth plan and above.
         </p>
 
         <div className="space-y-10 text-[15px] leading-relaxed text-foreground/90">
@@ -118,9 +118,9 @@ export default function ApiDocsPage() {
 
             <div className="space-y-3">
               <h3 className="font-mono text-base font-semibold text-foreground">
-                GET /api/v1/contacts
+                GET /api/v1/donors
               </h3>
-              <p>List contacts, newest first.</p>
+              <p>List donors, newest first.</p>
               <ParamTable
                 rows={[
                   [<Code key="e">email</Code>, "Exact match, case-insensitive"],
@@ -133,7 +133,7 @@ export default function ApiDocsPage() {
                 ]}
               />
               <p className="text-sm text-foreground/80">
-                Contact fields: <Code>id</Code>, <Code>external_id</Code>,{" "}
+                Donor fields: <Code>id</Code>, <Code>external_id</Code>,{" "}
                 <Code>display_name</Code>, <Code>first_name</Code>,{" "}
                 <Code>last_name</Code>, <Code>email</Code>, <Code>phone</Code>,{" "}
                 <Code>donor_type</Code>, billing and mailing address fields,{" "}
@@ -143,15 +143,15 @@ export default function ApiDocsPage() {
                 <Code>created_at</Code>.
               </p>
               <CodeBlock>{`curl -H "Authorization: Bearer vk_live_..." \\
-  "https://app.vantagedonorai.com/api/v1/contacts?email=donor@example.com"`}</CodeBlock>
+  "https://app.vantagedonorai.com/api/v1/donors?email=donor@example.com"`}</CodeBlock>
             </div>
 
             <div className="space-y-3 pt-2">
               <h3 className="font-mono text-base font-semibold text-foreground">
-                GET /api/v1/contacts/:id
+                GET /api/v1/donors/:id
               </h3>
               <p>
-                Fetch a single contact by Vantage id (the UUID in donor profile
+                Fetch a single donor by Vantage id (the UUID in donor profile
                 URLs).
               </p>
             </div>
@@ -163,7 +163,7 @@ export default function ApiDocsPage() {
               <p>List donations, newest first.</p>
               <ParamTable
                 rows={[
-                  [<Code key="d">donor_id</Code>, "Filter to one contact (UUID)"],
+                  [<Code key="d">donor_id</Code>, "Filter to one donor (UUID)"],
                   [
                     <span key="r" className="whitespace-nowrap">
                       <Code>date_from</Code> / <Code>date_to</Code>
@@ -188,6 +188,20 @@ export default function ApiDocsPage() {
               <CodeBlock>{`curl -H "Authorization: Bearer vk_live_..." \\
   "https://app.vantagedonorai.com/api/v1/donations?donor_id=<uuid>&date_from=2026-01-01"`}</CodeBlock>
             </div>
+
+            <div className="space-y-3 pt-2">
+              <h3 className="text-base font-semibold text-foreground">
+                Deprecated alias
+              </h3>
+              <p className="text-sm text-foreground/80">
+                <Code>/api/v1/contacts</Code> and{" "}
+                <Code>/api/v1/contacts/:id</Code> are deprecated aliases for{" "}
+                <Code>/api/v1/donors</Code> and <Code>/api/v1/donors/:id</Code>{" "}
+                &mdash; same authentication, query parameters, and response
+                shapes. Existing integrations keep working unchanged; new
+                integrations should use <Code>/api/v1/donors</Code>.
+              </p>
+            </div>
           </section>
 
           <section className="space-y-3">
@@ -198,7 +212,7 @@ export default function ApiDocsPage() {
               <li>A user logs into your site and verifies their email.</li>
               <li>
                 Your server calls{" "}
-                <Code>GET /api/v1/contacts?email=&lt;their email&gt;</Code>.
+                <Code>GET /api/v1/donors?email=&lt;their email&gt;</Code>.
               </li>
               <li>
                 Use the returned <Code>id</Code> to fetch giving history via{" "}
@@ -210,7 +224,7 @@ export default function ApiDocsPage() {
           <section className="space-y-3">
             <h2 className="text-xl font-semibold text-foreground">Roadmap</h2>
             <p>
-              Write endpoints (create/update contacts and donations) are planned.
+              Write endpoints (create/update donors and donations) are planned.
               Current keys carry a <Code>read</Code> scope and will keep working
               unchanged.
             </p>

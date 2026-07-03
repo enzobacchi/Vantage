@@ -7,6 +7,12 @@ import { savedReportsQuery } from "@/lib/supabase/scoped";
 export const runtime = "nodejs";
 
 export async function GET() {
+  // Debug-only endpoint: probing column names discloses schema details.
+  // Never reachable in production (security audit).
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   const auth = await requireUserOrg();
   if (!auth.ok) return auth.response;
 
@@ -46,11 +52,14 @@ export async function GET() {
 
   // Also check if selecting a typical projection works (helps confirm table access).
   const sanity = await savedReportsQuery(supabase, orgId).select("id").limit(1);
+  if (sanity.error) {
+    console.error("[reports/schema] sanity check:", sanity.error.message);
+  }
 
   return NextResponse.json({
     exists,
     missing: missing.slice(0, 5), // keep output small
-    sanityError: sanity.error?.message ?? null,
+    sanityError: sanity.error ? "Query failed" : null,
   });
 }
 

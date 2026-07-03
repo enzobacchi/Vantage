@@ -20,10 +20,13 @@ const RATE_LIMIT_WINDOW_MS = 60_000; // per minute, per key (per instance)
 export const API_PAGE_DEFAULT = 25;
 export const API_PAGE_MAX = 100;
 
-// Explicit contact field list — never select *. Excludes embedding,
+// Explicit donor field list — never select *. Excludes embedding,
 // assigned_to, notes, and internal scoring.
-export const CONTACT_FIELDS =
+export const DONOR_FIELDS =
   "id, external_id, display_name, first_name, last_name, email, phone, donor_type, billing_address, city, state, zip, mailing_address, mailing_city, mailing_state, mailing_zip, custom_fields, qb_customer_id, total_lifetime_value, last_donation_date, last_donation_amount, created_at";
+
+/** @deprecated Use DONOR_FIELDS — `/api/v1/contacts` is a deprecated alias for `/api/v1/donors`. */
+export const CONTACT_FIELDS = DONOR_FIELDS;
 
 export type ApiV1Context = {
   orgId: string;
@@ -72,7 +75,7 @@ export function withApiV1(
         );
       }
 
-      const limited = checkRateLimit(
+      const limited = await checkRateLimit(
         `apikey:${auth.keyId}`,
         RATE_LIMIT_MAX,
         RATE_LIMIT_WINDOW_MS

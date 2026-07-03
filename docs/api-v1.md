@@ -1,6 +1,6 @@
 # Vantage REST API v1
 
-Read-only access to your organization's contacts (donors) and donations.
+Read-only access to your organization's donors and donations.
 Available on the Growth plan and above.
 
 ## Authentication
@@ -30,9 +30,9 @@ Settings — revoked keys fail immediately with `401`.
 
 ## Endpoints
 
-### `GET /api/v1/contacts`
+### `GET /api/v1/donors`
 
-List contacts, newest first.
+List donors, newest first.
 
 | Query param | Description |
 |---|---|
@@ -41,7 +41,7 @@ List contacts, newest first.
 | `limit` | Page size (1–100, default 25) |
 | `cursor` | Opaque cursor from the previous page |
 
-Contact fields: `id`, `external_id`, `display_name`, `first_name`,
+Donor fields: `id`, `external_id`, `display_name`, `first_name`,
 `last_name`, `email`, `phone`, `donor_type`, `billing_address`, `city`,
 `state`, `zip`, `mailing_address`, `mailing_city`, `mailing_state`,
 `mailing_zip`, `custom_fields` (object keyed by custom-field key),
@@ -50,12 +50,12 @@ Contact fields: `id`, `external_id`, `display_name`, `first_name`,
 
 ```bash
 curl -H "Authorization: Bearer vk_live_..." \
-  "https://app.vantagedonorai.com/api/v1/contacts?email=donor@example.com"
+  "https://app.vantagedonorai.com/api/v1/donors?email=donor@example.com"
 ```
 
-### `GET /api/v1/contacts/:id`
+### `GET /api/v1/donors/:id`
 
-Fetch a single contact by Vantage id (the UUID in donor profile URLs).
+Fetch a single donor by Vantage id (the UUID in donor profile URLs).
 
 ### `GET /api/v1/donations`
 
@@ -63,7 +63,7 @@ List donations, newest first.
 
 | Query param | Description |
 |---|---|
-| `donor_id` | Filter to one contact (UUID) |
+| `donor_id` | Filter to one donor (UUID) |
 | `date_from` / `date_to` | Inclusive `YYYY-MM-DD` range on the gift date |
 | `limit` / `cursor` | Pagination, as above |
 
@@ -76,10 +76,16 @@ curl -H "Authorization: Bearer vk_live_..." \
   "https://app.vantagedonorai.com/api/v1/donations?donor_id=<uuid>&date_from=2026-01-01"
 ```
 
+### Deprecated: `GET /api/v1/contacts` and `GET /api/v1/contacts/:id`
+
+`/api/v1/contacts` is a deprecated alias for `/api/v1/donors` — same
+authentication, query parameters, and response shapes. Existing integrations
+keep working unchanged, but new integrations should use `/api/v1/donors`.
+
 ## Typical integration: website customer lookup
 
 1. User logs into your site and verifies their email.
-2. Your server calls `GET /api/v1/contacts?email=<their email>`.
+2. Your server calls `GET /api/v1/donors?email=<their email>`.
 3. Use the returned `id` to fetch giving history via
    `GET /api/v1/donations?donor_id=<id>`.
 
@@ -87,5 +93,5 @@ Keep your API key server-side — never embed it in client-side code.
 
 ## Roadmap
 
-Write endpoints (create/update contacts and donations) are planned; current
+Write endpoints (create/update donors and donations) are planned; current
 keys carry a `read` scope and will keep working unchanged.

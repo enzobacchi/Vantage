@@ -16,6 +16,7 @@ import { NavProvider } from "@/components/nav-context"
 import { OnboardingWizard } from "@/components/onboarding-wizard"
 import { TosAcceptanceDialog } from "@/components/tos-acceptance-dialog"
 import { StripeCheckoutLinker } from "@/components/stripe-checkout-linker"
+import { QuickBooksReconnectBanner } from "@/components/quickbooks-reconnect-banner"
 import { UsageAlertBanner } from "@/components/usage-alert-banner"
 import {
   SidebarInset,
@@ -68,6 +69,7 @@ export default function DashboardShell({
           <AppSidebar />
           <SidebarInset>
             <AppHeader />
+            <QuickBooksReconnectBanner />
             <UsageAlertBanner />
             <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-background">
               {children}

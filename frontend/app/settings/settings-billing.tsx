@@ -167,6 +167,13 @@ export function SettingsBilling() {
     ? Math.max(0, Math.ceil((new Date(sub.trialEndsAt).getTime() - Date.now()) / 86_400_000))
     : null
 
+  // "Locked" = the app is gated (proxy redirects the user here): an expired
+  // trial, or any non-active/non-trialing status (canceled, past_due, unpaid).
+  const isTrialExpired =
+    sub.status === "trialing" && !!sub.trialEndsAt && new Date(sub.trialEndsAt).getTime() < Date.now()
+  const isInactive = sub.status !== "active" && sub.status !== "trialing"
+  const isLocked = isTrialExpired || isInactive
+
   // Usage alert thresholds
   const donorPct = limits.maxDonors > 0 ? Math.round((usage.donors / limits.maxDonors) * 100) : 0
   const aiPct = limits.maxAiInsightsPerMonth > 0 ? Math.round((usage.aiInsights / limits.maxAiInsightsPerMonth) * 100) : 0
@@ -192,6 +199,38 @@ export function SettingsBilling() {
           Manage your subscription, plan limits, and payment methods.
         </p>
       </div>
+
+      {/* Locked state — the app is gated to this page until they subscribe */}
+      {isLocked && (
+        <Card className="max-w-2xl border-amber-500/40 bg-amber-500/5 dark:border-amber-400/30 dark:bg-amber-400/10">
+          <CardContent className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                <AlertTriangle className="size-5" strokeWidth={1.5} />
+              </div>
+              <div>
+                <h4 className="text-base font-semibold text-amber-800 dark:text-amber-200">
+                  {isTrialExpired ? "Your free trial has ended" : "Your subscription is inactive"}
+                </h4>
+                <p className="mt-0.5 text-sm text-amber-700/90 dark:text-amber-300/90">
+                  Choose a plan below to restore access to your donors, reports, and AI
+                  features. Your data is safe and waiting.
+                </p>
+              </div>
+            </div>
+            <Button
+              className="shrink-0"
+              onClick={() =>
+                document
+                  .getElementById("plan-comparison")
+                  ?.scrollIntoView({ behavior: "smooth" })
+              }
+            >
+              Choose a plan
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Current plan card */}
       <Card className="max-w-2xl">

@@ -82,6 +82,15 @@ type QBCustomer = {
   };
 };
 
+type QBSalesReceiptLine = {
+  Amount?: number;
+  DetailType?: string;
+  SalesItemLineDetail?: {
+    ItemRef?: { value?: string; name?: string };
+    ClassRef?: { value?: string; name?: string };
+  };
+};
+
 type QBSalesReceipt = {
   Id?: string;
   TxnDate?: string;
@@ -90,6 +99,7 @@ type QBSalesReceipt = {
   PaymentMethodRef?: { value?: string; name?: string };
   PrivateNote?: string;
   DocNumber?: string;
+  Line?: QBSalesReceiptLine[];
 };
 
 type QBInvoice = {
@@ -162,6 +172,28 @@ function normalizePaymentMethod(qbMethod: string | null | undefined): string {
   if (lower.includes("online") || lower.includes("stripe")) return "online";
   if (lower.includes("daf") || lower.includes("donor advised")) return "daf";
   return "other";
+}
+
+/**
+ * Extract the donor's fund/designation from a QB Sales Receipt.
+ * QuickBooks records the chosen fund as the Product/Service item on each
+ * line (or, less commonly, a Class). For multi-line receipts we treat the
+ * largest line as the primary fund. Returns null when no nameable item exists.
+ */
+function extractFundName(receipt: QBSalesReceipt): string | null {
+  const lines = (receipt.Line ?? []).filter(
+    (l) => l?.DetailType === "SalesItemLineDetail" && l.SalesItemLineDetail
+  );
+  let best: { name: string; amount: number } | null = null;
+  for (const l of lines) {
+    const detail = l.SalesItemLineDetail!;
+    const name =
+      detail.ItemRef?.name?.trim() || detail.ClassRef?.name?.trim() || "";
+    if (!name) continue;
+    const amount = parseAmount(l.Amount) ?? 0;
+    if (!best || amount > best.amount) best = { name, amount };
+  }
+  return best?.name ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -730,6 +762,58 @@ export async function runSyncForOrg(
         }
       }
 
+      // --- Resolve fund designations from receipt line items ---
+      // QuickBooks stores the donor's chosen fund as the Product/Service item
+      // (or Class) on each receipt line. Map those names to
+      // org_donation_options(type='fund') so designations flow into Vantage,
+      // auto-creating any fund the org hasn't defined yet — so a new fund on
+      // the donation form just works without manual setup first.
+      const fundIdByName = new Map<string, string>(); // lower(name) -> option id
+      {
+        const { data: existingFunds } = await supabase
+          .from("org_donation_options")
+          .select("id, name")
+          .eq("org_id", orgId)
+          .eq("type", "fund");
+        for (const o of (existingFunds ?? []) as { id: string; name: string }[]) {
+          fundIdByName.set(o.name.toLowerCase().trim(), o.id);
+        }
+
+        // Distinct fund names seen on these receipts but not yet defined.
+        const newFundNames = new Map<string, string>(); // lower(name) -> original
+        for (const r of receipts) {
+          const fundName = extractFundName(r);
+          if (!fundName) continue;
+          const key = fundName.toLowerCase().trim();
+          if (!fundIdByName.has(key) && !newFundNames.has(key)) {
+            newFundNames.set(key, fundName);
+          }
+        }
+
+        if (newFundNames.size > 0) {
+          // Insert new funds; tolerate races with a concurrent sync (the
+          // (org_id, type, lower(name)) unique index may reject duplicates).
+          await supabase.from("org_donation_options").insert(
+            Array.from(newFundNames.values()).map((name) => ({
+              org_id: orgId,
+              type: "fund",
+              name,
+            }))
+          );
+          // Re-read so the map reflects what actually exists, regardless of
+          // which rows this sync vs. a concurrent one created.
+          const { data: allFunds } = await supabase
+            .from("org_donation_options")
+            .select("id, name")
+            .eq("org_id", orgId)
+            .eq("type", "fund");
+          fundIdByName.clear();
+          for (const o of (allFunds ?? []) as { id: string; name: string }[]) {
+            fundIdByName.set(o.name.toLowerCase().trim(), o.id);
+          }
+        }
+      }
+
       // Build donation records from receipts
       const donationsToUpsert: Array<Record<string, unknown>> = [];
       for (const r of receipts) {
@@ -776,6 +860,11 @@ export async function runSyncForOrg(
         // donation rows on re-sync.
         const memo = `qb_sales_receipt_id:${receiptId}`;
 
+        const fundName = extractFundName(r);
+        const fundId = fundName
+          ? fundIdByName.get(fundName.toLowerCase().trim()) ?? null
+          : null;
+
         donationsToUpsert.push({
           org_id: orgId,
           donor_id: donorId,
@@ -786,6 +875,7 @@ export async function runSyncForOrg(
           source: "quickbooks",
           qb_id: receiptId || null,
           qb_txn_type: receiptId ? "SalesReceipt" : null,
+          fund_id: fundId,
         });
       }
 
@@ -921,11 +1011,15 @@ export async function runSyncForOrg(
       }
     }
 
-    // --- Persist last sync time ---
+    // --- Persist last sync time; clear any prior connection-health flag ---
     const nowIso = new Date().toISOString();
     await supabase
       .from("organizations")
-      .update({ last_synced_at: nowIso })
+      .update({
+        last_synced_at: nowIso,
+        qb_needs_reconnect: false,
+        qb_last_sync_error: null,
+      })
       .eq("id", orgId);
 
     return {
@@ -948,6 +1042,26 @@ export async function runSyncForOrg(
   } catch (e) {
     if (e instanceof QBApiError) {
       console.error("[Sync] QB API error:", e.message, e.status, e.body);
+
+      // A 401 / AuthorizationFault that survives the token-refresh retry means
+      // Intuit has revoked the realm's grant — refresh may still succeed while
+      // every query is denied, so tokens are never cleared. Flag the org so the
+      // UI can prompt a reconnect instead of falsely showing "Connected".
+      const body = e.body ?? "";
+      const looksLikeAuthFailure =
+        e.status === 401 ||
+        /AuthorizationFailure|AuthenticationFailed|AuthorizationFault/i.test(body);
+      if (looksLikeAuthFailure) {
+        await supabase
+          .from("organizations")
+          .update({
+            qb_needs_reconnect: true,
+            qb_last_sync_error: e.message,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", orgId);
+      }
+
       return { error: "Sync failed (QuickBooks API error).", status: 502 };
     }
 
@@ -974,6 +1088,9 @@ export async function runSyncForOrg(
           .update({
             qb_access_token: null,
             qb_refresh_token: null,
+            qb_needs_reconnect: true,
+            qb_last_sync_error:
+              "QuickBooks connection expired or was revoked. Please reconnect QuickBooks in Settings.",
             updated_at: new Date().toISOString(),
           })
           .eq("id", orgId);

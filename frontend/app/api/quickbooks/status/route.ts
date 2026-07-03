@@ -16,7 +16,7 @@ export async function GET() {
     const supabase = createAdminClient();
     const { data: org, error } = await supabase
       .from("organizations")
-      .select("qb_realm_id,qb_refresh_token")
+      .select("qb_realm_id,qb_refresh_token,qb_needs_reconnect,qb_last_sync_error,last_synced_at")
       .eq("id", auth.orgId)
       .maybeSingle();
 
@@ -40,8 +40,15 @@ export async function GET() {
     }
 
     const connected = !!(org?.qb_realm_id && org?.qb_refresh_token);
+    // A connection can be present (tokens stored) yet broken (Intuit revoked the
+    // grant). Surface that so the UI prompts a reconnect instead of showing a
+    // green "Connected".
+    const needsReconnect = connected && !!org?.qb_needs_reconnect;
     return NextResponse.json({
       connected,
+      needsReconnect,
+      lastSyncError: needsReconnect ? org?.qb_last_sync_error ?? null : null,
+      lastSyncedAt: org?.last_synced_at ?? null,
       realmId: org?.qb_realm_id ?? undefined,
     });
   } catch (e) {

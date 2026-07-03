@@ -32,6 +32,87 @@ export async function POST(req: NextRequest) {
 
   const admin = createAdminClient()
 
+  // Idempotency claim: the first delivery of an event wins; Stripe retries
+  // and duplicate deliveries become no-ops. If processing below throws, the
+  // claim is released so Stripe's retry can reprocess.
+  const { error: claimError } = await admin.from("stripe_webhook_events").insert({
+    event_id: event.id,
+    event_type: event.type,
+    stripe_subscription_id: extractSubscriptionId(event),
+    event_created: new Date(event.created * 1000).toISOString(),
+  })
+  if (claimError) {
+    if (claimError.code === "23505") {
+      return NextResponse.json({ received: true, duplicate: true })
+    }
+    if (claimError.code === "42P01") {
+      // Table not provisioned yet (migration pending) — process without
+      // idempotency protection rather than dropping billing events.
+      console.warn(
+        "[Stripe webhook] stripe_webhook_events table missing — run migration 20260702000001. Processing without dedup."
+      )
+    } else {
+      console.error("[Stripe webhook] event claim failed:", claimError.message)
+      return NextResponse.json({ error: "Event store unavailable" }, { status: 500 })
+    }
+  }
+
+  try {
+    await handleEvent(event, admin)
+  } catch (e) {
+    console.error(`[Stripe webhook] processing failed for ${event.id} (${event.type}):`, e)
+    await admin.from("stripe_webhook_events").delete().eq("event_id", event.id)
+    return NextResponse.json({ error: "Processing failed" }, { status: 500 })
+  }
+
+  return NextResponse.json({ received: true })
+}
+
+/** Plans a webhook is allowed to write. Anything else is ignored (defense vs forged metadata). */
+const VALID_WEBHOOK_PLANS: SubscriptionPlan[] = ["essentials", "growth", "pro"]
+
+function sanitizePlanId(planId: string | undefined): SubscriptionPlan | undefined {
+  return VALID_WEBHOOK_PLANS.includes(planId as SubscriptionPlan)
+    ? (planId as SubscriptionPlan)
+    : undefined
+}
+
+/** Pull the Stripe subscription id out of the event payload, if any. */
+function extractSubscriptionId(event: Stripe.Event): string | null {
+  const obj = event.data.object as unknown as Record<string, unknown>
+  if (event.type.startsWith("customer.subscription.")) {
+    return typeof obj.id === "string" ? obj.id : null
+  }
+  if (event.type.startsWith("checkout.session.")) {
+    return typeof obj.subscription === "string" ? obj.subscription : null
+  }
+  return null
+}
+
+/**
+ * True when a newer subscription lifecycle event for the same subscription
+ * was already processed — the delayed event must not overwrite newer state
+ * (e.g. an `updated` arriving after `deleted` would resurrect a canceled sub).
+ */
+async function isStaleSubscriptionEvent(
+  admin: ReturnType<typeof createAdminClient>,
+  event: Stripe.Event,
+  stripeSubId: string
+): Promise<boolean> {
+  const { data } = await admin
+    .from("stripe_webhook_events")
+    .select("event_id")
+    .eq("stripe_subscription_id", stripeSubId)
+    .in("event_type", ["customer.subscription.updated", "customer.subscription.deleted"])
+    .neq("event_id", event.id)
+    .gt("event_created", new Date(event.created * 1000).toISOString())
+    .limit(1)
+  return (data?.length ?? 0) > 0
+}
+
+async function handleEvent(event: Stripe.Event, admin: ReturnType<typeof createAdminClient>) {
+  const stripe = getStripe()
+
   switch (event.type) {
     // Checkout completed — create or update subscription record.
     // For in-app checkout, org_id is in metadata. For Payment Link purchases
@@ -40,7 +121,7 @@ export async function POST(req: NextRequest) {
     case "checkout.session.completed": {
       const session = event.data.object as Stripe.Checkout.Session
       const orgId = session.metadata?.org_id
-      const planId = session.metadata?.plan_id as SubscriptionPlan | undefined
+      const planId = sanitizePlanId(session.metadata?.plan_id)
       const stripeSubId = typeof session.subscription === "string" ? session.subscription : null
 
       // No org_id means this is a Payment Link purchase — skip, the signup
@@ -79,8 +160,9 @@ export async function POST(req: NextRequest) {
     // as a fallback (covers edge cases where metadata wasn't stamped yet).
     case "customer.subscription.updated": {
       const sub = event.data.object as Stripe.Subscription
+      if (await isStaleSubscriptionEvent(admin, event, sub.id)) break
       let orgId = sub.metadata?.org_id
-      const planId = sub.metadata?.plan_id as SubscriptionPlan | undefined
+      const planId = sanitizePlanId(sub.metadata?.plan_id)
 
       // Fallback: look up org by stripe_subscription_id
       if (!orgId) {
@@ -115,6 +197,7 @@ export async function POST(req: NextRequest) {
     // Subscription canceled/deleted
     case "customer.subscription.deleted": {
       const sub = event.data.object as Stripe.Subscription
+      if (await isStaleSubscriptionEvent(admin, event, sub.id)) break
       let orgId = sub.metadata?.org_id
 
       // Fallback: look up org by stripe_subscription_id
@@ -168,8 +251,6 @@ export async function POST(req: NextRequest) {
       break
     }
   }
-
-  return NextResponse.json({ received: true })
 }
 
 // ---------------------------------------------------------------------------

@@ -1438,6 +1438,30 @@ export type Database = {
           },
         ]
       }
+      stripe_webhook_events: {
+        Row: {
+          event_id: string
+          event_type: string
+          stripe_subscription_id: string | null
+          event_created: string
+          processed_at: string
+        }
+        Insert: {
+          event_id: string
+          event_type: string
+          stripe_subscription_id?: string | null
+          event_created: string
+          processed_at?: string
+        }
+        Update: {
+          event_id?: string
+          event_type?: string
+          stripe_subscription_id?: string | null
+          event_created?: string
+          processed_at?: string
+        }
+        Relationships: []
+      }
       subscription_usage: {
         Row: {
           count: number

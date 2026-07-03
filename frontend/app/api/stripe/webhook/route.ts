@@ -12,7 +12,7 @@ import Stripe from "stripe"
  */
 export async function POST(req: NextRequest) {
   const stripe = getStripe()
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim()
   if (!webhookSecret) {
     return NextResponse.json({ error: "Webhook secret not configured" }, { status: 500 })
   }

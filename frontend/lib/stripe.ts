@@ -5,7 +5,10 @@ function getStripeEnv() {
   if (!secretKey) {
     throw new Error("Missing STRIPE_SECRET_KEY env var.")
   }
-  return secretKey
+  // Trim stray whitespace/newlines. A trailing newline from a pasted env var
+  // value poisons the "Authorization: Bearer <key>" header and makes every
+  // Stripe call throw ERR_INVALID_CHAR (Invalid character in header content).
+  return secretKey.trim()
 }
 
 let _stripe: Stripe | null = null

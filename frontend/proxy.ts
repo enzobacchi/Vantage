@@ -58,12 +58,58 @@ function applySecurityHeaders(response: NextResponse): void {
   )
 }
 
+// API route prefixes that must keep working even when a subscription is
+// inactive — so the user can still pay/manage billing, reconnect integrations,
+// and so webhooks/cron keep flowing.
+const BILLING_EXEMPT_API = [
+  "/api/stripe/", // checkout, portal, status, webhook
+  "/api/cron/", // scheduled jobs (authenticated via CRON_SECRET)
+  "/api/quickbooks/", // OAuth connect + callback
+  "/api/auth/", // auth callbacks
+]
+
+/**
+ * Mirror of lib/auth.ts pickBestMembership: prefer a multi-member (real shared)
+ * org over a solo auto-created placeholder, so plan gating scopes to the same
+ * org the rest of the app uses. Returns null when the user has no membership.
+ */
+async function pickGatingOrgId(
+  admin: ReturnType<typeof createServerClient>,
+  userId: string
+): Promise<string | null> {
+  const { data: members } = await admin
+    .from("organization_members")
+    .select("organization_id")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+
+  if (!members || members.length === 0) return null
+
+  const orgIds = members.map((m: { organization_id: string }) => m.organization_id)
+  const { data: allMembers } = await admin
+    .from("organization_members")
+    .select("organization_id")
+    .in("organization_id", orgIds)
+
+  const countByOrg = new Map<string, number>()
+  for (const row of allMembers ?? []) {
+    countByOrg.set(row.organization_id, (countByOrg.get(row.organization_id) ?? 0) + 1)
+  }
+
+  // Prefer a multi-member org (in recency order), else fall back to most recent.
+  for (const m of members) {
+    if ((countByOrg.get(m.organization_id) ?? 0) > 1) return m.organization_id
+  }
+  return members[0].organization_id
+}
+
 /**
  * Next.js 16 proxy (replaces deprecated middleware).
  * 1. CSRF protection — validates Origin on state-changing API requests.
  * 2. Security headers — CSP, HSTS, X-Frame-Options, etc.
  * 3. Refreshes the Supabase auth session on every request.
- * 4. Plan gating — redirects to billing settings when subscription is expired/canceled.
+ * 4. Plan gating — blocks the app (page redirect + 402 on data APIs) when the
+ *    trial has expired or the subscription is inactive; billing/auth stay open.
  */
 export async function proxy(request: NextRequest) {
   const { method, nextUrl } = request
@@ -117,14 +163,20 @@ export async function proxy(request: NextRequest) {
 
   // --- Plan gating (skip in development) ---
   const isDev = process.env.NODE_ENV === "development"
-  if (
-    !isDev &&
-    user &&
+  const isApiRoute = pathname.startsWith("/api/")
+
+  const isGateablePage =
+    !isApiRoute &&
     !isPublicPath(pathname) &&
-    !pathname.startsWith("/api/") &&
     !pathname.startsWith("/_next/") &&
     !pathname.includes(".")
-  ) {
+
+  // Gate data APIs too (defense-in-depth for direct web calls), except the
+  // billing/auth/webhook/cron endpoints the user still needs while locked out.
+  const isGateableApi =
+    isApiRoute && !BILLING_EXEMPT_API.some((p) => pathname.startsWith(p))
+
+  if (!isDev && user && (isGateablePage || isGateableApi)) {
     // Use service role to check subscription (bypasses RLS)
     const admin = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -137,35 +189,41 @@ export async function proxy(request: NextRequest) {
       }
     )
 
-    const { data: member } = await admin
-      .from("organization_members")
-      .select("organization_id")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle()
+    const orgId = await pickGatingOrgId(admin, user.id)
 
-    if (member?.organization_id) {
+    if (orgId) {
       const { data: sub } = await admin
         .from("subscriptions")
         .select("status, trial_ends_at")
-        .eq("org_id", member.organization_id)
+        .eq("org_id", orgId)
         .single()
 
       if (sub) {
-        let shouldRedirect = false
+        let shouldBlock = false
 
         // Expired trial
         if (sub.status === "trialing" && sub.trial_ends_at) {
-          shouldRedirect = new Date(sub.trial_ends_at) < new Date()
+          shouldBlock = new Date(sub.trial_ends_at) < new Date()
         }
 
         // Inactive subscription (canceled, past_due, unpaid)
         if (sub.status !== "active" && sub.status !== "trialing") {
-          shouldRedirect = true
+          shouldBlock = true
         }
 
-        if (shouldRedirect) {
+        if (shouldBlock) {
+          if (isApiRoute) {
+            const res = NextResponse.json(
+              {
+                error: "subscription_required",
+                message:
+                  "Your trial has ended. Choose a plan in Settings → Billing to continue.",
+              },
+              { status: 402 }
+            )
+            applySecurityHeaders(res)
+            return res
+          }
           const billingUrl = new URL("/settings?tab=billing", request.url)
           return NextResponse.redirect(billingUrl)
         }

@@ -9,6 +9,7 @@ export const runtime = "nodejs"
 export const maxDuration = 60
 
 const MAX_BYTES = 25 * 1024 * 1024 // OpenAI Whisper limit
+const MAX_DURATION_SEC = 5 * 60 // Cap recordings at 5 minutes to bound Whisper cost
 
 export async function POST(request: Request) {
   if (process.env.TRANSCRIBE_ENABLED !== "true") {
@@ -24,7 +25,7 @@ export async function POST(request: Request) {
   const auth = await requireUserOrg()
   if (!auth.ok) return auth.response
 
-  const rl = checkRateLimit(`transcribe:${auth.orgId}`, 20, 60_000)
+  const rl = await checkRateLimit(`transcribe:${auth.orgId}`, 20, 60_000)
   if (rl.limited) return rateLimitResponse(rl.retryAfterMs)
 
   const apiKey = process.env.OPENAI_API_KEY
@@ -60,6 +61,19 @@ export async function POST(request: Request) {
       { error: "Audio file exceeds 25 MB limit." },
       { status: 413 },
     )
+  }
+
+  // If the client reports a recording duration (in seconds), enforce the cap
+  // server-side too. The size check above is the hard backstop.
+  const durationRaw = form.get("duration")
+  if (typeof durationRaw === "string" && durationRaw.trim() !== "") {
+    const durationSec = Number(durationRaw)
+    if (Number.isFinite(durationSec) && durationSec > MAX_DURATION_SEC) {
+      return NextResponse.json(
+        { error: "Audio exceeds the 5 minute limit." },
+        { status: 413 },
+      )
+    }
   }
 
   const whisperForm = new FormData()

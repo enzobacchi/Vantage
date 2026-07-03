@@ -69,7 +69,7 @@ export async function POST(request: Request) {
   if (!auth.ok) return auth.response
 
   // Rate limit: 30 chat messages per org per minute
-  const rl = checkRateLimit(`chat:${auth.orgId}`, 30, 60_000)
+  const rl = await checkRateLimit(`chat:${auth.orgId}`, 30, 60_000)
   if (rl.limited) return rateLimitResponse(rl.retryAfterMs)
 
   // Monthly per-plan chat cap (stacked on top of the minute-rate limit).

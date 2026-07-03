@@ -18,7 +18,7 @@ export async function GET(
   const { id: donorId } = await params
 
   // Rate limit: 20 insight requests per org per minute
-  const rl = checkRateLimit(`insights:${orgId}`, 20, 60_000)
+  const rl = await checkRateLimit(`insights:${orgId}`, 20, 60_000)
   if (rl.limited) return rateLimitResponse(rl.retryAfterMs)
 
   // Check AI usage limit before proceeding

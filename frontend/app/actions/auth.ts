@@ -16,7 +16,7 @@ export async function sendPasswordResetEmail(
   // This endpoint is public (pre-auth). Throttle per email address so it can't
   // be used to spam-bomb reset emails to an arbitrary inbox. Always returns the
   // generic success shape so it never reveals whether the account exists.
-  const rl = checkRateLimit(`pwreset:${trimmed}`, 3, 60 * 60 * 1000)
+  const rl = await checkRateLimit(`pwreset:${trimmed}`, 3, 60 * 60 * 1000)
   if (rl.limited) return {}
 
   const apiKey = process.env.RESEND_API_KEY

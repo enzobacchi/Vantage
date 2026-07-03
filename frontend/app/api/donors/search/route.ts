@@ -17,7 +17,7 @@ export async function GET(request: Request) {
   if (!auth.ok) return auth.response;
 
   // Rate limit: 60 searches per org per minute
-  const rl = checkRateLimit(`search:${auth.orgId}`, 60, 60_000);
+  const rl = await checkRateLimit(`search:${auth.orgId}`, 60, 60_000);
   if (rl.limited) return rateLimitResponse(rl.retryAfterMs);
 
   const { searchParams } = new URL(request.url);

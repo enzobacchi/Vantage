@@ -16,7 +16,7 @@ export async function POST() {
   const auth = await requireUserOrg()
   if (!auth.ok) return auth.response
 
-  const rl = checkRateLimit(`account-export:${auth.userId}`, 3, 60 * 60 * 1000)
+  const rl = await checkRateLimit(`account-export:${auth.userId}`, 3, 60 * 60 * 1000)
   if (rl.limited) {
     return NextResponse.json(
       { error: "Export limit reached. Try again in an hour." },

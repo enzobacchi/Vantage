@@ -1666,6 +1666,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      increment_usage: {
+        Args: {
+          p_metric: string
+          p_org_id: string
+          p_period_end: string
+          p_period_start: string
+        }
+        Returns: number
+      }
       match_donors:
         | {
             Args: {

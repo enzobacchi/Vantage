@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { requireUserOrg } from "@/lib/auth";
+import { readJsonObject } from "@/lib/http";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { notifyNewDonation, checkAndNotifyMilestones } from "@/lib/notifications";
 import { recalcDonorTotals } from "@/lib/recalc-donor-totals";
@@ -164,7 +165,18 @@ export async function POST(request: Request) {
   const auth = await requireUserOrg();
   if (!auth.ok) return auth.response;
 
-  const body = await request.json();
+  const parsed = await readJsonObject(request);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body as {
+    donor_id?: string;
+    amount?: unknown;
+    date?: unknown;
+    payment_method?: PaymentMethod;
+    memo?: string;
+    category_id?: string | null;
+    campaign_id?: string | null;
+    fund_id?: string | null;
+  };
 
   const amount = Number(body.amount);
   if (!Number.isFinite(amount) || amount <= 0) {
@@ -176,8 +188,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Date must be in YYYY-MM-DD format" }, { status: 400 });
   }
 
-  if (!PAYMENT_METHODS.includes(body.payment_method)) {
+  if (!PAYMENT_METHODS.includes(body.payment_method as PaymentMethod)) {
     return NextResponse.json({ error: "Invalid payment method" }, { status: 400 });
+  }
+
+  if (typeof body.donor_id !== "string" || !body.donor_id) {
+    return NextResponse.json({ error: "donor_id is required" }, { status: 400 });
   }
 
   const supabase = createAdminClient();

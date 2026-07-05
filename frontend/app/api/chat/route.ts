@@ -15,6 +15,7 @@ import {
 } from "@/lib/chat/pii-redactor"
 import { buildSystemPrompt } from "@/lib/chat/system-prompt"
 import { buildTools } from "@/lib/chat/tools"
+import { readJsonObject } from "@/lib/http"
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getUsage, incrementUsage, isLimitExceeded } from "@/lib/subscription"
@@ -89,7 +90,15 @@ export async function POST(request: Request) {
     )
   }
 
-  const { messages } = (await request.json()) as { messages: UIMessage[] }
+  const parsed = await readJsonObject(request)
+  if (!parsed.ok) return parsed.response
+  const messages = (parsed.body as { messages?: UIMessage[] }).messages
+  if (!Array.isArray(messages)) {
+    return NextResponse.json(
+      { error: "messages must be an array" },
+      { status: 400 }
+    )
+  }
 
   const supabase = createAdminClient()
   const redactor = new ChatPIIRedactor()

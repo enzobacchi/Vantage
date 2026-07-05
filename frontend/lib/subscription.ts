@@ -339,27 +339,16 @@ export async function incrementUsage(orgId: string, metric: MeteredMetric): Prom
   const periodStart = new Date(now.getFullYear(), now.getMonth(), 1)
   const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1)
 
-  // Upsert: increment if exists, insert with count=1 if new
-  const { data: existing } = await admin
-    .from("subscription_usage")
-    .select("id, count")
-    .eq("org_id", orgId)
-    .eq("metric", metric)
-    .gte("period_start", periodStart.toISOString())
-    .single()
-
-  if (existing) {
-    await admin
-      .from("subscription_usage")
-      .update({ count: existing.count + 1, updated_at: now.toISOString() })
-      .eq("id", existing.id)
-  } else {
-    await admin.from("subscription_usage").insert({
-      org_id: orgId,
-      metric,
-      count: 1,
-      period_start: periodStart.toISOString(),
-      period_end: periodEnd.toISOString(),
-    })
+  // Atomic insert-or-increment (see migration 20260704000000_atomic_usage_increment).
+  // The previous read-then-update raced under concurrency: two requests both read
+  // count=N and both wrote N+1, losing increments and letting orgs exceed limits.
+  const { error } = await admin.rpc("increment_usage", {
+    p_org_id: orgId,
+    p_metric: metric,
+    p_period_start: periodStart.toISOString(),
+    p_period_end: periodEnd.toISOString(),
+  })
+  if (error) {
+    console.error("[subscription] increment_usage failed:", error.message)
   }
 }

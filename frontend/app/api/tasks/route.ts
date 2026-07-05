@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireUserOrg } from "@/lib/auth";
+import { readJsonObject } from "@/lib/http";
 
 export const runtime = "nodejs";
 
@@ -41,7 +42,9 @@ export async function POST(request: Request) {
     const auth = await requireUserOrg();
     if (!auth.ok) return auth.response;
 
-    const body = await request.json();
+    const parsed = await readJsonObject(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
     const title = typeof body?.title === "string" ? body.title.trim() : "";
     if (!title) {
       return NextResponse.json(

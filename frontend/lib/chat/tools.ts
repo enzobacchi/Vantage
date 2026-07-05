@@ -951,8 +951,14 @@ export function buildTools(
           .enum(["individual", "corporate", "school", "church"])
           .optional()
           .describe("Type of donor (default: individual)"),
+        confirm: z
+          .boolean()
+          .optional()
+          .describe(
+            "Set to true ONLY after the user has explicitly approved creating this donor. Leave false/unset on the first call — the tool returns a preview to show the user first."
+          ),
       }),
-      execute: async ({ display_name, email, phone, billing_address, city, state, zip, donor_type }) => {
+      execute: async ({ display_name, email, phone, billing_address, city, state, zip, donor_type, confirm }) => {
         const name = display_name.trim()
         if (!name) return { error: "Display name is required." }
 
@@ -969,6 +975,27 @@ export function buildTools(
             warning: "Possible duplicate donors found",
             existing_donors: existing.map((d) => ({ id: d.id, display_name: d.display_name })),
             message: "A donor with a similar name already exists. Please confirm if you want to create a new donor or use the existing one.",
+          }
+        }
+
+        // Human-approval gate: never write on the first call. Show the user a
+        // preview and require an explicit confirmation turn before inserting.
+        if (!confirm) {
+          return {
+            requires_confirmation: true,
+            action: "create_donor",
+            preview: {
+              display_name: name,
+              email: email?.trim() || null,
+              phone: phone?.trim() || null,
+              billing_address: billing_address?.trim() || null,
+              city: city?.trim() || null,
+              state: state?.trim() || null,
+              zip: zip?.trim() || null,
+              donor_type: donor_type || "individual",
+            },
+            message:
+              "Show the user this donor's details and ask them to confirm. Only call create_donor again with confirm: true after they explicitly say yes.",
           }
         }
 
@@ -1045,8 +1072,14 @@ export function buildTools(
           .enum(["check", "cash", "zelle", "wire", "venmo", "daf", "other"])
           .describe("Payment method"),
         memo: z.string().optional().describe("Optional memo or note about the donation"),
+        confirm: z
+          .boolean()
+          .optional()
+          .describe(
+            "Set to true ONLY after the user has explicitly approved recording this donation. Leave false/unset on the first call — the tool returns a preview to show the user first."
+          ),
       }),
-      execute: async ({ donor_id, amount, date, payment_method, memo }) => {
+      execute: async ({ donor_id, amount, date, payment_method, memo, confirm }) => {
         // Validate date format
         if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
           return { error: "Date must be in YYYY-MM-DD format." }
@@ -1062,6 +1095,25 @@ export function buildTools(
 
         if (donorErr || !donor) {
           return { error: "Donor not found in your organization." }
+        }
+
+        // Human-approval gate: never write on the first call. Show the user a
+        // preview and require an explicit confirmation turn before inserting.
+        if (!confirm) {
+          return {
+            requires_confirmation: true,
+            action: "create_donation",
+            preview: {
+              donor_id,
+              donor_name: donor.display_name,
+              amount,
+              date,
+              payment_method,
+              memo: memo?.trim() || null,
+            },
+            message:
+              "Show the user this donation's details and ask them to confirm. Only call create_donation again with confirm: true after they explicitly say yes.",
+          }
         }
 
         // Insert the donation

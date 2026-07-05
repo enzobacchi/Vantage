@@ -118,15 +118,14 @@ export async function GET(request: Request) {
 
   const optionNames: Record<string, string> = {};
   if (optionIds.size > 0) {
-    const ids = [...optionIds];
-    // Scope the name lookups to this org so a stray foreign option id on a
+    // Scope the name lookup to this org so a stray foreign option id on a
     // legacy row can't leak another org's option name.
-    const [cats, camps, funds] = await Promise.all([
-      supabase.from("gift_categories").select("id,name").eq("organization_id", auth.orgId).in("id", ids),
-      supabase.from("gift_campaigns").select("id,name").eq("organization_id", auth.orgId).in("id", ids),
-      supabase.from("gift_funds").select("id,name").eq("organization_id", auth.orgId).in("id", ids),
-    ]);
-    for (const o of [...(cats.data ?? []), ...(camps.data ?? []), ...(funds.data ?? [])]) {
+    const { data: opts } = await supabase
+      .from("org_donation_options")
+      .select("id,name")
+      .eq("org_id", auth.orgId)
+      .in("id", [...optionIds]);
+    for (const o of opts ?? []) {
       optionNames[o.id] = o.name ?? "";
     }
   }

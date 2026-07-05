@@ -30,8 +30,11 @@ async function getAuthenticatedUser() {
  * Shared helper: picks the best org membership for a user.
  * Prefers multi-member orgs (real shared orgs) over solo auto-created placeholders.
  * Returns the chosen membership with org ID and role, or null if no memberships exist.
+ *
+ * Also used by the QuickBooks OAuth callback so token binding resolves the same
+ * org as every other org-scoped path — they must never diverge.
  */
-async function pickBestMembership(
+export async function pickBestMembership(
   userId: string
 ): Promise<{ organization_id: string; role: string } | null> {
   const admin = createAdminClient();

@@ -10,6 +10,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { encrypt } from "@/lib/encryption";
 import { encryptQbToken } from "@/lib/quickbooks/token-crypto";
 import { logAuditEvent } from "@/lib/audit";
+import { pickBestMembership } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -88,13 +89,9 @@ export async function GET(request: Request) {
     if (user?.id) {
       // Authenticated user: update their EXISTING org with QB tokens
       // instead of creating a second org via upsert-on-realm-id.
-      const { data: membership } = await admin
-        .from("organization_members")
-        .select("organization_id, role")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      // pickBestMembership prefers the shared org, matching getCurrentUserOrg —
+      // a multi-org user must never bind tokens to an org sync won't run against.
+      const membership = await pickBestMembership(user.id);
 
       if (membership?.organization_id) {
         // Realm-takeover guard (P2-D): if this QB company is already linked
@@ -161,6 +158,10 @@ export async function GET(request: Request) {
             qb_realm_id: realmId,
             qb_access_token: storedAccessToken,
             qb_refresh_token: storedRefreshToken,
+            // A fresh grant IS the reconnect — clear the stale health flag now
+            // rather than waiting for the next successful sync.
+            qb_needs_reconnect: false,
+            qb_last_sync_error: null,
             updated_at: new Date().toISOString(),
           })
           .eq("id", membership.organization_id);
@@ -214,6 +215,8 @@ export async function GET(request: Request) {
             qb_realm_id: realmId,
             qb_access_token: storedAccessToken,
             qb_refresh_token: storedRefreshToken,
+            qb_needs_reconnect: false,
+            qb_last_sync_error: null,
             updated_at: new Date().toISOString(),
           },
           { onConflict: "qb_realm_id" }

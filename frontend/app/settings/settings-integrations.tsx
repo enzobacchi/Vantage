@@ -186,16 +186,25 @@ export function SettingsIntegrations() {
     }
     if (qb === "connected" && realmId && !autoSyncTriggered.current) {
       autoSyncTriggered.current = true
-      toast.success("Connected to QuickBooks", {
-        description: "Starting initial data sync...",
+      toast.success("QuickBooks connected", {
+        description: "Connection restored. Starting data import…",
       })
-      setQbStatus((prev) => ({ ...prev, connected: true, realmId }))
+      // The callback already cleared qb_needs_reconnect server-side; reflect
+      // that immediately so the amber banner doesn't linger, then re-fetch.
+      setQbStatus((prev) => ({
+        ...prev,
+        connected: true,
+        realmId,
+        needsReconnect: false,
+        lastSyncError: null,
+      }))
+      void fetchStatus()
       // Auto-trigger a full sync so the user sees their data immediately
-      runSync({ full: true })
+      runSync({ full: true, postConnect: true })
     }
   }, [searchParams]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function runSync(opts?: { full?: boolean }) {
+  async function runSync(opts?: { full?: boolean; postConnect?: boolean }) {
     try {
       setSyncState({ status: "loading" })
       const params = new URLSearchParams()
@@ -216,7 +225,17 @@ export function SettingsIntegrations() {
           typeof data === "object" && data && "error" in data
             ? String((data as { error?: string }).error)
             : `Sync failed (HTTP ${res.status}).`
-        setSyncState({ status: "error", message: msg })
+        // Right after OAuth the connection itself is healthy — don't let an
+        // import failure read as "reconnect failed".
+        if (opts?.postConnect) {
+          setSyncState({
+            status: "error",
+            message: `QuickBooks is connected, but the initial import failed: ${msg} Your connection is fine — use "Sync donors now" to retry.`,
+          })
+          toast.error("Import failed", { description: msg })
+        } else {
+          setSyncState({ status: "error", message: msg })
+        }
         if (res.status === 401 || /reconnect|connect quickbooks first|no connected quickbooks organization/i.test(String(msg))) {
           await fetchStatus()
         }
@@ -235,6 +254,7 @@ export function SettingsIntegrations() {
       }
       const usedRealmId = d?.usedRealmId ?? d?.realmId
       if (usedRealmId) setQbStatus((prev) => ({ ...prev, connected: true, realmId: usedRealmId }))
+      if (opts?.postConnect) void fetchStatus()
       if (d.capReached && (d.donorsSkippedLimit ?? 0) > 0) {
         toast.warning(
           `Imported up to your ${d.planMaxDonors?.toLocaleString()} donor cap. ${d.donorsSkippedLimit?.toLocaleString()} donors not synced — upgrade to import the rest.`,
@@ -296,6 +316,9 @@ export function SettingsIntegrations() {
                 <p className="font-medium">QuickBooks connection expired</p>
                 <p className="mt-0.5 text-xs opacity-90">
                   Your last sync failed because QuickBooks revoked access. Reconnect to resume importing donations and donors.
+                </p>
+                <p className="mt-0.5 text-xs opacity-90">
+                  You&apos;ll need to sign in as a QuickBooks <span className="font-medium">company admin</span> — QuickBooks only lets admins authorize app connections.
                 </p>
                 {qbStatus.lastSyncError && (
                   <p className="mt-1 text-xs opacity-70">{qbStatus.lastSyncError}</p>

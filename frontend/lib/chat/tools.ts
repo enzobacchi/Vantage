@@ -157,10 +157,11 @@ export function buildTools(
       ),
     ]
     if (ids.length === 0) return {}
-    const table = groupBy === "campaign" ? "gift_campaigns" : "gift_funds"
     const { data } = await supabase
-      .from(table)
+      .from("org_donation_options")
       .select("id,name")
+      .eq("org_id", orgId)
+      .eq("type", groupBy)
       .in("id", ids)
     const out: Record<string, string> = {}
     for (const o of (data ?? []) as { id: string; name: string | null }[]) {
@@ -871,23 +872,12 @@ export function buildTools(
 
         const optionNames: Record<string, string> = {}
         if (optionIds.size > 0) {
-          const ids = [...optionIds]
-          const [cats, camps, funds] = await Promise.all([
-            supabase
-              .from("gift_categories")
-              .select("id,name")
-              .in("id", ids),
-            supabase
-              .from("gift_campaigns")
-              .select("id,name")
-              .in("id", ids),
-            supabase.from("gift_funds").select("id,name").in("id", ids),
-          ])
-          for (const o of [
-            ...(cats.data ?? []),
-            ...(camps.data ?? []),
-            ...(funds.data ?? []),
-          ]) {
+          const { data: opts } = await supabase
+            .from("org_donation_options")
+            .select("id,name")
+            .eq("org_id", orgId)
+            .in("id", [...optionIds])
+          for (const o of opts ?? []) {
             optionNames[o.id] = o.name ?? ""
           }
         }

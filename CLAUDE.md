@@ -105,6 +105,7 @@ Roles: `owner`, `admin`, `member` — checked via `getCurrentUserOrgWithRole()`.
 - **Usage metering**: always via the atomic RPCs above, never direct counter updates.
 - **Feature flags**: server+public env pairs (e.g. `EMAIL_ENABLED`/`NEXT_PUBLIC_EMAIL_ENABLED`) resolved in `frontend/lib/features.ts`.
 - Cron routes authenticate with `CRON_SECRET`.
+- **Integration health checks**: `frontend/lib/health-checks.ts` — validates the Stripe key, Resend key, and every org's QuickBooks connection (reconnect flag + stale-sync detection); runs daily piggybacked on `/api/cron/sync` (Hobby cron cap) and emails `FEEDBACK_EMAIL_TO` when something is broken.
 
 ### Onboarding
 

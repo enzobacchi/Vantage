@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Context file for Claude Code (claude.ai/code) and Cursor when working in this repository.
+Context file for Claude Code (claude.ai/code) and Cursor when working in this repository. This is the **single source of truth** — `.cursorrules` just points here. Update this file in the same change set as any architecture shift.
 
 ## Product
 
@@ -16,23 +16,25 @@ All root-level scripts proxy to `/frontend`:
 npm run dev      # Start dev server (port 3000)
 npm run build    # Production build (also runs TypeScript type-check)
 npm run lint     # ESLint check
+npm test         # Vitest (unit tests for lib/ logic: subscription, rate-limit, PII, QB crypto, cursors)
 ```
 
-No test framework — linting and `npm run build` (TypeScript) are the quality gates.
+CI (`.github/workflows/ci.yml`) gates every push/PR on lint + tests + build. Match that locally before pushing.
 
 ## Architecture
 
 **Single Next.js 16 application** in `/frontend` (App Router, React 19). There is no separate backend service.
 
-- **Server Actions** (`frontend/app/actions/`) — all mutations. 23 action files covering: auth, audit, crm, dashboard, donations, donors, email-rate-limit, feedback, folders, import, legal, lists, notifications, onboarding, onboarding-progress, pipeline, pledges, receipt-templates, reports, search, settings, tags, team.
-- **API Routes** (`frontend/app/api/`) — reads, streaming, OAuth, webhooks. Major route groups: chat, dashboard (metrics + smart-actions), donors (list, detail, insights, score, search, map, states, geocode), donations (list, options, recent, trend), email (send + bulk-send), interactions, tags, reports, pipeline, organization, quickbooks (auth, callback, status), stripe (checkout, portal, status, webhook), cron (sync, digest), sync, export, tasks, feedback.
+- **Server Actions** (`frontend/app/actions/`) — all mutations. ~28 action files (list the directory for the current set) covering auth, audit, crm, dashboard, donations, donors, email-rate-limit, feedback, folders, import, legal, lists, notifications, onboarding(+progress), pipeline, pledges, receipt-templates, reports, search, settings, tags, team, plus api-keys, custom-fields, dashboard-preferences, report-shares, year-end-receipts.
+- **API Routes** (`frontend/app/api/`) — reads, streaming, OAuth, webhooks. Major route groups: chat, dashboard (metrics + smart-actions), donors (list, detail, insights, score, search, map, states, geocode), donations (list, options, recent, trend), email (send + bulk-send), interactions, tags, reports, pipeline, organization, quickbooks (auth, callback, status), stripe (checkout, portal, status, webhook), cron (sync, digest), sync, export, tasks, feedback, account, auth, billing, gmail, notifications, push-token, receipts, routes, team, transcribe.
+- **Public/mobile API** (`frontend/app/api/v1/`) — the versioned external API namespace (Bearer/API-key auth). See `docs/api-v1.md`, `frontend/lib/api-v1.ts`, `frontend/lib/api-auth.ts`. API keys are SHA-256 hashed in the `api_keys` table, scope- and plan-gated, rate-limited.
 - **No client state management** — server-driven via Server Components and Actions. Client state uses `useState` only.
 
 ### Multi-Tenant Org Scoping
 
 **Every data query must be scoped by `org_id`.** This is the most critical architectural invariant.
 
-- `frontend/lib/auth.ts` exports `getCurrentUserOrg()` and `getCurrentUserOrgWithRole()`.
+- `frontend/lib/auth.ts` exports `getCurrentUserOrg()`, `getCurrentUserOrgWithRole()`, and `requireUserOrg()` (throws instead of returning null — preferred for new code).
 - Call one of these at the top of **every** server action and API route before touching the database.
 - The admin Supabase client **bypasses RLS** — org scoping must be enforced in application code.
 - Auth supports both cookie-based (web) and Bearer token (mobile) authentication.
@@ -40,7 +42,7 @@ No test framework — linting and `npm run build` (TypeScript) are the quality g
 
 ### Mobile parity
 
-A sibling Expo app lives at `/Users/enzobacchiocchi/Developer/Vantage/Mobile` and shares this Supabase backend. When you modify an API route under `frontend/app/api/`, check `Mobile/docs/API_PARITY.md` — if the route is marked `consumed`, the mobile client reads that shape and may break. Update the mobile call site (typically in `Mobile/lib/` or `Mobile/app/**`) in the same change set when the contract shifts.
+A sibling Expo app lives at `/Users/enzobacchiocchi/Developer/Vantage/Mobile` (it has its own `CLAUDE.md`) and shares this Supabase backend. When you modify an API route under `frontend/app/api/`, check `Mobile/docs/API_PARITY.md` — if the route is marked `consumed`, the mobile client reads that shape and may break. Update the mobile call site (typically in `Mobile/lib/` or `Mobile/app/**`) in the same change set when the contract shifts.
 
 ### Key Domain Concepts
 
@@ -57,7 +59,7 @@ A sibling Expo app lives at `/Users/enzobacchiocchi/Developer/Vantage/Mobile` an
 ### AI / Intelligence Layer
 
 - **Donor Insights**: `GET /api/donors/[id]/insights` generates AI briefings via OpenAI. PII is redacted before LLM calls (`frontend/lib/pii-redaction.ts`) and unredacted in the response.
-- **Chat Agent**: Claude Haiku 4.5 via Vercel AI SDK + `@ai-sdk/anthropic`. Cmd+J overlay, persisted to `chat_history` table. 10 tools: `search_donors`, `get_donor_summary`, `get_donation_metrics`, `filter_donations`, `create_donor`, `create_donation`, `get_recent_activity`, `get_donor_locations`, `get_donor_health_score`, `get_at_risk_donors`. PII redaction in `frontend/lib/chat/pii-helpers.ts`.
+- **Chat Agent**: Claude Haiku 4.5 via Vercel AI SDK + `@ai-sdk/anthropic`. Cmd+J overlay, persisted to `chat_history` table. 13 tools (see `frontend/lib/chat/tools.ts`): `search_donors`, `get_donor_summary`, `get_donation_metrics`, `filter_donations`, `create_donor`, `create_donation`, `get_recent_activity`, `get_donor_locations`, `get_donor_health_score`, `get_at_risk_donors`, `compare_periods`, `get_donation_timeseries`, `create_custom_report`. PII redaction in `frontend/lib/chat/pii-helpers.ts`. `create_donor`/`create_donation` use a **two-phase confirm gate**: first call returns `{ requires_confirmation: true, preview }`; the write only happens on a second call with `confirm: true` (enforced in `lib/chat/system-prompt.ts`). The mobile app consumes the same stream — its tool handling (`Mobile/lib/chat/stream.ts`) must stay in sync with `tools.ts`.
 - **Smart Actions**: Dashboard recommendations generated via API, surfaced in `frontend/components/smart-actions.tsx`.
 - **Weekly Digest**: AI-summarized weekly digest emails via `frontend/lib/digest-ai.ts` + `/api/cron/digest`.
 - **Semantic Search**: pgvector embeddings stored on `donors` table via Supabase `match_donors` RPC. Not yet exposed in UI.
@@ -67,7 +69,9 @@ A sibling Expo app lives at `/Users/enzobacchiocchi/Developer/Vantage/Mobile` an
 
 Supabase (PostgreSQL + pgvector). Migrations in `/supabase/migrations/`.
 
-Key tables: `organizations`, `organization_members`, `donors`, `donations`, `donor_notes`, `interactions`, `opportunities`, `pledges`, `saved_reports`, `report_folders`, `saved_lists`, `org_donation_options`, `receipt_templates`, `tags`, `donor_tags`, `chat_history`, `subscriptions`, `subscription_usage`, `audit_logs`, `notification_preferences`, `donor_merge_history`.
+Key tables: `organizations`, `organization_members`, `donors`, `donations`, `donor_notes`, `interactions`, `opportunities`, `pledges`, `saved_reports`, `report_folders`, `report_shares`, `saved_lists`, `org_donation_options`, `receipt_templates`, `tags`, `donor_tags`, `chat_history`, `subscriptions`, `subscription_usage`, `audit_logs`, `notification_preferences`, `donor_merge_history`, `api_keys`, `custom_field_definitions`, `dashboard_preferences`, `email_send_log`, `gmail_credentials`, `push_tokens`, `stripe_webhook_events`.
+
+Atomic RPCs (July 2026 hardening, migrations `20260704`/`20260705`): `increment_usage` (usage metering, called from `lib/subscription.ts`) and `try_consume_email_quota` (email send/bulk-send quota). Use these — do not read-modify-write usage counters.
 
 RLS is enabled but the admin client bypasses it — **always scope queries manually by `org_id`**.
 
@@ -86,9 +90,21 @@ Roles: `owner`, `admin`, `member` — checked via `getCurrentUserOrgWithRole()`.
 - **QuickBooks**: Full OAuth 2.0 flow + sync (customers → donors, sales receipts/invoices → donations). Helpers in `frontend/lib/quickbooks-helpers.ts`. Supports sandbox and production environments. Auto-sync via `/api/cron/sync`.
 - **Stripe**: Subscription billing — checkout sessions, billing portal, webhook handling. Client in `frontend/lib/stripe.ts`. Usage tracking via `subscription_usage` table with limits on AI insights, email sends, and donor count.
 - **Resend**: Transactional and bulk email. Single send at `POST /api/email/send`, bulk send at `POST /api/email/bulk-send` (rate-limited to 10/hour). Templates in `frontend/lib/email-templates.ts`: password reset, new donation, milestone, team activity, system alert, weekly digest.
+- **Gmail**: OAuth send-as-user integration (`frontend/lib/gmail/`, routes under `/api/gmail/`). Tokens stored encrypted in `gmail_credentials`; config via `GOOGLE_OAUTH_*` env vars.
 - **Mapbox**: Donor geospatial visualization. Geocoding + interactive map with status/giving filters.
 - **OpenAI**: Donor insight generation, semantic search embeddings, weekly digest AI summaries.
 - **Anthropic**: Claude Haiku 4.5 powers the chat agent via `@ai-sdk/anthropic`.
+- **Voice transcription**: `/api/transcribe` (mobile-first), feature-flagged via `TRANSCRIBE_ENABLED` / `NEXT_PUBLIC_TRANSCRIBE_ENABLED`.
+- **Push notifications**: `/api/push-token` + `push_tokens` table (mobile clients register Expo push tokens).
+
+### Security & Hardening (July 2026 audit — see `docs/AUDIT-2026-07.md`)
+
+- **Rate limiting**: `frontend/lib/rate-limit.ts` — Upstash Redis REST (`UPSTASH_REDIS_REST_URL/_TOKEN`) with in-memory fallback when unset.
+- **Secrets at rest**: `frontend/lib/encryption.ts` — AES-256-GCM (key: `ENCRYPTION_KEY`) for QuickBooks and Gmail OAuth tokens.
+- **Request parsing**: mutation routes parse bodies through `readJsonObject()` in `frontend/lib/http.ts` — use it for any new mutation route instead of raw `req.json()`.
+- **Usage metering**: always via the atomic RPCs above, never direct counter updates.
+- **Feature flags**: server+public env pairs (e.g. `EMAIL_ENABLED`/`NEXT_PUBLIC_EMAIL_ENABLED`) resolved in `frontend/lib/features.ts`.
+- Cron routes authenticate with `CRON_SECRET`.
 
 ### Onboarding
 
@@ -103,6 +119,14 @@ Multi-step onboarding wizard (`frontend/components/onboarding-wizard.tsx`) with 
 - **Accent color**: Green-to-cyan gradient (`from-[#007A3F] to-[#21E0D6]`) matching the Vantage logo icon. **Reserved for AI features and standout product features only** — do not use on standard CRUD buttons (e.g. Create Report, Save). Apply via `bg-gradient-to-r from-[#007A3F] to-[#21E0D6] text-white hover:opacity-90 border-0`. For gradient borders, use a `p-[1px]` wrapper with the gradient background and `bg-card` inner div.
 - `shadow-sm` only. `hover:bg-accent` for interactive elements.
 - User feedback via **Sonner `toast`** — never `alert()`.
+
+## Coding Standards
+
+- Strict TypeScript — never use `any`. DB types come from `frontend/types/database.ts`.
+- PII redaction required before any LLM API call (`frontend/lib/pii-redaction.ts`, `frontend/lib/chat/pii-helpers.ts`).
+- Donor lifecycle statuses are computed (New/Active/Lapsed/Lost) — never store them as free-form fields.
+- Reports store filter criteria as JSON, not result snapshots.
+- New mutation API routes: parse bodies with `readJsonObject()` (`frontend/lib/http.ts`) and scope by org before any query.
 
 ## Key Files
 
@@ -119,7 +143,12 @@ Multi-step onboarding wizard (`frontend/components/onboarding-wizard.tsx`) with 
 | `frontend/lib/quickbooks-helpers.ts` | QB data parsing and API helpers |
 | `frontend/lib/email-templates.ts` | Email HTML templates (receipts, digest, alerts) |
 | `frontend/lib/stripe.ts` | Stripe client |
-| `frontend/lib/subscription.ts` | Subscription limits and usage checking |
+| `frontend/lib/subscription.ts` | Subscription limits and usage checking (atomic `increment_usage` RPC) |
+| `frontend/lib/http.ts` | `readJsonObject()` — hardened JSON body parsing for mutation routes |
+| `frontend/lib/rate-limit.ts` | Global rate limiting (Upstash Redis, in-memory fallback) |
+| `frontend/lib/encryption.ts` | AES-256-GCM encryption for stored OAuth tokens |
+| `frontend/lib/api-v1.ts` + `frontend/lib/api-auth.ts` | Public v1 API helpers + API-key auth |
+| `frontend/lib/features.ts` | Feature-flag resolution (server + public env pairs) |
 | `frontend/lib/format.ts` | Currency formatting |
 | `frontend/lib/digest-ai.ts` | AI-generated weekly digest summaries |
 | `frontend/lib/chat/` | Chat agent tools, system prompt, PII helpers |
@@ -155,71 +184,29 @@ OPENAI_API_KEY                # OpenAI API key
 ANTHROPIC_API_KEY             # Anthropic API key (chat agent)
 STRIPE_SECRET_KEY             # Stripe secret key
 STRIPE_WEBHOOK_SECRET         # Stripe webhook signing secret
-STRIPE_PRICE_ESSENTIALS_MONTHLY  # Recurring monthly price ID for Essentials tier
-STRIPE_PRICE_GROWTH_MONTHLY      # Recurring monthly price ID for Growth tier
-STRIPE_PRICE_PRO_MONTHLY         # Recurring monthly price ID for Pro tier
+STRIPE_PRICE_{ESSENTIALS,GROWTH,PRO,ENTERPRISE}_{MONTHLY,ANNUAL}  # Price IDs per tier/interval
 NEXT_PUBLIC_EMAIL_ENABLED     # "true" to show donor email UI; default "false"
 EMAIL_ENABLED                 # Server-side mirror of email flag (for API gate)
+TRANSCRIBE_ENABLED            # Voice transcription flag (+ NEXT_PUBLIC_TRANSCRIBE_ENABLED mirror)
+CRON_SECRET                   # Auth for /api/cron/* routes
+ENCRYPTION_KEY                # AES-256-GCM key for QB/Gmail tokens (lib/encryption.ts)
+GOOGLE_OAUTH_CLIENT_ID        # Gmail integration OAuth
+GOOGLE_OAUTH_CLIENT_SECRET    # Gmail integration OAuth
+GOOGLE_OAUTH_REDIRECT_URI     # Gmail integration OAuth
+UPSTASH_REDIS_REST_URL        # Rate limiting (optional; in-memory fallback if unset)
+UPSTASH_REDIS_REST_TOKEN      # Rate limiting
+FEEDBACK_EMAIL_TO             # Destination for in-app feedback
 ```
+
+Note: some map code reads `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN` as well as `NEXT_PUBLIC_MAPBOX_TOKEN` — set both to the same value until unified.
 
 ## Deployment
 
 Vercel. The root `package.json` proxies all scripts to `/frontend`. Single Vercel project pointing at the repo root.
 
-## MCP Servers (AI Tool Integrations)
+## MCP Servers
 
-The following MCP servers are configured and available to Claude Code and Cursor for direct interaction with external services. Use these instead of manual CLI commands or browser workflows when possible.
+MCP servers are configured in `.mcp.json` (Shadcn, GitHub, Supabase, Vercel; Gmail via claude.ai connector). Discover available tools at runtime rather than trusting a hand-written list here. Two standing rules:
 
-### Shadcn UI (`mcp__shadcn__*`)
-
-Browse, search, and install Shadcn UI components directly. Configured in `.mcp.json`.
-
-- `search_items_in_registries` / `list_items_in_registries` — find available components.
-- `view_items_in_registries` / `get_item_examples_from_registries` — inspect component source and usage examples.
-- `get_add_command_for_items` — get the install command for a component.
-- `get_project_registries` — list configured registries for this project.
-- `get_audit_checklist` — audit component usage.
-
-### GitHub (`mcp__github__*`)
-
-Full GitHub API access for the repository.
-
-- **Issues**: `create_issue`, `get_issue`, `list_issues`, `search_issues`, `update_issue`, `add_issue_comment`.
-- **Pull Requests**: `create_pull_request`, `get_pull_request`, `list_pull_requests`, `merge_pull_request`, `get_pull_request_files`, `get_pull_request_comments`, `get_pull_request_reviews`, `get_pull_request_status`, `create_pull_request_review`, `update_pull_request_branch`.
-- **Repository**: `create_branch`, `list_commits`, `get_file_contents`, `create_or_update_file`, `push_files`, `search_code`, `search_repositories`, `create_repository`, `fork_repository`, `search_users`.
-
-### Supabase (`mcp__supabase__*`)
-
-Direct access to Supabase project management and database operations.
-
-- **Database**: `execute_sql`, `apply_migration`, `list_migrations`, `list_tables`, `list_extensions`, `generate_typescript_types`.
-- **Projects**: `get_project`, `list_projects`, `create_project`, `pause_project`, `restore_project`, `get_project_url`, `get_publishable_keys`.
-- **Branches** (database branching): `create_branch`, `list_branches`, `merge_branch`, `rebase_branch`, `reset_branch`, `delete_branch`.
-- **Edge Functions**: `deploy_edge_function`, `get_edge_function`, `list_edge_functions`.
-- **Organizations**: `get_organization`, `list_organizations`.
-- **Observability**: `get_logs`, `get_advisors`.
-- **Docs**: `search_docs`.
-- **Billing**: `get_cost`, `confirm_cost`.
-
-Use `generate_typescript_types` after schema changes to update `frontend/types/database.ts`.
-
-### Vercel (`mcp__vercel__*`)
-
-Deployment management and monitoring for the Vercel-hosted app.
-
-- **Deployments**: `deploy_to_vercel`, `get_deployment`, `list_deployments`, `get_deployment_build_logs`, `get_runtime_logs`.
-- **Projects**: `get_project`, `list_projects`.
-- **Teams**: `list_teams`.
-- **Domains**: `check_domain_availability_and_price`.
-- **Toolbar** (preview comments): `list_toolbar_threads`, `get_toolbar_thread`, `reply_to_toolbar_thread`, `edit_toolbar_message`, `change_toolbar_thread_resolve_status`, `add_toolbar_reaction`.
-- **Docs**: `search_vercel_documentation`.
-- **Web**: `web_fetch_vercel_url`, `get_access_to_vercel_url`.
-
-### Gmail (`mcp__claude_ai_Gmail__*`)
-
-Read-only email access plus draft creation.
-
-- `gmail_get_profile` — current user info.
-- `gmail_search_messages` / `gmail_read_message` / `gmail_read_thread` — search and read emails.
-- `gmail_list_labels` — list Gmail labels.
-- `gmail_list_drafts` / `gmail_create_draft` — manage drafts.
+- After any schema change, regenerate `frontend/types/database.ts` via the Supabase MCP `generate_typescript_types` (project: `Vantage`), then re-append the hand-written union-type tail block (see Database section).
+- Prefer MCP tools over manual CLI/browser workflows for GitHub, Supabase, and Vercel operations.

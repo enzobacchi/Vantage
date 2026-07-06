@@ -62,7 +62,6 @@ export async function POST(request: Request) {
     email?: unknown;
     role?: unknown;
     inviter_name?: unknown;
-    app_url?: unknown;
   };
   try {
     body = await request.json();
@@ -78,8 +77,6 @@ export async function POST(request: Request) {
   const role = body.role === "admin" ? "admin" : "member";
   const inviterName =
     typeof body.inviter_name === "string" ? body.inviter_name.trim() : "";
-  const clientAppUrl =
-    typeof body.app_url === "string" ? body.app_url.trim() : "";
 
   const supabase = createAdminClient();
   const token = crypto.randomUUID();
@@ -103,8 +100,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: insertError.message }, { status: 500 });
   }
 
+  // The link base must come from server config only — this lands in an email
+  // sent from our domain, so a client-supplied URL is a phishing vector.
+  // (Mobile still sends a legacy `app_url` field; it is deliberately ignored.)
   const baseUrl =
-    clientAppUrl ||
     process.env.NEXT_PUBLIC_APP_URL ||
     "https://app.vantagedonorai.com";
   const joinPath = `/join?token=${encodeURIComponent(token)}`;

@@ -9,6 +9,8 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 
 import { getDonorLifecycleStatus, type LifecycleStatus } from "@/lib/donor-lifecycle"
 import { buildPIIMapFromDonors, redactWithMap, unredactWithMap, type PIIMap } from "@/lib/chat/pii-helpers"
+import type { DigestWindow } from "@/lib/digest-window"
+import { fetchAllRows } from "@/lib/supabase/fetch-all"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -94,6 +96,44 @@ Rules:
 - Do not include markdown formatting or code fences in the JSON values.`
 
 // ---------------------------------------------------------------------------
+// First-time donors
+// ---------------------------------------------------------------------------
+
+// Keeps the GET `.in()` URL well under PostgREST/proxy length limits.
+const DONOR_ID_CHUNK = 100
+
+/**
+ * Donors (among `donorIds`) with no gift dated before `before` — i.e. whose
+ * first-ever gift falls in the digest window. `donors` has no first-gift
+ * column, so this is derived from donations.date. Throws on any read error so
+ * a failed lookup can't silently report every donor as new.
+ */
+export async function findFirstTimeDonorIds(
+  admin: SupabaseClient,
+  orgId: string,
+  donorIds: Array<string | null>,
+  before: string
+): Promise<Set<string>> {
+  const ids = [...new Set(donorIds.filter((id): id is string => !!id))]
+  const priorDonorIds = new Set<string>()
+  for (let i = 0; i < ids.length; i += DONOR_ID_CHUNK) {
+    const chunk = ids.slice(i, i + DONOR_ID_CHUNK)
+    const rows = await fetchAllRows<{ donor_id: string }>((from, to) =>
+      admin
+        .from("donations")
+        .select("donor_id")
+        .eq("org_id", orgId)
+        .in("donor_id", chunk)
+        .lt("date", before)
+        .order("id")
+        .range(from, to)
+    )
+    for (const r of rows) priorDonorIds.add(r.donor_id)
+  }
+  return new Set(ids.filter((id) => !priorDonorIds.has(id)))
+}
+
+// ---------------------------------------------------------------------------
 // Main export
 // ---------------------------------------------------------------------------
 
@@ -104,7 +144,7 @@ Rules:
 export async function generateDigestAISummary(
   orgId: string,
   admin: SupabaseClient,
-  since: string,
+  digestWindow: DigestWindow,
   abortSignal?: AbortSignal
 ): Promise<DigestAISummary | null> {
   try {
@@ -114,46 +154,65 @@ export async function generateDigestAISummary(
       return null
     }
 
-    // Calculate previous week range
-    const sinceDate = new Date(since)
-    const prevWeekEnd = new Date(sinceDate)
-    const prevWeekStart = new Date(sinceDate)
-    prevWeekStart.setDate(prevWeekStart.getDate() - 7)
+    const { start, end, prevStart } = digestWindow
 
     // -----------------------------------------------------------------------
-    // Data queries (parallel)
+    // Data queries (parallel). Donation and donor reads are paged — the donor
+    // list also feeds the PII map, so truncating it would leak names past the
+    // 1000th donor to the LLM. Any read error throws → caught below → null.
     // -----------------------------------------------------------------------
     const [
-      thisWeekDonationsResult,
-      prevWeekDonationsResult,
-      allDonorsResult,
+      thisWeekDonationsRaw,
+      prevWeekDonations,
+      allDonors,
       interactionsResult,
       opportunitiesResult,
     ] = await Promise.all([
       // This week's donations with donor info — filter by gift date, not record creation.
-      admin
-        .from("donations")
-        .select("amount, donor_id, donors!inner(id, display_name, email, donor_type, total_lifetime_value, last_donation_date)")
-        .eq("org_id", orgId)
-        .gte("date", since),
+      fetchAllRows<unknown>((from, to) =>
+        admin
+          .from("donations")
+          .select("amount, donor_id, donors(id, display_name, email, donor_type, total_lifetime_value, last_donation_date)")
+          .eq("org_id", orgId)
+          .gte("date", start)
+          .lt("date", end)
+          .order("id")
+          .range(from, to)
+      ),
       // Previous week's donations (aggregate) — filter by gift date.
-      admin
-        .from("donations")
-        .select("amount")
-        .eq("org_id", orgId)
-        .gte("date", prevWeekStart.toISOString())
-        .lt("date", prevWeekEnd.toISOString()),
-      // All org donors for lifecycle summary
-      admin
-        .from("donors")
-        .select("id, display_name, email, last_donation_date, total_lifetime_value, donor_type")
-        .eq("org_id", orgId),
+      fetchAllRows<{ amount: number }>((from, to) =>
+        admin
+          .from("donations")
+          .select("amount")
+          .eq("org_id", orgId)
+          .gte("date", prevStart)
+          .lt("date", start)
+          .order("id")
+          .range(from, to)
+      ),
+      // All org donors for lifecycle summary + PII map
+      fetchAllRows<{
+        id: string
+        display_name: string | null
+        email: string | null
+        last_donation_date: string | null
+        total_lifetime_value: number | null
+        donor_type: string | null
+      }>((from, to) =>
+        admin
+          .from("donors")
+          .select("id, display_name, email, last_donation_date, total_lifetime_value, donor_type")
+          .eq("org_id", orgId)
+          .order("id")
+          .range(from, to)
+      ),
       // This week's interactions — scoped via donor join (interactions has no org_id)
       admin
         .from("interactions")
         .select("type,donors!inner(org_id)")
         .eq("donors.org_id", orgId)
-        .gte("created_at", since),
+        .gte("created_at", start)
+        .lt("created_at", end),
       // Open opportunities (uses organization_id, not org_id)
       admin
         .from("opportunities")
@@ -162,11 +221,14 @@ export async function generateDigestAISummary(
         .not("status", "in", '("closed_won","closed_lost")'),
     ])
 
-    // Supabase returns the joined relation as an array; with !inner there's always one element.
-    // We flatten it here for easier access.
-    const thisWeekDonationsRaw = (thisWeekDonationsResult.data ?? []) as unknown as Array<{
+    if (interactionsResult.error) throw new Error(interactionsResult.error.message)
+    if (opportunitiesResult.error) throw new Error(opportunitiesResult.error.message)
+
+    // Left join (not !inner) so gifts without a donor still count toward the
+    // week's total — keeping it equal to the digest email's headline number.
+    const allWeekDonations = thisWeekDonationsRaw as Array<{
       amount: number
-      donor_id: string
+      donor_id: string | null
       donors: {
         id: string
         display_name: string | null
@@ -174,47 +236,22 @@ export async function generateDigestAISummary(
         donor_type: string | null
         total_lifetime_value: number | null
         last_donation_date: string | null
-      }
+      } | null
     }>
-    const thisWeekDonations = thisWeekDonationsRaw
-    const prevWeekDonations = (prevWeekDonationsResult.data ?? []) as Array<{ amount: number }>
-    const allDonors = (allDonorsResult.data ?? []) as Array<{
-      id: string
-      display_name: string | null
-      email: string | null
-      last_donation_date: string | null
-      total_lifetime_value: number | null
-      donor_type: string | null
-    }>
+    // Donor-level analysis (notable donors, first gifts) needs the donor row.
+    const thisWeekDonations = allWeekDonations.filter(
+      (d): d is typeof d & { donor_id: string; donors: NonNullable<typeof d.donors> } =>
+        d.donor_id !== null && d.donors !== null
+    )
     const interactions = (interactionsResult.data ?? []) as Array<{ type: string }>
     const opportunities = (opportunitiesResult.data ?? []) as Array<{ amount: number | null; status: string }>
 
-    // -----------------------------------------------------------------------
-    // Derive "first-gift this week" set from donations.date.
-    // `donors` has no first_donation_date / created_at column, so we identify
-    // first-time donors by checking which week-givers have zero prior donations.
-    // -----------------------------------------------------------------------
-    const weekDonorIds = [...new Set(thisWeekDonations.map((d) => d.donor_id))]
-    const firstGiftDonorIds = new Set<string>()
-    if (weekDonorIds.length > 0) {
-      const priorDonorIds = new Set<string>()
-      const pageSize = 1000
-      for (let offset = 0; priorDonorIds.size < weekDonorIds.length; offset += pageSize) {
-        const { data: page } = await admin
-          .from("donations")
-          .select("donor_id")
-          .eq("org_id", orgId)
-          .in("donor_id", weekDonorIds)
-          .lt("date", since)
-          .range(offset, offset + pageSize - 1)
-        const rows = (page ?? []) as Array<{ donor_id: string }>
-        for (const r of rows) priorDonorIds.add(r.donor_id)
-        if (rows.length < pageSize) break
-      }
-      for (const id of weekDonorIds) {
-        if (!priorDonorIds.has(id)) firstGiftDonorIds.add(id)
-      }
-    }
+    const firstGiftDonorIds = await findFirstTimeDonorIds(
+      admin,
+      orgId,
+      thisWeekDonations.map((d) => d.donor_id),
+      start
+    )
 
     // -----------------------------------------------------------------------
     // Compute lifecycle summary
@@ -314,8 +351,8 @@ export async function generateDigestAISummary(
     // -----------------------------------------------------------------------
     // Compute stats
     // -----------------------------------------------------------------------
-    const thisWeekTotal = thisWeekDonations.reduce((s, d) => s + Number(d.amount || 0), 0)
-    const thisWeekCount = thisWeekDonations.length
+    const thisWeekTotal = allWeekDonations.reduce((s, d) => s + Number(d.amount || 0), 0)
+    const thisWeekCount = allWeekDonations.length
     const prevWeekTotal = prevWeekDonations.reduce((s, d) => s + Number(d.amount || 0), 0)
     const prevWeekCount = prevWeekDonations.length
 
@@ -342,7 +379,7 @@ export async function generateDigestAISummary(
     const piiMap: PIIMap = buildPIIMapFromDonors(piiDonors)
 
     const payload: DigestPayload = {
-      period: { start: since, end: new Date().toISOString() },
+      period: { start, end },
       thisWeek: {
         donationCount: thisWeekCount,
         donationTotal: thisWeekTotal,

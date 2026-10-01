@@ -128,6 +128,7 @@ Multi-step onboarding wizard (`frontend/components/onboarding-wizard.tsx`) with 
 - Donor lifecycle statuses are computed (New/Active/Lapsed/Lost) — never store them as free-form fields.
 - Reports store filter criteria as JSON, not result snapshots.
 - New mutation API routes: parse bodies with `readJsonObject()` (`frontend/lib/http.ts`) and scope by org before any query.
+- Any sum/count over rows (donations, donors) must read every row via `fetchAllRows()` (`frontend/lib/supabase/fetch-all.ts`) — PostgREST silently caps a plain `.select()` at 1000 rows. Prefer a SQL aggregate/RPC when you only need the total.
 
 ## Key Files
 

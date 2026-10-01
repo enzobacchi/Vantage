@@ -2,7 +2,9 @@ import { NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getOrgMembersWithPreferences } from "@/lib/notifications"
 import { weeklyDigestEmailHtml } from "@/lib/email-templates"
-import { generateDigestAISummary, type DigestAISummary } from "@/lib/digest-ai"
+import { findFirstTimeDonorIds, generateDigestAISummary, type DigestAISummary } from "@/lib/digest-ai"
+import { getDigestWindow } from "@/lib/digest-window"
+import { fetchAllRows } from "@/lib/supabase/fetch-all"
 import { Resend } from "resend"
 import { isAuthorizedCron } from "@/lib/cron-auth"
 
@@ -34,14 +36,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ message: "No organizations found", sent: 0 })
   }
 
-  const now = new Date()
-  const sinceDate = new Date(Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate() - 7
-  ))
-  const since = sinceDate.toISOString()
-  const sinceDateOnly = sinceDate.toISOString().slice(0, 10)
+  const digestWindow = getDigestWindow(new Date())
 
   let totalSent = 0
   let totalSkipped = 0
@@ -53,38 +48,26 @@ export async function GET(request: Request) {
       const digestMembers = members.filter((m) => m.prefs.email_weekly_digest)
       if (digestMembers.length === 0) continue
 
-      // Donations given in the past 7 days, by actual gift date (not record creation).
-      const { data: weekRows } = await admin
-        .from("donations")
-        .select("amount, donor_id")
-        .eq("org_id", org.id)
-        .gte("date", sinceDateOnly)
-
-      const donations = (weekRows ?? []) as { amount: number; donor_id: string }[]
+      // Donations given in the 7 full days before today, by actual gift date
+      // (not record creation). Throws on error so the org is skipped rather
+      // than emailed a $0 total.
+      const donations = await fetchAllRows<{ amount: number; donor_id: string | null }>((from, to) =>
+        admin
+          .from("donations")
+          .select("amount, donor_id")
+          .eq("org_id", org.id)
+          .gte("date", digestWindow.start)
+          .lt("date", digestWindow.end)
+          .order("id")
+          .range(from, to)
+      )
       const donationCount = donations.length
       const donationTotal = donations.reduce((sum, d) => sum + Number(d.amount || 0), 0)
 
       // "New donor this week" = a donor whose first-ever gift date falls in the window.
-      // Derived from donations.date because donors has no first_donation_date / created_at column.
-      const weekDonorIds = [...new Set(donations.map((d) => d.donor_id))]
-      let newDonorCount = 0
-      if (weekDonorIds.length > 0) {
-        const priorDonorIds = new Set<string>()
-        const pageSize = 1000
-        for (let offset = 0; priorDonorIds.size < weekDonorIds.length; offset += pageSize) {
-          const { data: page } = await admin
-            .from("donations")
-            .select("donor_id")
-            .eq("org_id", org.id)
-            .in("donor_id", weekDonorIds)
-            .lt("date", sinceDateOnly)
-            .range(offset, offset + pageSize - 1)
-          const rows = (page ?? []) as { donor_id: string }[]
-          for (const r of rows) priorDonorIds.add(r.donor_id)
-          if (rows.length < pageSize) break
-        }
-        newDonorCount = weekDonorIds.filter((id) => !priorDonorIds.has(id)).length
-      }
+      const newDonorCount = (
+        await findFirstTimeDonorIds(admin, org.id, donations.map((d) => d.donor_id), digestWindow.start)
+      ).size
 
       const orgName = (org.name as string) || "Your Organization"
 
@@ -93,8 +76,11 @@ export async function GET(request: Request) {
       try {
         const controller = new AbortController()
         const timeout = setTimeout(() => controller.abort(), 15_000)
-        aiSummary = await generateDigestAISummary(org.id, admin, since, controller.signal)
-        clearTimeout(timeout)
+        try {
+          aiSummary = await generateDigestAISummary(org.id, admin, digestWindow, controller.signal)
+        } finally {
+          clearTimeout(timeout)
+        }
       } catch (err) {
         console.error("[digest] AI summary failed for org", org.id, err)
         aiSummary = null

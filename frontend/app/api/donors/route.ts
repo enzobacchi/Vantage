@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { requireUserOrg } from "@/lib/auth";
+import { readJsonObject } from "@/lib/http";
 import { buildAddressForGeocode, geocodeAddress } from "@/lib/geocode";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isLimitExceeded } from "@/lib/subscription";
@@ -379,7 +380,18 @@ export async function POST(request: Request) {
   const auth = await requireUserOrg();
   if (!auth.ok) return auth.response;
 
-  const body = await request.json();
+  const parsed = await readJsonObject(request);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body as {
+    display_name?: unknown;
+    donor_type?: string;
+    email?: string;
+    phone?: string;
+    billing_address?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+  };
   const displayName = typeof body.display_name === "string" ? body.display_name.trim() : "";
   if (!displayName) {
     return NextResponse.json({ error: "display_name is required" }, { status: 400 });
@@ -392,7 +404,11 @@ export async function POST(request: Request) {
     );
   }
 
-  const donorType = VALID_DONOR_TYPES.includes(body.donor_type) ? body.donor_type : "individual";
+  const donorType =
+    typeof body.donor_type === "string" &&
+    (VALID_DONOR_TYPES as readonly string[]).includes(body.donor_type)
+      ? body.donor_type
+      : "individual";
 
   const supabase = createAdminClient();
   const { data, error } = await supabase

@@ -75,7 +75,17 @@ export async function PATCH(
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const body = await request.json();
+
+  let body: Record<string, unknown>;
+  try {
+    const parsed = await request.json();
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return NextResponse.json({ error: "Request body must be a JSON object" }, { status: 400 });
+    }
+    body = parsed as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
 
   const updates: Record<string, unknown> = {};
   const stringFields = [
@@ -90,7 +100,10 @@ export async function PATCH(
     }
   }
 
-  if (body.donor_type !== undefined && VALID_DONOR_TYPES.includes(body.donor_type)) {
+  if (
+    typeof body.donor_type === "string" &&
+    (VALID_DONOR_TYPES as readonly string[]).includes(body.donor_type)
+  ) {
     updates.donor_type = body.donor_type;
   }
 

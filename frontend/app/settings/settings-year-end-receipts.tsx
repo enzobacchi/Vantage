@@ -403,16 +403,9 @@ export function SettingsYearEndReceipts() {
                   <span>{renderTemplate(subject, previewDonor, orgName || "Your Organization", year)}</span>
                 </div>
                 <div className="rounded-lg border border-border bg-muted/30 p-4">
-                  <div
-                    className="whitespace-pre-wrap text-sm leading-relaxed"
-                    dangerouslySetInnerHTML={{
-                      __html: renderTemplate(body, previewDonor, orgName || "Your Organization", year)
-                        .replace(/&/g, "&amp;")
-                        .replace(/</g, "&lt;")
-                        .replace(/>/g, "&gt;")
-                        .replace(/\n/g, "<br />"),
-                    }}
-                  />
+                  <div className="whitespace-pre-wrap text-sm leading-relaxed">
+                    {renderTemplate(body, previewDonor, orgName || "Your Organization", year)}
+                  </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
                   This is a preview of how the email will appear. Variables have been replaced with this donor&apos;s data.

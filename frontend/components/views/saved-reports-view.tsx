@@ -590,16 +590,6 @@ export function SavedReportsView() {
     return rows
   }
 
-  const openRegenerateDialog = () => {
-    if (!previewData?.reportParams) return
-    setRegenerateFilters(previewData.reportParams.filters)
-    setRegenerateColumns(previewData.reportParams.selectedColumns)
-    setRegenerateTitle(previewData.title)
-    const vis = previewData.reportParams.visibility
-    setRegenerateVisibility(vis === "shared" ? "shared" : vis === "specific" ? "specific" : "private")
-    setRegenerateOpen(true)
-  }
-
   const handleEditReport = async (reportId: string) => {
     if (isLoadingEdit) return
     setIsLoadingEdit(true)
@@ -624,7 +614,9 @@ export function SavedReportsView() {
       setRegenerateFilters(data.reportParams.filters ?? [])
       setRegenerateColumns(data.reportParams.selectedColumns ?? [])
       setRegenerateTitle(typeof data.title === "string" ? data.title : "")
-      const vis = data.reportParams.visibility
+      // The visibility column is authoritative — filter_criteria.visibility is a
+      // snapshot from generation time and goes stale after share-dialog edits.
+      const vis = data.visibility ?? data.reportParams.visibility
       setRegenerateVisibility(vis === "shared" ? "shared" : vis === "specific" ? "specific" : "private")
       setRegenerateSharedWith(
         vis === "specific" && Array.isArray(data.shares)
@@ -656,7 +648,7 @@ export function SavedReportsView() {
           filters: regenerateFilters,
           selectedColumns: regenerateColumns,
           visibility: regenerateVisibility,
-          ...(regenerateVisibility === "specific" && regenerateSharedWith.length > 0 ? { shared_with_user_ids: regenerateSharedWith } : {}),
+          ...(regenerateVisibility === "specific" ? { shared_with_user_ids: regenerateSharedWith } : {}),
         }),
       })
       const data = (await res.json().catch(() => null)) as { error?: string }
@@ -1631,7 +1623,11 @@ export function SavedReportsView() {
               Close
             </Button>
             {previewData?.reportParams && (
-              <Button variant="outline" onClick={openRegenerateDialog}>
+              <Button
+                variant="outline"
+                disabled={isLoadingEdit}
+                onClick={() => previewReportId && handleEditReport(previewReportId)}
+              >
                 Edit & Regenerate
               </Button>
             )}

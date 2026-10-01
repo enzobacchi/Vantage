@@ -23,12 +23,29 @@ export function encryptQbToken(token: string): string {
   return encrypt(token);
 }
 
+// Ciphertext produced by encrypt() has the shape iv:tag:ciphertext (three
+// base64 segments). Legacy plaintext tokens never contain ':' segments in that
+// shape, so we use it to tell "genuine legacy plaintext" apart from "this looks
+// encrypted but failed to decrypt" (missing/rotated ENCRYPTION_KEY, corruption).
+// The latter must not fail silently — it means every QB sync for the org breaks
+// while returning ciphertext as if it were a token.
+function looksEncrypted(value: string): boolean {
+  return value.split(":").length === 3;
+}
+
 export function decryptQbToken(stored: string | null | undefined): string | null {
   if (!stored) return null;
   try {
     return decrypt(stored);
   } catch {
-    // Legacy plaintext row, or ENCRYPTION_KEY missing/rotated.
+    if (looksEncrypted(stored)) {
+      console.error(
+        "[QB] Failed to decrypt a stored token that looks encrypted. " +
+          "ENCRYPTION_KEY is likely missing, rotated, or corrupted — QuickBooks " +
+          "sync will fail for this org until it reconnects."
+      );
+    }
+    // Legacy plaintext row, or an unrecoverable ciphertext (logged above).
     return stored;
   }
 }

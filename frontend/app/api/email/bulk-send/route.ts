@@ -136,6 +136,27 @@ export async function POST(request: Request) {
       .replace(/>/g, "&gt;")
       .replace(/\n/g, "<br>")}</p>`
 
+    // Atomic per-send quota reservation. This is the real enforcement point
+    // (the batch pre-check above is advisory): two concurrent batches can't
+    // both slip under the hourly cap because each send reserves its own slot.
+    const { data: allowed, error: quotaErr } = await supabase.rpc(
+      "try_consume_email_quota",
+      {
+        p_user_id: auth.userId,
+        p_org_id: auth.orgId,
+        p_limit: HOURLY_LIMIT,
+        p_window: "01:00:00",
+      }
+    )
+    if (quotaErr || !allowed) {
+      failed.push({
+        donorId: recipient.donorId,
+        donorEmail,
+        error: "Hourly email rate limit reached",
+      })
+      continue
+    }
+
     try {
       await sendGmailMessage({
         userId: auth.userId,
@@ -145,21 +166,14 @@ export async function POST(request: Request) {
         html,
       })
 
-      await Promise.all([
-        supabase.from("email_send_log").insert({
-          org_id: auth.orgId,
-          user_id: auth.userId,
-          sent_at: new Date().toISOString(),
-        }),
-        supabase.from("interactions").insert({
-          donor_id: recipient.donorId,
-          type: "email",
-          direction: "outbound",
-          subject: personalizedSubject.trim(),
-          content: personalizedMessage.trim(),
-          date: new Date().toISOString(),
-        }),
-      ])
+      await supabase.from("interactions").insert({
+        donor_id: recipient.donorId,
+        type: "email",
+        direction: "outbound",
+        subject: personalizedSubject.trim(),
+        content: personalizedMessage.trim(),
+        date: new Date().toISOString(),
+      })
 
       sent++
     } catch (err) {

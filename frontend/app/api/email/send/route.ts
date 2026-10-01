@@ -71,29 +71,6 @@ export async function POST(request: Request) {
 
   const supabase = createAdminClient()
 
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
-  const { count, error: rateLimitError } = await supabase
-    .from("email_send_log")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", auth.userId)
-    .gte("sent_at", oneHourAgo)
-
-  if (rateLimitError) {
-    return NextResponse.json(
-      { error: "Could not check email rate limit", code: "RATE_LIMIT_CHECK_FAILED" },
-      { status: 500 }
-    )
-  }
-  if ((count ?? 0) >= HOURLY_LIMIT) {
-    return NextResponse.json(
-      {
-        error: `Email rate limit exceeded. You can send up to ${HOURLY_LIMIT} emails per hour. Please try again later.`,
-        code: "RATE_LIMIT_EXCEEDED",
-      },
-      { status: 429 }
-    )
-  }
-
   const { data: donor, error: donorError } = await supabase
     .from("donors")
     .select("id")
@@ -105,6 +82,34 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: "Donor not found or access denied" },
       { status: 404 }
+    )
+  }
+
+  // Atomic per-user hourly rate limit: reserves a slot (or rejects) in one
+  // race-free call, replacing the previous count-then-insert which two
+  // concurrent requests could both slip under.
+  const { data: allowed, error: rateLimitError } = await supabase.rpc(
+    "try_consume_email_quota",
+    {
+      p_user_id: auth.userId,
+      p_org_id: auth.orgId,
+      p_limit: HOURLY_LIMIT,
+      p_window: "01:00:00",
+    }
+  )
+  if (rateLimitError) {
+    return NextResponse.json(
+      { error: "Could not check email rate limit", code: "RATE_LIMIT_CHECK_FAILED" },
+      { status: 500 }
+    )
+  }
+  if (!allowed) {
+    return NextResponse.json(
+      {
+        error: `Email rate limit exceeded. You can send up to ${HOURLY_LIMIT} emails per hour. Please try again later.`,
+        code: "RATE_LIMIT_EXCEEDED",
+      },
+      { status: 429 }
     )
   }
 
@@ -154,15 +159,6 @@ export async function POST(request: Request) {
       { error: "Failed to send email." },
       { status: 500 }
     )
-  }
-
-  const { error: logError } = await supabase.from("email_send_log").insert({
-    org_id: auth.orgId,
-    user_id: auth.userId,
-    sent_at: new Date().toISOString(),
-  })
-  if (logError) {
-    console.warn("[email/send] Failed to log send for rate limit", logError.message)
   }
 
   const { error: insertError } = await supabase.from("interactions").insert({

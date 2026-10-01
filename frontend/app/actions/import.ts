@@ -40,6 +40,11 @@ export type ImportResult = {
   errors: Array<{ row: number; message: string }>;
 };
 
+// Hard ceiling on rows accepted in a single import request. Guards the
+// serverless function's memory (we pre-load existing donors + build maps in
+// memory) against an unbounded upload; larger files should be split.
+const MAX_IMPORT_ROWS = 10000;
+
 const VALID_DONOR_TYPES = ["individual", "corporate", "school", "church"];
 const VALID_PAYMENT_METHODS = [
   "check",
@@ -67,6 +72,12 @@ export async function importDonorsFromCSV(
 ): Promise<ImportResult> {
   const org = await getCurrentUserOrg();
   if (!org) throw new Error("Unauthorized");
+
+  if (rows.length > MAX_IMPORT_ROWS) {
+    throw new Error(
+      `Import too large: ${rows.length} rows exceeds the ${MAX_IMPORT_ROWS}-row limit per import. Please split the file into smaller batches.`
+    );
+  }
 
   const supabase = createAdminClient();
   const orgId = org.orgId;

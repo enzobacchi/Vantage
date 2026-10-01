@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createServerSupabaseClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { readJsonObject } from "@/lib/http"
 import { getStripe } from "@/lib/stripe"
 import type { SubscriptionPlan, SubscriptionStatus } from "@/types/database"
 import type Stripe from "stripe"
@@ -24,7 +25,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const body = (await req.json()) as { checkout_session_id?: string }
+  const parsed = await readJsonObject(req)
+  if (!parsed.ok) return parsed.response
+  const body = parsed.body as { checkout_session_id?: string }
   const sessionId = body.checkout_session_id
   if (!sessionId || typeof sessionId !== "string") {
     return NextResponse.json(

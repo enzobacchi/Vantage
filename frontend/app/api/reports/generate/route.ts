@@ -176,14 +176,14 @@ export async function POST(request: Request) {
       // Only the creator may overwrite an existing report (mirrors PATCH).
       const { data: existingReport } = await supabase
         .from("saved_reports")
-        .select("created_by_user_id")
+        .select("created_by_user_id, title")
         .eq("id", regenerateReportId)
         .eq("organization_id", auth.orgId)
         .maybeSingle()
       if (!existingReport) {
         return NextResponse.json({ error: "Report not found." }, { status: 404 })
       }
-      const reportCreator = (existingReport as { created_by_user_id: string | null }).created_by_user_id
+      const reportCreator = existingReport.created_by_user_id
       if (reportCreator && reportCreator !== auth.userId) {
         return NextResponse.json(
           { error: "Only the report creator can regenerate this report." },
@@ -191,10 +191,29 @@ export async function POST(request: Request) {
         )
       }
 
+      // The Edit & Regenerate dialog can rename and re-share the report, so
+      // title/visibility are written here too — but only when the caller sent
+      // them, so a bare regenerate never renames or re-shares.
+      const regenTitle = customTitle || existingReport.title || defaultTitle
+      const visibilityProvided =
+        body?.visibility === "private" || body?.visibility === "shared" || body?.visibility === "specific"
+      const sharesProvided = Array.isArray(body?.shared_with_user_ids)
+      // Mirror PUT /api/reports/[id]/shares: "specific" with an empty list is private.
+      const regenVisibility = !visibilityProvided
+        ? null
+        : visibility === "specific" && sharesProvided && sharedWithUserIds.length === 0
+          ? "private"
+          : visibility
+      const regenCriteria = regenVisibility ? { ...filterCriteria, visibility: regenVisibility } : filterCriteria
       const updatePayloads: Array<Record<string, unknown>> = [
-        { type: "CSV", content: csv, query: queryValue, summary, records_count: rowCount, filter_criteria: filterCriteria },
-        { content: csv, filter_criteria: filterCriteria },
+        {
+          title: regenTitle, type: "CSV", content: csv, query: queryValue, summary, records_count: rowCount,
+          ...(regenVisibility ? { visibility: regenVisibility } : {}),
+          filter_criteria: regenCriteria,
+        },
+        { title: regenTitle, content: csv, filter_criteria: regenCriteria },
       ]
+      let updated = false
       for (const update of updatePayloads) {
         const { error: updErr } = await supabase
           .from("saved_reports")
@@ -204,14 +223,8 @@ export async function POST(request: Request) {
           .select("id")
           .single()
         if (!updErr) {
-          return NextResponse.json({
-            success: true,
-            reportId: regenerateReportId,
-            rowCount,
-            bytes: csvBytes,
-            title: stripSqlArtifacts(title),
-            summary: stripSqlArtifacts(summary),
-          })
+          updated = true
+          break
         }
         const { error: updErr2 } = await supabase
           .from("saved_reports")
@@ -221,15 +234,41 @@ export async function POST(request: Request) {
           .select("id")
           .single()
         if (!updErr2) {
-          return NextResponse.json({
-            success: true,
-            reportId: regenerateReportId,
-            rowCount,
-            bytes: csvBytes,
-            title: stripSqlArtifacts(title),
-            summary: stripSqlArtifacts(summary),
-          })
+          updated = true
+          break
         }
+      }
+      if (updated) {
+        // Keep report_shares in sync with visibility (same convention as
+        // PUT /api/reports/[id]/shares). "specific" without an id list sent
+        // leaves the existing share list untouched.
+        if (regenVisibility && (regenVisibility !== "specific" || sharesProvided)) {
+          const { error: delErr } = await supabase
+            .from("report_shares")
+            .delete()
+            .eq("report_id", regenerateReportId)
+          const { error: insErr } =
+            !delErr && regenVisibility === "specific"
+              ? await supabase
+                  .from("report_shares")
+                  .insert(sharedWithUserIds.map((uid) => ({ report_id: regenerateReportId, user_id: uid })))
+              : { error: null }
+          if (delErr || insErr) {
+            console.error("[reports/generate] share sync:", (delErr ?? insErr)?.message)
+            return NextResponse.json(
+              { error: "Report was regenerated, but updating who it's shared with failed." },
+              { status: 500 }
+            )
+          }
+        }
+        return NextResponse.json({
+          success: true,
+          reportId: regenerateReportId,
+          rowCount,
+          bytes: csvBytes,
+          title: stripSqlArtifacts(regenTitle),
+          summary: stripSqlArtifacts(summary),
+        })
       }
       return NextResponse.json(
         { error: "Failed to update report. It may have been created by a different flow." },

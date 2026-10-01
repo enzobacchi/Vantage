@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireUserOrg } from "@/lib/auth"
+import { readJsonObject } from "@/lib/http"
 import { getStripe, getOrCreateStripeCustomer } from "@/lib/stripe"
 import { getStripePriceId, type BillingInterval } from "@/lib/subscription"
 import { createAdminClient } from "@/lib/supabase/admin"
@@ -16,7 +17,9 @@ export async function POST(req: NextRequest) {
   const auth = await requireUserOrg()
   if (!auth.ok) return auth.response
 
-  const body = (await req.json()) as { plan?: string; interval?: string }
+  const parsed = await readJsonObject(req)
+  if (!parsed.ok) return parsed.response
+  const body = parsed.body as { plan?: string; interval?: string }
   const plan = body.plan as SubscriptionPlan | undefined
   const interval = (body.interval ?? "monthly") as BillingInterval
 

@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { isSyncError, runSyncForOrg, type SyncResult, type SyncError } from "@/lib/sync/run-sync";
 import { notifySystemAlert } from "@/lib/notifications";
 import { isAuthorizedCron } from "@/lib/cron-auth";
+import { runHealthChecks, sendHealthAlert, type HealthReport } from "@/lib/health-checks";
 
 export const runtime = "nodejs";
 export const maxDuration = 300; // 5 minutes — cron may sync multiple orgs
@@ -76,10 +77,23 @@ export async function GET(request: Request) {
 
   console.log(`[Cron Sync] Complete: ${succeeded} succeeded, ${failed} failed out of ${results.length} orgs`);
 
+  // Daily platform health check piggybacks on this cron (Vercel Hobby caps
+  // cron jobs, so no dedicated schedule). Emails FEEDBACK_EMAIL_TO on failure.
+  let health: HealthReport | null = null;
+  try {
+    health = await runHealthChecks();
+    if (!health.healthy) {
+      await sendHealthAlert(health);
+    }
+  } catch (e) {
+    console.error("[Cron Sync] Health check crashed:", e);
+  }
+
   return NextResponse.json({
     totalOrgs: results.length,
     succeeded,
     failed,
     results,
+    health,
   });
 }

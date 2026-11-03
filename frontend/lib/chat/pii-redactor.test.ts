@@ -346,6 +346,17 @@ describe("redactReplayedText", () => {
     expect(messages[2].parts[0]).toEqual({ type: "text", text: "[DONOR_1] again" })
   })
 
+  it("also redacts seeded campaign/fund names restored into earlier assistant text", () => {
+    const r = new ChatPIIRedactor()
+    r.seedFromDonors([{ display_name: "Ruth Henderson" }])
+    r.seedOptions([{ type: "fund", name: "Ruth Henderson Memorial Scholarship" }])
+    const messages = [
+      { role: "assistant", parts: [{ type: "text", text: "The Ruth Henderson Memorial Scholarship raised $500 from Ruth Henderson." }] },
+    ]
+    redactReplayedText(messages, r, -1)
+    expect(messages[0].parts[0].text).toBe("The [FUND_1] raised $500 from [DONOR_1].")
+  })
+
   it("handles legacy string content", () => {
     const r = new ChatPIIRedactor()
     r.seedFromDonors([{ display_name: "Ruth Henderson" }])

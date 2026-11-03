@@ -209,6 +209,23 @@ export class ChatPIIRedactor {
   }
 
   /**
+   * Redact free text from earlier turns before it is replayed to the model.
+   * Like `redactUserText`, plus whole-word matching of seeded campaign/fund/
+   * category names, which the stream transform restored for display. Option
+   * names go first so "Ruth Henderson Memorial Scholarship" becomes [FUND_1]
+   * rather than "[DONOR_1] Memorial Scholarship".
+   */
+  redactHistoryText(text: string): string {
+    if (!text) return text
+    const options: PIIMap = {
+      entries: Object.fromEntries(
+        [...this.optionNames].map(([name, placeholder]) => [placeholder, name])
+      ),
+    }
+    return this.redactUserText(redactWithMapWordBoundary(text, options))
+  }
+
+  /**
    * Redact PII from a tool result before it's sent back to the LLM.
    *
    * 1. Deep-walk the result to discover donor names in known fields.
@@ -469,11 +486,11 @@ export function redactReplayedText(
 ): void {
   messages.forEach((m, i) => {
     if (i === skipIndex || (m.role !== "user" && m.role !== "assistant")) return
-    if (typeof m.content === "string") m.content = redactor.redactUserText(m.content)
+    if (typeof m.content === "string") m.content = redactor.redactHistoryText(m.content)
     if (!Array.isArray(m.parts)) return
     m.parts = m.parts.map((p) =>
       p.type === "text" && typeof p.text === "string"
-        ? { ...p, text: redactor.redactUserText(p.text) }
+        ? { ...p, text: redactor.redactHistoryText(p.text) }
         : p
     )
   })

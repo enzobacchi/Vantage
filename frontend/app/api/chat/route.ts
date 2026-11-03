@@ -11,6 +11,7 @@ import { NextResponse } from "next/server"
 import { requireUserOrg } from "@/lib/auth"
 import {
   ChatPIIRedactor,
+  redactReplayedText,
   redactPIIPatterns,
 } from "@/lib/chat/pii-redactor"
 import { buildSystemPrompt } from "@/lib/chat/system-prompt"
@@ -134,13 +135,17 @@ export async function POST(request: Request) {
 
   // Redact the last user message *in place* before it reaches the LLM.
   let redactedLastUserText = ""
+  let lastUserIndex = -1
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].role !== "user") continue
     const raw = extractText(messages[i])
     redactedLastUserText = redactor.redactUserText(raw)
     replaceText(messages[i], redactedLastUserText)
+    lastUserIndex = i
     break
   }
+  // Earlier turns come back from the client with real names restored.
+  redactReplayedText(messages, redactor, lastUserIndex)
 
   // The same wrapped tools must reach convertToModelMessages: tool outputs
   // replayed from earlier turns are raw in the UI messages, and only the

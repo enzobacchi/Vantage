@@ -2,7 +2,7 @@ import { tool } from "ai"
 import { describe, expect, it } from "vitest"
 import { z } from "zod"
 
-import { ChatPIIRedactor, redactPIIPatterns } from "./pii-redactor"
+import { ChatPIIRedactor, redactPIIPatterns, redactReplayedText } from "./pii-redactor"
 
 describe("redactPIIPatterns", () => {
   it("replaces emails and phones with stable placeholders", () => {
@@ -316,5 +316,41 @@ describe("ChatPIIRedactor.wrapTools", () => {
     expect((error as Error).message).toContain("[DONOR_1]")
     expect((error as Error).message).toContain("[REDACTED_EMAIL]")
     expect((error as Error).message).not.toMatch(/Jane Smith|jane@example\.org/)
+  })
+})
+
+describe("redactReplayedText", () => {
+  it("redacts every earlier user/assistant text part in place, keeping part order", () => {
+    const r = new ChatPIIRedactor()
+    r.seedFromDonors([{ display_name: "Ruth Henderson", email: "ruth@example.org" }])
+    const messages = [
+      { role: "user", parts: [{ type: "text", text: "How is Ruth Henderson doing?" }] },
+      {
+        role: "assistant",
+        parts: [
+          { type: "text", text: "Checking Ruth Henderson." },
+          { type: "tool-get_donor_summary", output: { display_name: "Ruth Henderson" } },
+          { type: "text", text: "Email ruth@example.org to thank her." },
+        ],
+      },
+      { role: "user", parts: [{ type: "text", text: "[DONOR_1] again" }] },
+    ]
+    redactReplayedText(messages, r, 2)
+
+    expect(messages[0].parts[0]).toEqual({ type: "text", text: "How is [DONOR_1] doing?" })
+    expect(messages[1].parts.map((p) => p.type)).toEqual(["text", "tool-get_donor_summary", "text"])
+    expect(JSON.stringify(messages[1].parts[0])).toContain("[DONOR_1]")
+    expect(JSON.stringify(messages[1].parts[2])).not.toContain("ruth@example.org")
+    // Tool parts are left for toModelOutput; the skipped (already-redacted) message is untouched.
+    expect(messages[1].parts[1]).toEqual({ type: "tool-get_donor_summary", output: { display_name: "Ruth Henderson" } })
+    expect(messages[2].parts[0]).toEqual({ type: "text", text: "[DONOR_1] again" })
+  })
+
+  it("handles legacy string content", () => {
+    const r = new ChatPIIRedactor()
+    r.seedFromDonors([{ display_name: "Ruth Henderson" }])
+    const messages = [{ role: "assistant", content: "Ruth Henderson gave $500." }]
+    redactReplayedText(messages, r, -1)
+    expect(messages[0].content).toBe("[DONOR_1] gave $500.")
   })
 })

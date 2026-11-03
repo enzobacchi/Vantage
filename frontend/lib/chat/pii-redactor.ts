@@ -446,6 +446,39 @@ export class ChatPIIRedactor {
   }
 }
 
+// ── Replayed history ──────────────────────────────────────────────
+
+type ReplayedMessage = {
+  role: string
+  content?: string
+  parts?: Array<{ type: string; text?: string }>
+}
+
+/**
+ * Redact the text of earlier turns before they are replayed to the model.
+ * The client resends the whole conversation each turn, and its copy holds
+ * real names (the stream transform restored them for display). Text parts
+ * are redacted one by one so their order around tool parts is kept; tool
+ * parts are left to the tools' `toModelOutput`. `skipIndex` is the message
+ * the caller already redacted. Mutates `messages` in place.
+ */
+export function redactReplayedText(
+  messages: ReplayedMessage[],
+  redactor: ChatPIIRedactor,
+  skipIndex: number
+): void {
+  messages.forEach((m, i) => {
+    if (i === skipIndex || (m.role !== "user" && m.role !== "assistant")) return
+    if (typeof m.content === "string") m.content = redactor.redactUserText(m.content)
+    if (!Array.isArray(m.parts)) return
+    m.parts = m.parts.map((p) =>
+      p.type === "text" && typeof p.text === "string"
+        ? { ...p, text: redactor.redactUserText(p.text) }
+        : p
+    )
+  })
+}
+
 // ── Stream buffering helper ───────────────────────────────────────
 
 /**

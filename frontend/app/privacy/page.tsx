@@ -21,7 +21,7 @@ export default function PrivacyPage() {
           Privacy Policy
         </h1>
         <p className="mb-10 text-sm text-muted-foreground">
-          Last updated: March 22, 2026
+          Last updated: November 3, 2026
         </p>
 
         <div className="prose prose-zinc dark:prose-invert max-w-none space-y-8 text-foreground/90">
@@ -97,6 +97,28 @@ export default function PrivacyPage() {
               </li>
               <li>
                 <strong>Legal requirements</strong> &mdash; We may disclose information if required by law, regulation, legal process, or governmental request.
+              </li>
+            </ul>
+            <h3 className="mt-4 text-lg font-medium text-foreground">5a. Sub-processors</h3>
+            <p>We currently use the following service providers to operate the Service:</p>
+            <ul className="ml-4 list-disc space-y-1">
+              <li>
+                <strong>Supabase</strong> &mdash; Database hosting and authentication (account, organization, and donor data)
+              </li>
+              <li>
+                <strong>Vercel</strong> &mdash; Application hosting and basic usage analytics
+              </li>
+              <li>
+                <strong>OpenAI and Anthropic</strong> &mdash; AI donor insights and the chat assistant (redacted data only; see Section 4)
+              </li>
+              <li>
+                <strong>Stripe</strong> &mdash; Subscription billing and payment processing (billing contact details; card details are entered on Stripe and never stored by Vantage)
+              </li>
+              <li>
+                <strong>Resend</strong> &mdash; Transactional email delivery, such as donation receipts and team invitations (recipient email addresses and message content)
+              </li>
+              <li>
+                <strong>Mapbox</strong> &mdash; Maps and address geocoding (donor mailing addresses are sent to Mapbox to place donors on the map and plan visit routes)
               </li>
             </ul>
           </section>

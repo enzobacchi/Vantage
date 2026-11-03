@@ -1,7 +1,11 @@
 /**
  * Per-request PII redaction for chat tool results and stream unredaction.
  *
- * Tool results are redacted (donor names → [DONOR_N]) before reaching the LLM.
+ * Tool results are redacted before reaching the LLM: donor names → [DONOR_N],
+ * street addresses → [ADDRESS_N], custom-field values → [CUSTOM_N], and
+ * campaign/fund/category names → [CAMPAIGN_N]/[FUND_N]/[CATEGORY_N].
+ * `wrapTools` applies this only to what the model sees (`toModelOutput`); the
+ * client still receives the raw tool output to render cards and charts.
  * User-typed messages are redacted via `redactUserText` before `streamText`.
  * The output stream is unredacted ([DONOR_N] → real name) before reaching the client.
  *
@@ -9,7 +13,14 @@
  * analytics, and they are not identifying once names/contact info are stripped.
  */
 
-import type { StreamTextTransform, TextStreamPart, ToolSet } from "ai"
+import type {
+  JSONValue,
+  StreamTextTransform,
+  TextStreamPart,
+  Tool,
+  ToolExecutionOptions,
+  ToolSet,
+} from "ai"
 
 import {
   type PIIMap,
@@ -45,6 +56,53 @@ const NAME_KEYS = new Set(["display_name", "donor_name"])
 const GUARDED_NAME_KEY = "name"
 const GUARD_SIBLINGS = new Set(["id", "donor_id"])
 
+/**
+ * Keys whose string values are street-level address data. City and state stay
+ * visible: geography questions need them (see "Accepted risks" in
+ * docs/AUDIT-2026-07.md).
+ */
+const ADDRESS_KEYS = new Set([
+  "billing_address",
+  "address",
+  "address_line1",
+  "address_line2",
+  "street",
+  "zip",
+  "postal_code",
+])
+
+/**
+ * Keys holding free text that may contain stray emails or phone numbers,
+ * including tool error text (Postgres errors echo the offending value).
+ */
+const FREE_TEXT_KEYS = new Set([
+  "subject",
+  "memo",
+  "notes",
+  "note",
+  "content",
+  "body",
+  "description",
+  "error",
+  "message",
+  "reason",
+  "warning",
+])
+
+/**
+ * Keys whose values are campaign/fund/category names. `groups` is the
+ * timeseries group list; objects in `series` use group names as keys.
+ * Matching only here keeps a category named "Active" from rewriting
+ * `lifecycle_status: "Active"`.
+ */
+const OPTION_KEYS = new Set(["campaign_name", "fund_name", "category_name", "group", "groups"])
+const OPTION_KEYED_ROWS_KEY = "series"
+
+/** Every string leaf under this key is a custom-field value. */
+const CUSTOM_FIELDS_KEY = "custom_fields"
+
+export type DonationOptionType = "campaign" | "fund" | "category"
+
 export class ChatPIIRedactor {
   private map: PIIMap = { entries: {} }
   private nameCounter = 0
@@ -53,6 +111,17 @@ export class ChatPIIRedactor {
   private seenNames = new Set<string>()
   private seenEmails = new Set<string>()
   private seenPhones = new Set<string>()
+
+  /**
+   * Placeholders that are only ever substituted at a known field position,
+   * never by substring search over the serialized result: a zip like "5000"
+   * or a category named "Other" would otherwise clobber amounts and enums.
+   */
+  private fieldMap: PIIMap = { entries: {} }
+  private fieldCounters: Record<string, number> = {}
+  private fieldPlaceholders = new Map<string, string>()
+  /** Exact campaign/fund/category name → placeholder. */
+  private optionNames = new Map<string, string>()
 
   /** Register a donor name and assign a [DONOR_N] placeholder. */
   addDonorName(value: string | null | undefined): void {
@@ -84,6 +153,31 @@ export class ChatPIIRedactor {
     this.seenPhones.add(v)
     this.phoneCounter++
     this.map.entries[`[PHONE_${this.phoneCounter}]`] = v
+  }
+
+  /**
+   * Register a campaign, fund, or category name. Fund names often carry a
+   * person's name ("Ruth Henderson Memorial Scholarship"), so an option field
+   * (see OPTION_KEYS) equal to it becomes [FUND_N] etc. Matching is exact and
+   * case-sensitive.
+   */
+  addOptionName(type: DonationOptionType, name: string | null | undefined): void {
+    if (!name?.trim() || this.optionNames.has(name)) return
+    this.optionNames.set(name, this.fieldPlaceholder(type.toUpperCase(), name))
+  }
+
+  /**
+   * Seed every org option before any history is converted: replayed tool
+   * outputs from earlier turns reach the model before any tool runs this
+   * request. Pass a stable order (e.g. created_at, id) so the same option
+   * gets the same placeholder on every request.
+   */
+  seedOptions(options: { type: string; name: string | null }[]): void {
+    for (const o of options) {
+      if (o.type === "campaign" || o.type === "fund" || o.type === "category") {
+        this.addOptionName(o.type, o.name)
+      }
+    }
   }
 
   /**
@@ -123,12 +217,72 @@ export class ChatPIIRedactor {
    */
   redactToolResult<T>(result: T): T {
     this.extractNames(result, null)
+    const fieldsRedacted = this.redactFields(result, null) as T
 
-    if (Object.keys(this.map.entries).length === 0) return result
+    if (Object.keys(this.map.entries).length === 0) return fieldsRedacted
 
-    const json = JSON.stringify(result)
+    const json = JSON.stringify(fieldsRedacted)
     const redacted = redactWithMap(json, this.map)
     return JSON.parse(redacted) as T
+  }
+
+  /**
+   * Restore real values in a tool call's arguments before it executes.
+   * The model only ever sees placeholders, so it passes them back as
+   * arguments (e.g. `fund_name: "[FUND_2]"`); the server-side query needs the
+   * real value to match. Safe because the result is re-redacted before the
+   * model sees it.
+   */
+  unredactToolInput<T>(input: T): T {
+    if (
+      Object.keys(this.map.entries).length === 0 &&
+      Object.keys(this.fieldMap.entries).length === 0
+    ) {
+      return input
+    }
+    const walk = (value: unknown): unknown => {
+      if (typeof value === "string") return this.unredact(value)
+      if (Array.isArray(value)) return value.map(walk)
+      if (value && typeof value === "object") {
+        return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, walk(v)]))
+      }
+      return value
+    }
+    return walk(input) as T
+  }
+
+  /**
+   * Put this redactor on the model boundary of every tool: inputs are
+   * unredacted before `execute`, and only the model's copy of the output is
+   * redacted (`toModelOutput`). The raw output still streams to the client,
+   * which is the signed-in org user viewing their own data. Pass the same
+   * tools to `convertToModelMessages` so replayed history is redacted too.
+   */
+  wrapTools<T extends ToolSet>(tools: T): T {
+    const wrapped: ToolSet = {}
+    for (const [name, t] of Object.entries(tools)) {
+      const execute = t.execute
+      const wrappedTool: Tool = {
+        ...t,
+        toModelOutput: ({ output }) => ({
+          type: "json",
+          value: (this.redactToolResult(output) ?? null) as JSONValue,
+        }),
+      }
+      if (execute) {
+        // A thrown error's message reaches the model as raw text (it skips
+        // toModelOutput), so redact it on the way out.
+        wrappedTool.execute = async (input: unknown, options: ToolExecutionOptions) => {
+          try {
+            return await execute(this.unredactToolInput(input), options)
+          } catch (e) {
+            throw new Error(this.redactUserText(e instanceof Error ? e.message : String(e)))
+          }
+        }
+      }
+      wrapped[name] = wrappedTool
+    }
+    return wrapped as T
   }
 
   /**
@@ -195,7 +349,64 @@ export class ChatPIIRedactor {
   // ── Private helpers ─────────────────────────────────────────────
 
   private unredact(text: string): string {
-    return unredactWithMap(text, this.map)
+    return unredactWithMap(unredactWithMap(text, this.map), this.fieldMap)
+  }
+
+  private fieldPlaceholder(kind: string, value: string): string {
+    const key = `${kind}:${value}`
+    const existing = this.fieldPlaceholders.get(key)
+    if (existing) return existing
+    const n = (this.fieldCounters[kind] ?? 0) + 1
+    this.fieldCounters[kind] = n
+    const placeholder = `[${kind}_${n}]`
+    this.fieldPlaceholders.set(key, placeholder)
+    this.fieldMap.entries[placeholder] = value
+    return placeholder
+  }
+
+  /**
+   * Return a copy of `value` with field-position PII replaced. Arrays inherit
+   * their parent key, so `groups: ["Building Fund"]` and `notes: [...]` are
+   * handled like scalars. Never mutates the input.
+   */
+  private redactFields(value: unknown, key: string | null): unknown {
+    if (typeof value === "string") return this.redactFieldString(value, key)
+    if (Array.isArray(value)) return value.map((v) => this.redactFields(v, key))
+    if (value && typeof value === "object") {
+      if (key === CUSTOM_FIELDS_KEY) return this.redactCustomFields(value)
+      const renameKeys = key === OPTION_KEYED_ROWS_KEY
+      return Object.fromEntries(
+        Object.entries(value).map(([k, v]) => [
+          (renameKeys && this.optionNames.get(k)) || k,
+          this.redactFields(v, k),
+        ])
+      )
+    }
+    return value
+  }
+
+  private redactFieldString(value: string, key: string | null): string {
+    if (key === null || !value.trim()) return value
+    const option = OPTION_KEYS.has(key) ? this.optionNames.get(value) : undefined
+    if (option) return option
+    if (ADDRESS_KEYS.has(key)) return this.fieldPlaceholder("ADDRESS", value)
+    if (key === "email") this.addEmail(value)
+    if (key === "phone") this.addPhone(value)
+    if (FREE_TEXT_KEYS.has(key)) return redactPIIPatterns(value)
+    return value
+  }
+
+  private redactCustomFields(value: unknown): unknown {
+    if (typeof value === "string") {
+      return value.trim() ? this.fieldPlaceholder("CUSTOM", value) : value
+    }
+    if (Array.isArray(value)) return value.map((v) => this.redactCustomFields(v))
+    if (value && typeof value === "object") {
+      return Object.fromEntries(
+        Object.entries(value).map(([k, v]) => [k, this.redactCustomFields(v)])
+      )
+    }
+    return value
   }
 
   /**

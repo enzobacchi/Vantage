@@ -122,7 +122,7 @@ User-action items from `AUDIT_REPORT.md` (superseded in scope by the July audit;
 Data-exit and legal-promise gaps from the Nov 2026 pitch fact check (plan: one PR and one prod deploy each, in this order):
 
 - [x] Privacy page names sub-processors; Terms and Privacy contacts moved to `@vantagedonorai.com`; Terms §10 retention reworded to match the code (no auto-purge exists — data is kept while locked and deleted on request)
-- [ ] Merge the chat PII redaction widening from `security/its-review-prep`
+- [x] Merge the chat PII redaction widening from `security/its-review-prep`, plus fixes for four residual leak paths (replayed text, echoed tool arguments, error text, the new user message)
 - [ ] Export: billing-exempt `/api/export` + `/api/account/export` in `proxy.ts`; "Export your data" card in web Settings (the privacy page already promises it)
 - [ ] Org deletion: cancel Stripe first, check every delete step, remove members' logins that have no other org (otherwise `lib/auth.ts` auto-creates a fresh trial org)
 - [ ] Remove a team member (web + `DELETE /api/team/members/[id]` for mobile)

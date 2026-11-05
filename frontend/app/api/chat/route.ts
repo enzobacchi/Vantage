@@ -13,6 +13,7 @@ import {
   ChatPIIRedactor,
   redactReplayedText,
   redactPIIPatterns,
+  registerReplayedToolOutputs,
 } from "@/lib/chat/pii-redactor"
 import { buildSystemPrompt } from "@/lib/chat/system-prompt"
 import { buildTools } from "@/lib/chat/tools"
@@ -111,6 +112,7 @@ export async function POST(request: Request) {
     .from("donors")
     .select("display_name,email,phone")
     .eq("org_id", auth.orgId)
+    .order("id", { ascending: true }) // stable placeholder numbering across requests
     .limit(5000)
   if (donorIndex) redactor.seedFromDonors(donorIndex)
 
@@ -132,6 +134,10 @@ export async function POST(request: Request) {
     )
   }
   redactor.seedOptions(optionIndex ?? [])
+
+  // Learn names, addresses and custom values from replayed tool outputs
+  // first, so every text redaction below (the new message included) knows them.
+  registerReplayedToolOutputs(messages, redactor)
 
   // Redact the last user message *in place* before it reaches the LLM.
   let redactedLastUserText = ""

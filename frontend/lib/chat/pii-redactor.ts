@@ -101,6 +101,29 @@ const OPTION_KEYED_ROWS_KEY = "series"
 /** Every string leaf under this key is a custom-field value. */
 const CUSTOM_FIELDS_KEY = "custom_fields"
 
+/**
+ * Address/custom values matched inside free text (see redactUserText). Short
+ * categorical custom values ("Male", "None", "2024") are not identifying on
+ * their own and would rewrite ordinary words and years, so a custom value
+ * needs whitespace or 8+ characters; an address or zip needs 5+.
+ */
+function matchesInFreeText(placeholder: string, value: string): boolean {
+  if (placeholder.startsWith("[ADDRESS_")) return value.length >= 5
+  if (placeholder.startsWith("[CUSTOM_")) return /\s/.test(value.trim()) || value.length >= 8
+  return true
+}
+
+/**
+ * Keys under which a tool echoes its own arguments back (report filters,
+ * titles, validation details, error text). Restored argument values are
+ * re-hidden only below these keys, so a category named "Other" doesn't
+ * rewrite an unrelated `payment_method: "Other"`.
+ */
+const ECHO_KEYS = new Set(["filters", "title", "summary", "details", "error", "reason", "message", "query", "search"])
+
+/** A placeholder the model may pass back, e.g. [DONOR_3] or [FUND_12]. */
+const PLACEHOLDER_PATTERN = /\[[A-Z]+_\d+\]/g
+
 export type DonationOptionType = "campaign" | "fund" | "category"
 
 export class ChatPIIRedactor {
@@ -194,35 +217,38 @@ export class ChatPIIRedactor {
   }
 
   /**
-   * Redact a free-text user message before it reaches the LLM. Matches
-   * seeded donor names/emails/phones first (so the round-trip unredaction
-   * restores them on output) and then applies regex patterns to catch
-   * any stray emails/phones not in the donor index.
+   * Redact free text before it reaches the LLM: the new user message, text
+   * replayed from earlier turns (the stream transform restored real values
+   * for display), and tool error text. Whole-word matches of every known
+   * value — donor names/emails/phones, campaign/fund/category names, and
+   * street addresses and custom-field values seen in tool results — longest
+   * first, so "Ruth Henderson Memorial Scholarship" becomes [FUND_1] rather
+   * than "[DONOR_1] Memorial Scholarship". Then regex patterns catch stray
+   * emails/phones. Short address and custom values are skipped (see
+   * matchesInFreeText).
    */
   redactUserText(text: string): string {
     if (!text) return text
+    const entries: Record<string, string> = { ...this.map.entries }
+    for (const [placeholder, value] of Object.entries(this.fieldMap.entries)) {
+      if (matchesInFreeText(placeholder, value)) entries[placeholder] = value
+    }
     const withMap =
-      Object.keys(this.map.entries).length === 0
-        ? text
-        : redactWithMapWordBoundary(text, this.map)
+      Object.keys(entries).length === 0 ? text : redactWithMapWordBoundary(text, { entries })
     return redactPIIPatterns(withMap)
   }
 
-  /**
-   * Redact free text from earlier turns before it is replayed to the model.
-   * Like `redactUserText`, plus whole-word matching of seeded campaign/fund/
-   * category names, which the stream transform restored for display. Option
-   * names go first so "Ruth Henderson Memorial Scholarship" becomes [FUND_1]
-   * rather than "[DONOR_1] Memorial Scholarship".
-   */
+  /** Same as `redactUserText`; kept as the name used for replayed history. */
   redactHistoryText(text: string): string {
-    if (!text) return text
-    const options: PIIMap = {
-      entries: Object.fromEntries(
-        [...this.optionNames].map(([name, placeholder]) => [placeholder, name])
-      ),
-    }
-    return this.redactUserText(redactWithMapWordBoundary(text, options))
+    return this.redactUserText(text)
+  }
+
+  /**
+   * Redact a tool's error text: everything `redactUserText` covers, plus the
+   * exact values restored into this call's arguments (see `restoredValues`).
+   */
+  redactErrorText(text: string, input: unknown): string {
+    return this.redactUserText(redactWithMapWordBoundary(text, this.restoredValues(input)))
   }
 
   /**
@@ -281,9 +307,9 @@ export class ChatPIIRedactor {
       const execute = t.execute
       const wrappedTool: Tool = {
         ...t,
-        toModelOutput: ({ output }) => ({
+        toModelOutput: ({ input, output }) => ({
           type: "json",
-          value: (this.redactToolResult(output) ?? null) as JSONValue,
+          value: (this.redactModelOutput(output, input) ?? null) as JSONValue,
         }),
       }
       if (execute) {
@@ -293,7 +319,7 @@ export class ChatPIIRedactor {
           try {
             return await execute(this.unredactToolInput(input), options)
           } catch (e) {
-            throw new Error(this.redactUserText(e instanceof Error ? e.message : String(e)))
+            throw new Error(this.redactErrorText(e instanceof Error ? e.message : String(e), input))
           }
         }
       }
@@ -361,6 +387,52 @@ export class ChatPIIRedactor {
         },
       })
     }
+  }
+
+  /**
+   * What the model sees of a tool's output. A tool can echo its restored
+   * arguments back under keys the field walk doesn't know (report filter
+   * values, titles), so string leaves under ECHO_KEYS (or a bare string
+   * output) also have this call's restored values put back to their
+   * placeholders. Only those values, and only there: a pass over every leaf
+   * would rewrite amounts and enums that happen to equal a restored value.
+   */
+  private redactModelOutput(output: unknown, input: unknown): unknown {
+    const redacted = this.redactToolResult(output)
+    const restored = this.restoredValues(input)
+    if (Object.keys(restored.entries).length === 0) return redacted
+    const walk = (value: unknown, echoed: boolean): unknown => {
+      if (typeof value === "string") {
+        return echoed ? redactWithMapWordBoundary(value, restored) : value
+      }
+      if (Array.isArray(value)) return value.map((v) => walk(v, echoed))
+      if (value && typeof value === "object") {
+        return Object.fromEntries(
+          Object.entries(value).map(([k, v]) => [k, walk(v, echoed || ECHO_KEYS.has(k))])
+        )
+      }
+      return value
+    }
+    return walk(redacted, typeof redacted === "string")
+  }
+
+  /** Placeholder → real value for every known placeholder in a tool's input. */
+  private restoredValues(input: unknown): PIIMap {
+    const entries: Record<string, string> = {}
+    const visit = (value: unknown): void => {
+      if (typeof value === "string") {
+        for (const placeholder of value.match(PLACEHOLDER_PATTERN) ?? []) {
+          const real = this.map.entries[placeholder] ?? this.fieldMap.entries[placeholder]
+          if (real) entries[placeholder] = real
+        }
+      } else if (Array.isArray(value)) {
+        value.forEach(visit)
+      } else if (value && typeof value === "object") {
+        Object.values(value).forEach(visit)
+      }
+    }
+    visit(input)
+    return { entries }
   }
 
   // ── Private helpers ─────────────────────────────────────────────
@@ -465,10 +537,41 @@ export class ChatPIIRedactor {
 
 // ── Replayed history ──────────────────────────────────────────────
 
+type ReplayedPart = {
+  type: string
+  text?: string
+  state?: string
+  input?: unknown
+  output?: unknown
+  errorText?: string
+}
+
 type ReplayedMessage = {
   role: string
   content?: string
-  parts?: Array<{ type: string; text?: string }>
+  parts?: ReplayedPart[]
+}
+
+function isToolPart(p: ReplayedPart): boolean {
+  return p.type.startsWith("tool-") || p.type === "dynamic-tool"
+}
+
+/**
+ * Learn every donor name, address and custom-field value in tool outputs
+ * replayed from earlier turns. Call this before redacting any text in the
+ * request — the new user message included — because those values otherwise
+ * become known only when `convertToModelMessages` runs `toModelOutput`,
+ * after the text has already gone through. Does not modify `messages`.
+ */
+export function registerReplayedToolOutputs(
+  messages: ReplayedMessage[],
+  redactor: ChatPIIRedactor
+): void {
+  for (const m of messages) {
+    for (const p of m.parts ?? []) {
+      if (isToolPart(p) && p.output !== undefined) redactor.redactToolResult(p.output)
+    }
+  }
 }
 
 /**
@@ -476,7 +579,8 @@ type ReplayedMessage = {
  * The client resends the whole conversation each turn, and its copy holds
  * real names (the stream transform restored them for display). Text parts
  * are redacted one by one so their order around tool parts is kept; tool
- * parts are left to the tools' `toModelOutput`. `skipIndex` is the message
+ * outputs are left to the tools' `toModelOutput`, but tool error text is
+ * redacted here because the SDK replays it raw. `skipIndex` is the message
  * the caller already redacted. Mutates `messages` in place.
  */
 export function redactReplayedText(
@@ -484,15 +588,21 @@ export function redactReplayedText(
   redactor: ChatPIIRedactor,
   skipIndex: number
 ): void {
+  registerReplayedToolOutputs(messages, redactor)
   messages.forEach((m, i) => {
     if (i === skipIndex || (m.role !== "user" && m.role !== "assistant")) return
     if (typeof m.content === "string") m.content = redactor.redactHistoryText(m.content)
     if (!Array.isArray(m.parts)) return
-    m.parts = m.parts.map((p) =>
-      p.type === "text" && typeof p.text === "string"
-        ? { ...p, text: redactor.redactHistoryText(p.text) }
-        : p
-    )
+    m.parts = m.parts.map((p) => {
+      if (p.type === "text" && typeof p.text === "string") {
+        return { ...p, text: redactor.redactHistoryText(p.text) }
+      }
+      // Replayed error parts reach the model as raw text, skipping toModelOutput.
+      if (isToolPart(p) && typeof p.errorText === "string") {
+        return { ...p, errorText: redactor.redactErrorText(p.errorText, p.input) }
+      }
+      return p
+    })
   })
 }
 

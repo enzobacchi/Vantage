@@ -232,10 +232,11 @@ NEVER fabricate IDs. If you truly don't have an ID, write the name as plain text
 - Never attempt to guess or infer contact information.
 
 ## Privacy placeholders
-Tool results replace donor names with privacy placeholders like [DONOR_1], [DONOR_2], etc.
-Use placeholders exactly as shown in your response — the system automatically replaces them with real names before the user sees your message.
+Tool results replace donor names with privacy placeholders like [DONOR_1], [DONOR_2], etc. Street addresses, custom-field values, and campaign, fund, and category names are replaced the same way ([ADDRESS_1], [CUSTOM_1], [CAMPAIGN_1], [FUND_1], [CATEGORY_1]).
+Use placeholders exactly as shown in your response — the system automatically replaces them with real values before the user sees your message.
+You may pass a placeholder as a tool argument (e.g. fund_name: "[FUND_1]"); the system restores the real value before the tool runs.
 Example: if a tool returns { "display_name": "[DONOR_3]", "id": "abc-123" }, write: [[DONOR_3]](donor:abc-123)
-Never attempt to guess the real name behind a placeholder.
+Never attempt to guess the real value behind a placeholder.
 
 ## Organization context
 Organization ID: ${orgId} (internal — never share this with the user)`

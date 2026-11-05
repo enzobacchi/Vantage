@@ -21,7 +21,7 @@ export default function PrivacyPage() {
           Privacy Policy
         </h1>
         <p className="mb-10 text-sm text-muted-foreground">
-          Last updated: March 22, 2026
+          Last updated: November 3, 2026
         </p>
 
         <div className="prose prose-zinc dark:prose-invert max-w-none space-y-8 text-foreground/90">
@@ -73,12 +73,14 @@ export default function PrivacyPage() {
           <section>
             <h2 className="text-xl font-semibold text-foreground">4. AI Processing and PII Safeguards</h2>
             <p>
-              The Service uses AI providers (OpenAI and Anthropic) to generate donor insights and power the chat assistant. Before sending any donor data to AI providers:
+              The Service uses AI providers (OpenAI and Anthropic) to generate donor insights, power the chat assistant, and transcribe voice entries. When donor data is sent to an AI provider:
             </p>
             <ul className="ml-4 list-disc space-y-1">
-              <li>Personally identifiable information (PII) such as names, emails, phone numbers, and addresses is redacted and replaced with anonymous placeholders</li>
-              <li>AI providers receive only anonymized data and do not have access to raw donor records</li>
-              <li>AI-generated responses are un-redacted locally before being displayed to you</li>
+              <li>Donor names, email addresses, phone numbers, and street addresses are replaced with anonymous placeholders; in the chat assistant, custom field values and campaign, fund, and category names are replaced as well</li>
+              <li>City and state may be retained so the assistant can answer geographic questions, and gift amounts and dates are retained for analysis</li>
+              <li>AI providers do not have direct access to your database; they receive only the redacted fields needed for each request</li>
+              <li>AI-generated responses are un-redacted on our servers before being displayed to you</li>
+              <li>Voice recordings you choose to submit are sent to OpenAI for transcription, since audio cannot be redacted before it is transcribed; the resulting text has known donor names, emails, and phone numbers replaced before any further AI processing</li>
             </ul>
             <p>
               AI providers process data according to their own privacy policies. We do not permit AI providers to use your data for training their models.
@@ -97,6 +99,28 @@ export default function PrivacyPage() {
               </li>
               <li>
                 <strong>Legal requirements</strong> &mdash; We may disclose information if required by law, regulation, legal process, or governmental request.
+              </li>
+            </ul>
+            <h3 className="mt-4 text-lg font-medium text-foreground">5a. Sub-processors</h3>
+            <p>We currently use the following service providers to operate the Service:</p>
+            <ul className="ml-4 list-disc space-y-1">
+              <li>
+                <strong>Supabase</strong> &mdash; Database hosting and authentication (account, organization, and donor data)
+              </li>
+              <li>
+                <strong>Vercel</strong> &mdash; Application hosting and basic usage analytics
+              </li>
+              <li>
+                <strong>OpenAI and Anthropic</strong> &mdash; AI donor insights, the chat assistant, and voice transcription (see Section 4 for what is redacted)
+              </li>
+              <li>
+                <strong>Stripe</strong> &mdash; Subscription billing and payment processing (billing contact details; card details are entered on Stripe and never stored by Vantage)
+              </li>
+              <li>
+                <strong>Resend</strong> &mdash; Transactional email delivery, such as donation receipts and team invitations (recipient email addresses and message content)
+              </li>
+              <li>
+                <strong>Mapbox</strong> &mdash; Maps and address geocoding (donor mailing addresses are sent to Mapbox to place donors on the map and plan visit routes)
               </li>
             </ul>
           </section>

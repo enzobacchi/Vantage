@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { requireUserOrg } from "@/lib/auth"
-import { getOrgSubscription, resolveTrialLimits } from "@/lib/subscription"
+import { effectiveDonorCap, getOrgSubscription, resolveTrialLimits } from "@/lib/subscription"
 import { createAdminClient } from "@/lib/supabase/admin"
 
 /**
@@ -61,7 +61,8 @@ export async function GET() {
       cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
     },
     limits: {
-      maxDonors: plan.maxDonors,
+      // The cap actually enforced (Enterprise included), not the nominal 0.
+      maxDonors: effectiveDonorCap(plan.maxDonors),
       maxAiInsightsPerMonth: plan.maxAiInsightsPerMonth,
       maxChatMessagesPerMonth: plan.maxChatMessagesPerMonth,
     },

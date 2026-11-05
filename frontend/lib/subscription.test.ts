@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { PLANS, TRIAL_DURATION_DAYS, getStripePriceId } from "./subscription"
+import { ABSOLUTE_DONOR_CEILING, PLANS, TRIAL_DURATION_DAYS, effectiveDonorCap, getStripePriceId } from "./subscription"
 
 // Canonical pricing — must match the public pricing page
 // (Website/vantage_shadcn/components/pricing-cards.tsx). If one side changes,
@@ -41,5 +41,17 @@ describe("getStripePriceId", () => {
   it("throws a named error when the env var is missing", () => {
     delete process.env.STRIPE_PRICE_PRO_ANNUAL
     expect(() => getStripePriceId("pro", "annual")).toThrow("STRIPE_PRICE_PRO_ANNUAL")
+  })
+})
+
+describe("effectiveDonorCap", () => {
+  it("caps every plan at the absolute ceiling, Enterprise included", () => {
+    expect(effectiveDonorCap(PLANS.essentials.maxDonors)).toBe(500)
+    expect(effectiveDonorCap(PLANS.pro.maxDonors)).toBe(10_000)
+    expect(effectiveDonorCap(PLANS.enterprise.maxDonors)).toBe(ABSOLUTE_DONOR_CEILING)
+  })
+
+  it("never advertises Enterprise donors as unlimited", () => {
+    expect(PLANS.enterprise.features.join(" ")).not.toMatch(/unlimited donors/i)
   })
 })

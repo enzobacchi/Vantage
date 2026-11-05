@@ -25,6 +25,18 @@ export type BillingInterval = "monthly" | "annual"
  */
 export const ABSOLUTE_DONOR_CEILING = 10_000
 
+/**
+ * The donor cap an org actually gets: its plan's cap, clipped to
+ * ABSOLUTE_DONOR_CEILING. A plan cap of 0 (Enterprise) means "custom", which
+ * today is the ceiling; raising it for one org needs a code change.
+ */
+export function effectiveDonorCap(planMaxDonors: number): number {
+  return planMaxDonors === 0 ? ABSOLUTE_DONOR_CEILING : Math.min(planMaxDonors, ABSOLUTE_DONOR_CEILING)
+}
+
+/** How Enterprise's donor limit is described everywhere in the UI. */
+export const ENTERPRISE_DONOR_LABEL = "10,000+ donors (custom limits)"
+
 /** Valid trial tiers picked at signup (plan_id stays "trial"). */
 export type TrialTier = "essentials" | "growth" | "pro"
 
@@ -85,12 +97,12 @@ export const PLANS: Record<SubscriptionPlan, { name: string; description: string
   enterprise: {
     name: "Enterprise",
     description: "For large-scale organizations",
-    maxDonors: 0,
+    maxDonors: 0, // custom; effectively ABSOLUTE_DONOR_CEILING (see effectiveDonorCap)
     maxAiInsightsPerMonth: 0,
     maxChatMessagesPerMonth: 0,
     monthlyPrice: 0,
     annualMonthlyPrice: 0,
-    features: ["Unlimited donors", "Unlimited AI insights", "Unlimited AI chats", ...SHARED_FEATURES],
+    features: [ENTERPRISE_DONOR_LABEL, "Unlimited AI insights", "Unlimited AI chats", ...SHARED_FEATURES],
   },
 }
 
@@ -268,7 +280,7 @@ export async function isLimitExceeded(
       // Hard absolute ceiling: even Pro trials cap at ABSOLUTE_DONOR_CEILING to
       // keep the sync route inside the Vercel 60s function limit. Orgs above
       // this talk to sales (Enterprise).
-      const cap = plan.maxDonors === 0 ? ABSOLUTE_DONOR_CEILING : Math.min(plan.maxDonors, ABSOLUTE_DONOR_CEILING)
+      const cap = effectiveDonorCap(plan.maxDonors)
       const { count } = await admin
         .from("donors")
         .select("id", { count: "exact", head: true })

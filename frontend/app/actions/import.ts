@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { getCurrentUserOrg } from "@/lib/auth";
 import { geocodeAddress } from "@/lib/geocode";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { ABSOLUTE_DONOR_CEILING, getOrgSubscription, resolveTrialLimits } from "@/lib/subscription";
+import { effectiveDonorCap, getOrgSubscription, resolveTrialLimits } from "@/lib/subscription";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -126,7 +126,7 @@ export async function importDonorsFromCSV(
   const sub = await getOrgSubscription(orgId);
   const plan = resolveTrialLimits(sub.planId, sub.trialTier);
   const currentDonorCount = existingDonors?.length ?? 0;
-  const effectiveCap = plan.maxDonors === 0 ? ABSOLUTE_DONOR_CEILING : Math.min(plan.maxDonors, ABSOLUTE_DONOR_CEILING);
+  const effectiveCap = effectiveDonorCap(plan.maxDonors);
   const donorSlotsRemaining = Math.max(0, effectiveCap - currentDonorCount);
   result.planMaxDonors = effectiveCap;
 

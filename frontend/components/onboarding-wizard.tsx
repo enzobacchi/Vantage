@@ -11,7 +11,7 @@ import {
   Sparkles,
 } from "lucide-react"
 import { completeOnboarding } from "@/app/actions/onboarding"
-import { TRIAL_DURATION_DAYS } from "@/lib/subscription"
+import { ENTERPRISE_DONOR_LABEL, TRIAL_DURATION_DAYS } from "@/lib/subscription"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -222,7 +222,11 @@ function buildSteps(planSummary?: PlanSummary): OnboardingStep[] {
                 {planSummary.isTrial ? ` — ${TRIAL_DURATION_DAYS}-day trial` : ""}
               </p>
               <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
-                <li>• {formatLimit(planSummary.maxDonors, "donors")}</li>
+                <li>
+                  • {planSummary.maxDonors === 0
+                    ? ENTERPRISE_DONOR_LABEL
+                    : formatLimit(planSummary.maxDonors, "donors")}
+                </li>
                 <li>
                   • {formatLimit(planSummary.maxAiInsightsPerMonth, "AI insights / month")}
                 </li>

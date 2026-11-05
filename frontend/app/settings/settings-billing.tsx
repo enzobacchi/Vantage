@@ -30,7 +30,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 
 import { SettingsDataExport } from "@/app/settings/settings-data-export"
-import { PLANS, type BillingInterval } from "@/lib/subscription"
+import { ENTERPRISE_DONOR_LABEL, PLANS, type BillingInterval } from "@/lib/subscription"
 import type { SubscriptionPlan } from "@/types/database"
 
 type SubStatus = {
@@ -405,7 +405,7 @@ export function SettingsBilling() {
                       <Database className="size-4 shrink-0 text-emerald-500" strokeWidth={1.5} />
                       <span>
                         {plan.maxDonors === 0
-                          ? "Unlimited donors"
+                          ? ENTERPRISE_DONOR_LABEL
                           : `Up to ${plan.maxDonors.toLocaleString()} donors`}
                       </span>
                     </div>
@@ -468,7 +468,7 @@ export function SettingsBilling() {
               <div>
                 <h4 className="text-base font-semibold">Enterprise</h4>
                 <p className="text-sm text-muted-foreground">
-                  Unlimited donors &amp; AI insights. Custom pricing for large-scale organizations.
+                  {ENTERPRISE_DONOR_LABEL} and unlimited AI insights. Custom pricing for large-scale organizations.
                 </p>
               </div>
             </div>

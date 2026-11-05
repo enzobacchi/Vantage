@@ -21,7 +21,7 @@ export default function PrivacyPage() {
           Privacy Policy
         </h1>
         <p className="mb-10 text-sm text-muted-foreground">
-          Last updated: November 3, 2026
+          Last updated: November 4, 2026
         </p>
 
         <div className="prose prose-zinc dark:prose-invert max-w-none space-y-8 text-foreground/90">
@@ -162,8 +162,8 @@ export default function PrivacyPage() {
             </ul>
             <p>
               To exercise any of these rights, contact us at{" "}
-              <a href="mailto:privacy@vantagehq.com" className="text-foreground underline hover:opacity-80">
-                privacy@vantagehq.com
+              <a href="mailto:privacy@vantagedonorai.com" className="text-foreground underline hover:opacity-80">
+                privacy@vantagedonorai.com
               </a>
               .
             </p>
@@ -198,8 +198,8 @@ export default function PrivacyPage() {
             <p>
               Vantage Software, Inc.
               <br />
-              <a href="mailto:privacy@vantagehq.com" className="text-foreground underline hover:opacity-80">
-                privacy@vantagehq.com
+              <a href="mailto:privacy@vantagedonorai.com" className="text-foreground underline hover:opacity-80">
+                privacy@vantagedonorai.com
               </a>
             </p>
           </section>

@@ -21,7 +21,7 @@ export default function TermsPage() {
           Terms of Service
         </h1>
         <p className="mb-10 text-sm text-muted-foreground">
-          Last updated: March 22, 2026
+          Last updated: November 4, 2026
         </p>
 
         <div className="prose prose-zinc dark:prose-invert max-w-none space-y-8 text-foreground/90">
@@ -116,7 +116,7 @@ export default function TermsPage() {
           <section>
             <h2 className="text-xl font-semibold text-foreground">10. Termination</h2>
             <p>
-              You may cancel your account at any time through the Settings page. Upon cancellation, your data will be retained for 30 days to allow for export, after which it will be permanently deleted.
+              You may cancel your subscription at any time through the Settings page. If you cancel, your account is locked and your data is kept, so you can export it or resubscribe later. You can permanently delete your organization and its data at any time from the Settings page, or ask us to do it for you; data is permanently deleted within 30 days of your request.
             </p>
             <p>
               We may suspend or terminate your account if you violate these Terms or if your account remains inactive for an extended period, with reasonable notice where practicable.
@@ -144,8 +144,8 @@ export default function TermsPage() {
             <h2 className="text-xl font-semibold text-foreground">13. Contact</h2>
             <p>
               If you have questions about these Terms, please contact us at{" "}
-              <a href="mailto:legal@vantagehq.com" className="text-foreground underline hover:opacity-80">
-                legal@vantagehq.com
+              <a href="mailto:legal@vantagedonorai.com" className="text-foreground underline hover:opacity-80">
+                legal@vantagedonorai.com
               </a>
               .
             </p>

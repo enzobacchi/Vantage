@@ -11,6 +11,7 @@ import { NextResponse } from "next/server"
 import { requireUserOrg } from "@/lib/auth"
 import {
   ChatPIIRedactor,
+  redactReplayedText,
   redactPIIPatterns,
 } from "@/lib/chat/pii-redactor"
 import { buildSystemPrompt } from "@/lib/chat/system-prompt"
@@ -113,21 +114,49 @@ export async function POST(request: Request) {
     .limit(5000)
   if (donorIndex) redactor.seedFromDonors(donorIndex)
 
+  // Seed every campaign/fund/category name too: tool outputs replayed from
+  // earlier turns are converted before any tool runs this request. Stable
+  // order keeps each option's placeholder the same across requests. Fail
+  // closed: without the seed, replayed fund names would reach the model.
+  const { data: optionIndex, error: optionError } = await supabase
+    .from("org_donation_options")
+    .select("type,name")
+    .eq("org_id", auth.orgId)
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true })
+  if (optionError) {
+    console.error("[chat] Failed to load donation options:", optionError.message)
+    return NextResponse.json(
+      { error: "Chat is temporarily unavailable. Please try again." },
+      { status: 503 }
+    )
+  }
+  redactor.seedOptions(optionIndex ?? [])
+
   // Redact the last user message *in place* before it reaches the LLM.
   let redactedLastUserText = ""
+  let lastUserIndex = -1
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].role !== "user") continue
     const raw = extractText(messages[i])
     redactedLastUserText = redactor.redactUserText(raw)
     replaceText(messages[i], redactedLastUserText)
+    lastUserIndex = i
     break
   }
+  // Earlier turns come back from the client with real names restored.
+  redactReplayedText(messages, redactor, lastUserIndex)
+
+  // The same wrapped tools must reach convertToModelMessages: tool outputs
+  // replayed from earlier turns are raw in the UI messages, and only the
+  // tools' toModelOutput redacts them before they reach the model.
+  const tools = buildTools(auth.orgId, auth.userId, redactor)
 
   const result = streamText({
     model: anthropic("claude-haiku-4-5-20251001"),
     system: buildSystemPrompt(auth.orgId),
-    messages: await convertToModelMessages(messages as AiUIMessage[]),
-    tools: buildTools(auth.orgId, auth.userId, redactor),
+    messages: await convertToModelMessages(messages as AiUIMessage[], { tools }),
+    tools,
     maxOutputTokens: 16384,
     maxRetries: 2,
     stopWhen: stepCountIs(8),

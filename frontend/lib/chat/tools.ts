@@ -166,6 +166,7 @@ export function buildTools(
     const out: Record<string, string> = {}
     for (const o of (data ?? []) as { id: string; name: string | null }[]) {
       out[o.id] = o.name ?? ""
+      redactor?.addOptionName(groupBy, o.name)
     }
     return out
   }
@@ -874,11 +875,14 @@ export function buildTools(
         if (optionIds.size > 0) {
           const { data: opts } = await supabase
             .from("org_donation_options")
-            .select("id,name")
+            .select("id,name,type")
             .eq("org_id", orgId)
             .in("id", [...optionIds])
           for (const o of opts ?? []) {
             optionNames[o.id] = o.name ?? ""
+            if (o.type === "campaign" || o.type === "fund" || o.type === "category") {
+              redactor?.addOptionName(o.type, o.name)
+            }
           }
         }
 
@@ -1610,20 +1614,7 @@ export function buildTools(
 
   if (!redactor) return rawTools
 
-  // Wrap each tool's execute to redact PII from results before the LLM sees them.
-   
-  const wrapped: Record<string, any> = {}
-  for (const [name, t] of Object.entries(rawTools)) {
-     
-    const orig = t as any
-    wrapped[name] = {
-      ...orig,
-      execute: async (...args: unknown[]) => {
-        const result = await orig.execute(...args)
-        return redactor.redactToolResult(result)
-      },
-    }
-  }
-
-  return wrapped as typeof rawTools
+  // Redact what the model sees (toModelOutput) and restore placeholders in
+  // tool arguments; the client still gets raw outputs for cards and charts.
+  return redactor.wrapTools(rawTools)
 }

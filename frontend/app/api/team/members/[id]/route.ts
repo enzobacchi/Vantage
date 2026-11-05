@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getCurrentUserOrgWithRole } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { removeOrgMember } from "@/lib/team-members";
 
 export const runtime = "nodejs";
 
@@ -81,4 +82,27 @@ export async function PATCH(
   }
 
   return NextResponse.json({ ok: true });
+}
+
+/**
+ * Remove a member from the caller's org (mobile). Same rules as the web
+ * `removeMember` action — see lib/team-members.ts. Returns `{ ok, warning? }`.
+ */
+export async function DELETE(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const ctx = await getCurrentUserOrgWithRole();
+  if (!ctx) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id: memberId } = await params;
+  const result = await removeOrgMember(createAdminClient(), ctx, memberId);
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error }, { status: result.status });
+  }
+  return NextResponse.json(
+    result.warning ? { ok: true, warning: result.warning } : { ok: true }
+  );
 }

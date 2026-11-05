@@ -168,8 +168,18 @@ export function SettingsOrganization() {
   const handleDelete = async () => {
     try {
       setDeleting(true)
-      await deleteOrganization()
-      toast.success("Organization deleted")
+      const result = await deleteOrganization()
+      if (result.error) {
+        toast.error("Failed to delete organization", { description: result.error })
+        setDeleting(false)
+        setDeleteOpen(false)
+        return
+      }
+      if (result.warning) {
+        toast.warning("Organization deleted", { description: result.warning })
+      } else {
+        toast.success("Organization deleted")
+      }
       const supabase = createBrowserSupabaseClient()
       await supabase.auth.signOut()
       router.push("/login")
@@ -386,7 +396,7 @@ export function SettingsOrganization() {
             <AlertDialogHeader>
               <AlertDialogTitle>Delete organization?</AlertDialogTitle>
               <AlertDialogDescription>
-                This will permanently delete <strong>{name || "this organization"}</strong> and all of its data — donors, donations, reports, tags, and everything else. There is no way to recover this data.
+                This will permanently delete <strong>{name || "this organization"}</strong> and all of its data — donors, donations, reports, tags, and everything else. Any subscription is canceled, and team members who don&apos;t belong to another organization lose their login. There is no way to recover this data, so export anything you need first.
               </AlertDialogDescription>
             </AlertDialogHeader>
 

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { createServerSupabaseClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { getStripe } from "@/lib/stripe"
+import { cancelOrgSubscription } from "@/lib/org-teardown"
 
 /**
  * DELETE /api/account
@@ -99,15 +99,7 @@ async function cancelStripeSubscription(
   orgId: string
 ): Promise<void> {
   try {
-    const { data: sub } = await admin
-      .from("subscriptions")
-      .select("stripe_subscription_id, status")
-      .eq("org_id", orgId)
-      .maybeSingle()
-
-    if (sub?.stripe_subscription_id && ["active", "trialing", "past_due"].includes(sub.status)) {
-      await getStripe().subscriptions.cancel(sub.stripe_subscription_id)
-    }
+    await cancelOrgSubscription(admin, orgId)
   } catch (err) {
     // Best-effort: a failed cancel must not block account deletion, but it
     // must be loud in logs — an orphaned subscription keeps billing.

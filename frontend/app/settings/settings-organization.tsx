@@ -6,6 +6,7 @@ import { Trash2, Upload } from "lucide-react"
 import { toast } from "sonner"
 
 import { deleteOrganization, getOrganization, getOrganizationRole, updateOrganization } from "@/app/actions/settings"
+import { SettingsDataExport } from "@/app/settings/settings-data-export"
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -362,6 +363,8 @@ export function SettingsOrganization() {
       )}
         </CardContent>
       </Card>
+
+      <SettingsDataExport />
 
       {/* Danger Zone — owner only */}
       {role === "owner" && <div className="space-y-4 rounded-lg border border-destructive/50 bg-destructive/5 p-6">

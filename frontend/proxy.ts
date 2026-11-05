@@ -66,6 +66,8 @@ const BILLING_EXEMPT_API = [
   "/api/cron/", // scheduled jobs (authenticated via CRON_SECRET)
   "/api/quickbooks/", // OAuth connect + callback
   "/api/auth/", // auth callbacks
+  "/api/export", // CSV data export — a locked/canceled org must still get its data out (Terms §10)
+  "/api/account/export", // emailed full export (mobile + web)
 ]
 
 /**

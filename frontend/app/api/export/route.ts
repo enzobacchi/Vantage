@@ -3,6 +3,9 @@ import { requireUserOrg } from "@/lib/auth"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { buildExport, EXPORT_TYPES, type ExportType } from "@/lib/export-builders"
 
+// Full-org exports page through every row; give large orgs room.
+export const maxDuration = 60
+
 /**
  * GET /api/export?type=donors|donations|interactions
  *
@@ -33,7 +36,8 @@ export async function GET(request: NextRequest) {
         "Content-Disposition": `attachment; filename="${filename}"`,
       },
     })
-  } catch {
+  } catch (err) {
+    console.error("[export] failed:", type, err instanceof Error ? err.message : err)
     return Response.json({ error: "Export failed. Please try again later." }, { status: 500 })
   }
 }

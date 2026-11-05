@@ -5,6 +5,9 @@ import { createAdminClient } from "@/lib/supabase/admin"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { buildExport, EXPORT_TYPES } from "@/lib/export-builders"
 
+// Builds all three full-org exports before emailing them.
+export const maxDuration = 60
+
 /**
  * POST /api/account/export
  *

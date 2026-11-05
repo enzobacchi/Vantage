@@ -4,6 +4,7 @@ import { Resend } from "resend"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUserOrg, getCurrentUserOrgWithRole } from "@/lib/auth"
 import { notifyTeamActivity } from "@/lib/notifications"
+import { removeOrgMember } from "@/lib/team-members"
 
 const INVITE_FROM_EMAIL = "Vantage <invites@vantagedonorai.com>"
 
@@ -278,6 +279,20 @@ export async function updateMemberRole(
 
   if (error) return { error: error.message }
   return {}
+}
+
+/**
+ * Remove someone from the org. Owners can remove anyone but themselves (never
+ * the last owner); admins can remove members only. Deletes their login too if
+ * they belong to no other org. memberId is the organization_members.id.
+ */
+export async function removeMember(memberId: string): Promise<{ error?: string; warning?: string }> {
+  const ctx = await getCurrentUserOrgWithRole()
+  if (!ctx) return { error: "Unauthorized" }
+
+  const result = await removeOrgMember(createAdminClient(), ctx, memberId)
+  if (!result.ok) return { error: result.error }
+  return result.warning ? { warning: result.warning } : {}
 }
 
 export async function getPendingInvitations(): Promise<Invitation[]> {

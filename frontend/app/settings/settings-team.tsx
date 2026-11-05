@@ -10,12 +10,22 @@ import {
   getCurrentMemberInfo,
   getOrganizationMembers,
   getPendingInvitations,
+  removeMember,
   revokeInvitation,
   sendInviteEmail,
   updateMemberRole,
   type Invitation,
   type OrgMember,
 } from "@/app/actions/team"
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -66,6 +76,8 @@ export function SettingsTeam() {
   const [inviteRole, setInviteRole] = React.useState<"admin" | "member">("member")
   const [generating, setGenerating] = React.useState(false)
   const [updatingRoleId, setUpdatingRoleId] = React.useState<string | null>(null)
+  const [removeTarget, setRemoveTarget] = React.useState<OrgMember | null>(null)
+  const [removing, setRemoving] = React.useState(false)
 
   const load = React.useCallback(async () => {
     try {
@@ -155,7 +167,34 @@ export function SettingsTeam() {
     }
   }
 
+  const handleRemove = async () => {
+    if (!removeTarget) return
+    setRemoving(true)
+    let result: Awaited<ReturnType<typeof removeMember>>
+    try {
+      result = await removeMember(removeTarget.id)
+    } catch {
+      toast.error("Could not remove member. Please try again.")
+      return
+    } finally {
+      setRemoving(false)
+    }
+    if (result.error) {
+      toast.error(result.error)
+      return
+    }
+    if (result.warning) toast.warning(result.warning)
+    else toast.success(`${removeTarget.name} was removed from the team`)
+    setRemoveTarget(null)
+    await load()
+  }
+
   const isOwner = currentRole === "owner"
+  // Mirrors lib/team-members.ts; the server enforces it.
+  const canRemove = (m: OrgMember) =>
+    m.user_id !== currentUserId &&
+    (isOwner || (currentRole === "admin" && m.role === "member"))
+  const colCount = canManage ? 6 : 4
 
   return (
     <div className="space-y-6">
@@ -253,18 +292,23 @@ export function SettingsTeam() {
               <TableHead className="font-medium">Role</TableHead>
               {canManage && <TableHead className="font-medium">Gmail</TableHead>}
               <TableHead className="font-medium">Joined</TableHead>
+              {canManage && (
+                <TableHead className="w-0">
+                  <span className="sr-only">Actions</span>
+                </TableHead>
+              )}
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={canManage ? 5 : 4} className="text-muted-foreground text-sm py-8">
+                <TableCell colSpan={colCount} className="text-muted-foreground text-sm py-8">
                   Loading…
                 </TableCell>
               </TableRow>
             ) : members.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={canManage ? 5 : 4} className="text-muted-foreground text-sm py-8">
+                <TableCell colSpan={colCount} className="text-muted-foreground text-sm py-8">
                   No members yet.
                 </TableCell>
               </TableRow>
@@ -326,6 +370,20 @@ export function SettingsTeam() {
                         year: "numeric",
                       })}
                     </TableCell>
+                    {canManage && (
+                      <TableCell className="text-right">
+                        {canRemove(m) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 text-destructive hover:text-destructive"
+                            onClick={() => setRemoveTarget(m)}
+                          >
+                            Remove
+                          </Button>
+                        )}
+                      </TableCell>
+                    )}
                   </TableRow>
                 )
               })
@@ -358,6 +416,32 @@ export function SettingsTeam() {
       )}
       </CardContent>
     </Card>
+
+    <AlertDialog
+      open={removeTarget !== null}
+      onOpenChange={(open) => {
+        if (!open && !removing) setRemoveTarget(null)
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Remove {removeTarget?.name ?? "member"}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {removeTarget?.email ? <><strong>{removeTarget.email}</strong> will </> : "They will "}
+            lose access to this organization right away. Donors assigned to them become
+            unassigned, API keys they created are revoked, and their Gmail connection is removed
+            from Vantage. If they don&apos;t belong to another organization, their login is deleted
+            too. Their past activity, notes and gifts stay. You can invite them again later.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={removing}>Cancel</AlertDialogCancel>
+          <Button variant="destructive" disabled={removing} onClick={handleRemove}>
+            {removing ? "Removing…" : "Remove member"}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     </div>
   )
 }

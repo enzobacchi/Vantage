@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from "next/server"
 import { getStripe } from "@/lib/stripe"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { notifySystemAlert } from "@/lib/notifications"
-import type { SubscriptionPlan, SubscriptionStatus } from "@/types/database"
+import {
+  getSubPeriodDates,
+  mapStripeStatus,
+  sanitizePlanId,
+  subscriptionRowFromStripe,
+} from "@/lib/stripe-subscription-sync"
 import Stripe from "stripe"
 
 /**
@@ -68,15 +73,6 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ received: true })
 }
 
-/** Plans a webhook is allowed to write. Anything else is ignored (defense vs forged metadata). */
-const VALID_WEBHOOK_PLANS: SubscriptionPlan[] = ["essentials", "growth", "pro"]
-
-function sanitizePlanId(planId: string | undefined): SubscriptionPlan | undefined {
-  return VALID_WEBHOOK_PLANS.includes(planId as SubscriptionPlan)
-    ? (planId as SubscriptionPlan)
-    : undefined
-}
-
 /** Pull the Stripe subscription id out of the event payload, if any. */
 function extractSubscriptionId(event: Stripe.Event): string | null {
   const obj = event.data.object as unknown as Record<string, unknown>
@@ -129,29 +125,12 @@ async function handleEvent(event: Stripe.Event, admin: ReturnType<typeof createA
       if (!orgId || !planId || !stripeSubId) break
 
       // Expand items to get period dates (Stripe API 2026-02-25)
-      const stripeSub = await stripe.subscriptions.retrieve(stripeSubId, {
-        expand: ["items"],
-      })
-      const { periodStart, periodEnd } = getSubPeriodDates(stripeSub)
+      // `items` (with period dates, API 2026-02-25) is included by default.
+      const stripeSub = await stripe.subscriptions.retrieve(stripeSubId)
 
       await admin
         .from("subscriptions")
-        .upsert(
-          {
-            org_id: orgId,
-            stripe_subscription_id: stripeSubId,
-            plan_id: planId,
-            status: mapStripeStatus(stripeSub.status),
-            current_period_start: periodStart,
-            current_period_end: periodEnd,
-            cancel_at_period_end: stripeSub.cancel_at_period_end,
-            trial_ends_at: stripeSub.trial_end
-              ? new Date(stripeSub.trial_end * 1000).toISOString()
-              : null,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "org_id" }
-        )
+        .upsert(subscriptionRowFromStripe(orgId, planId, stripeSub), { onConflict: "org_id" })
       break
     }
 
@@ -250,50 +229,5 @@ async function handleEvent(event: Stripe.Event, admin: ReturnType<typeof createA
       }
       break
     }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Extract period dates from a Stripe subscription.
- * In API version 2026-02-25, current_period_start/end live on subscription
- * items rather than the subscription object itself.
- */
-function getSubPeriodDates(sub: Stripe.Subscription): {
-  periodStart: string
-  periodEnd: string | null
-} {
-  const firstItem = sub.items?.data?.[0]
-  if (firstItem) {
-    return {
-      periodStart: new Date(firstItem.current_period_start * 1000).toISOString(),
-      periodEnd: new Date(firstItem.current_period_end * 1000).toISOString(),
-    }
-  }
-  // Fallback: use start_date if items aren't expanded
-  return {
-    periodStart: new Date(sub.start_date * 1000).toISOString(),
-    periodEnd: null,
-  }
-}
-
-/** Map Stripe subscription status to our status enum. */
-function mapStripeStatus(stripeStatus: Stripe.Subscription.Status): SubscriptionStatus {
-  switch (stripeStatus) {
-    case "trialing":
-      return "trialing"
-    case "active":
-      return "active"
-    case "past_due":
-      return "past_due"
-    case "canceled":
-      return "canceled"
-    case "unpaid":
-      return "unpaid"
-    default:
-      return "canceled"
   }
 }

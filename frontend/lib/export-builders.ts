@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin"
 import { toCsv } from "@/lib/csv"
+import { fetchAllRows } from "@/lib/supabase/fetch-all"
 
 export const EXPORT_TYPES = ["donors", "donations", "interactions"] as const
 export type ExportType = (typeof EXPORT_TYPES)[number]
@@ -9,7 +10,9 @@ export type BuiltExport = { csv: string; filename: string }
 /**
  * Org-scoped CSV exports for GDPR data portability. Shared by the web
  * download route (GET /api/export) and the mobile email-export route
- * (POST /api/account/export).
+ * (POST /api/account/export). Every query pages with fetchAllRows and an `id`
+ * tiebreaker: PostgREST caps a plain select at 1,000 rows, and an export that
+ * silently drops rows is worse than one that fails.
  */
 export async function buildExport(
   supabase: ReturnType<typeof createAdminClient>,
@@ -33,22 +36,25 @@ async function buildDonorsExport(
   orgId: string,
   timestamp: string
 ) {
-  const { data, error } = await supabase
-    .from("donors")
-    .select(
-      "id, external_id, display_name, first_name, last_name, email, phone, donor_type, billing_address, city, state, zip, mailing_address, mailing_city, mailing_state, mailing_zip, total_lifetime_value, last_donation_date, last_donation_amount, notes, custom_fields"
-    )
-    .eq("org_id", orgId)
-    .order("display_name")
-
-  if (error) throw error
+  const data = await fetchAllRows((from, to) =>
+    supabase
+      .from("donors")
+      .select(
+        "id, external_id, display_name, first_name, last_name, email, phone, donor_type, billing_address, city, state, zip, mailing_address, mailing_city, mailing_state, mailing_zip, total_lifetime_value, last_donation_date, last_donation_amount, notes, custom_fields"
+      )
+      .eq("org_id", orgId)
+      .order("display_name")
+      .order("id")
+      .range(from, to)
+  )
 
   // Org-defined custom fields get one column each, after the fixed columns
-  const { data: fieldDefs } = await supabase
+  const { data: fieldDefs, error: fieldDefsError } = await supabase
     .from("custom_field_definitions")
     .select("key, label")
     .eq("org_id", orgId)
     .order("sort_order")
+  if (fieldDefsError) throw fieldDefsError
   const customDefs = (fieldDefs ?? []) as Array<{ key: string; label: string }>
 
   const headers = [
@@ -75,7 +81,7 @@ async function buildDonorsExport(
     ...customDefs.map((c) => c.label),
   ]
 
-  const rows = (data ?? []).map((d) => [
+  const rows = data.map((d) => [
     d.id,
     d.external_id,
     d.display_name,
@@ -109,16 +115,19 @@ async function buildDonationsExport(
   orgId: string,
   timestamp: string
 ) {
-  // Join donor display_name for readability
-  const { data, error } = await supabase
-    .from("donations")
-    .select(
-      "id, donor_id, amount, date, memo, payment_method, source, category_id, campaign_id, fund_id, acknowledgment_sent_at, created_at, donors!inner(display_name)"
-    )
-    .eq("org_id", orgId)
-    .order("date", { ascending: false })
-
-  if (error) throw error
+  // Left-join the donor's display_name for readability. Not !inner: a
+  // donation whose donor_id is null must still be exported.
+  const data = await fetchAllRows((from, to) =>
+    supabase
+      .from("donations")
+      .select(
+        "id, donor_id, amount, date, memo, payment_method, source, category_id, campaign_id, fund_id, acknowledgment_sent_at, created_at, donors(display_name)"
+      )
+      .eq("org_id", orgId)
+      .order("date", { ascending: false })
+      .order("id")
+      .range(from, to)
+  )
 
   const headers = [
     "ID",
@@ -136,7 +145,7 @@ async function buildDonationsExport(
     "Created At",
   ]
 
-  const rows = (data ?? []).map((d) => {
+  const rows = data.map((d) => {
     const donorName =
       d.donors && typeof d.donors === "object" && "display_name" in d.donors
         ? (d.donors as { display_name: string | null }).display_name
@@ -166,14 +175,6 @@ async function buildInteractionsExport(
   orgId: string,
   timestamp: string
 ) {
-  // Interactions are linked to donors, so join through donors
-  const { data: donors } = await supabase
-    .from("donors")
-    .select("id")
-    .eq("org_id", orgId)
-
-  const donorIds = (donors ?? []).map((d) => d.id)
-
   const headers = [
     "ID",
     "Donor ID",
@@ -186,19 +187,19 @@ async function buildInteractionsExport(
     "Created At",
   ]
 
-  if (donorIds.length === 0) {
-    return { csv: toCsv(headers, []), filename: `vantage-interactions-${timestamp}.csv` }
-  }
+  // Interactions have no org column: scope through the donor with an inner
+  // join (a 1,000+ donor `.in()` list would also overflow the request URL).
+  const data = await fetchAllRows((from, to) =>
+    supabase
+      .from("interactions")
+      .select("id, donor_id, type, direction, subject, content, date, status, created_at, donors!inner(org_id)")
+      .eq("donors.org_id", orgId)
+      .order("date", { ascending: false })
+      .order("id")
+      .range(from, to)
+  )
 
-  const { data, error } = await supabase
-    .from("interactions")
-    .select("id, donor_id, type, direction, subject, content, date, status, created_at")
-    .in("donor_id", donorIds)
-    .order("date", { ascending: false })
-
-  if (error) throw error
-
-  const rows = (data ?? []).map((i) => [
+  const rows = data.map((i) => [
     i.id,
     i.donor_id,
     i.type,

@@ -29,6 +29,7 @@ import { Progress } from "@/components/ui/progress"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 
+import { SettingsDataExport } from "@/app/settings/settings-data-export"
 import { PLANS, type BillingInterval } from "@/lib/subscription"
 import type { SubscriptionPlan } from "@/types/database"
 
@@ -231,6 +232,9 @@ export function SettingsBilling() {
           </CardContent>
         </Card>
       )}
+
+      {/* While locked, the export card is the only way to take data out. */}
+      {isLocked && <SettingsDataExport className="max-w-2xl" />}
 
       {/* Current plan card */}
       <Card className="max-w-2xl">

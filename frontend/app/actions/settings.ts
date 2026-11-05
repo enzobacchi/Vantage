@@ -2,6 +2,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getCurrentUserOrg, getCurrentUserOrgWithRole } from "@/lib/auth"
+import { deleteOrganizationData, removeOrphanedLogins } from "@/lib/org-teardown"
 
 export type OrganizationProfile = {
   name: string | null
@@ -71,49 +72,51 @@ export async function updateOrganization(form: {
 }
 
 /**
- * Permanently deletes the current organization and ALL associated data.
- * Restricted to org owners only. Deletion order respects foreign key dependencies.
+ * Permanently deletes the current organization and ALL associated data, owner
+ * only. Cancels any live Stripe subscription first (nothing is deleted if that
+ * fails), then removes the logins of members left without an organization.
+ * See lib/org-teardown.ts. Returns `{ error }` rather than throwing: Next.js
+ * hides thrown server-action messages in production.
  */
-export async function deleteOrganization(): Promise<void> {
+export async function deleteOrganization(): Promise<{ error?: string; warning?: string }> {
   const org = await getCurrentUserOrgWithRole()
-  if (!org) throw new Error("Unauthorized")
-  if (org.role !== "owner") throw new Error("Only the organization owner can delete the organization.")
+  if (!org) return { error: "Unauthorized" }
+  if (org.role !== "owner") return { error: "Only the organization owner can delete the organization." }
 
-  const supabase = createAdminClient()
+  const admin = createAdminClient()
 
-  // Get all donor IDs for this org first (needed to delete child records)
-  const { data: donors } = await supabase
-    .from("donors")
-    .select("id")
-    .eq("org_id", org.orgId)
+  // Collect members before the org row (and its memberships) is gone.
+  const { data: members, error: membersError } = await admin
+    .from("organization_members")
+    .select("user_id")
+    .eq("organization_id", org.orgId)
+  if (membersError) return { error: "Could not delete the organization. Please try again." }
 
-  const donorIds = (donors ?? []).map((d: { id: string }) => d.id)
-
-  // Delete donor-keyed child records
-  if (donorIds.length > 0) {
-    await supabase.from("interactions").delete().in("donor_id", donorIds)
-    await supabase.from("donor_tags").delete().in("donor_id", donorIds)
-    await supabase.from("donor_notes").delete().in("donor_id", donorIds)
-    await supabase.from("donations").delete().in("donor_id", donorIds)
+  try {
+    await deleteOrganizationData(admin, org.orgId)
+  } catch (err) {
+    console.error("[settings] org delete failed:", org.orgId, err instanceof Error ? err.message : err)
+    const billing = err instanceof Error && /subscription/i.test(err.message)
+    return {
+      error: billing
+        ? "We couldn't cancel your subscription, so nothing was deleted. Please contact support@vantagedonorai.com."
+        : "Could not delete the organization. Nothing further was removed; please try again or contact support@vantagedonorai.com.",
+    }
   }
 
-  // Delete donors
-  await supabase.from("donors").delete().eq("org_id", org.orgId)
-
-  // Delete org-level records
-  await supabase.from("opportunities").delete().eq("organization_id", org.orgId)
-  await supabase.from("saved_reports").delete().eq("organization_id", org.orgId)
-  await supabase.from("saved_lists").delete().eq("organization_id", org.orgId)
-  await supabase.from("report_folders").delete().eq("organization_id", org.orgId)
-  await supabase.from("tags").delete().eq("organization_id", org.orgId)
-  await supabase.from("tasks").delete().eq("organization_id", org.orgId)
-  await supabase.from("email_send_log").delete().eq("org_id", org.orgId)
-  await supabase.from("invitations").delete().eq("organization_id", org.orgId)
-  await supabase.from("organization_members").delete().eq("organization_id", org.orgId)
-
-  // Finally delete the organization itself
-  const { error } = await supabase.from("organizations").delete().eq("id", org.orgId)
-  if (error) throw new Error(error.message)
+  // Logins left with no organization go too; otherwise the next sign-in
+  // would silently create a fresh empty org with a new trial.
+  const { failed } = await removeOrphanedLogins(
+    admin,
+    (members ?? []).map((m: { user_id: string }) => m.user_id)
+  )
+  if (failed.length > 0) {
+    console.error("[settings] org deleted but some logins remain:", org.orgId, failed)
+    return {
+      warning: `${failed.length} team login${failed.length === 1 ? "" : "s"} couldn't be removed. Email support@vantagedonorai.com and we'll finish it.`,
+    }
+  }
+  return {}
 }
 
 export async function updateProfile(form: {

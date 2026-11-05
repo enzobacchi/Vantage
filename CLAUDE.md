@@ -85,6 +85,8 @@ Supabase Auth with dual auth paths: cookie-based (web) and Bearer token (mobile)
 
 Roles: `owner`, `admin`, `member` — checked via `getCurrentUserOrgWithRole()`.
 
+Because a user with no membership gets a fresh org on next sign-in, anything that removes a membership for good (org deletion, removing a team member) must also delete that user's login when they belong to no other org — use `removeOrphanedLogins()` in `frontend/lib/org-teardown.ts`.
+
 ### Integrations
 
 - **QuickBooks**: Full OAuth 2.0 flow + sync (customers → donors, sales receipts/invoices → donations). Helpers in `frontend/lib/quickbooks-helpers.ts`. Supports sandbox and production environments. Auto-sync via `/api/cron/sync`.
@@ -145,6 +147,7 @@ Multi-step onboarding wizard (`frontend/components/onboarding-wizard.tsx`) with 
 | `frontend/lib/quickbooks-helpers.ts` | QB data parsing and API helpers |
 | `frontend/lib/email-templates.ts` | Email HTML templates (receipts, digest, alerts) |
 | `frontend/lib/stripe.ts` | Stripe client |
+| `frontend/lib/org-teardown.ts` | Org deletion (cancel Stripe → donations → donors → org row) and removal of logins left with no org |
 | `frontend/lib/subscription.ts` | Subscription limits and usage checking (atomic `increment_usage` RPC) |
 | `frontend/lib/http.ts` | `readJsonObject()` — hardened JSON body parsing for mutation routes |
 | `frontend/lib/rate-limit.ts` | Global rate limiting (Upstash Redis, in-memory fallback) |

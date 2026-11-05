@@ -17,7 +17,7 @@ import { decryptQbToken } from "@/lib/quickbooks/token-crypto";
 import { parseVantageMarker, pushPendingForOrg } from "@/lib/quickbooks/writeback";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { geocodeAddress } from "@/lib/geocode";
-import { ABSOLUTE_DONOR_CEILING, getOrgSubscription, resolveTrialLimits } from "@/lib/subscription";
+import { effectiveDonorCap, getOrgSubscription, resolveTrialLimits } from "@/lib/subscription";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -658,7 +658,7 @@ export async function runSyncForOrg(
     // Effective cap: plan cap clipped to ABSOLUTE_DONOR_CEILING (10k). Ensures
     // even Pro trials stay inside the Vercel 60s sync window and runaway QB
     // accounts with 50k+ customers don't crash mid-sync.
-    const effectiveCap = plan.maxDonors === 0 ? ABSOLUTE_DONOR_CEILING : Math.min(plan.maxDonors, ABSOLUTE_DONOR_CEILING);
+    const effectiveCap = effectiveDonorCap(plan.maxDonors);
     const slotsRemaining = Math.max(0, effectiveCap - (currentDonorCount ?? 0));
     const allowedNew = netNewDonors.slice(0, Math.min(netNewDonors.length, slotsRemaining));
     const skippedCount = netNewDonors.length - allowedNew.length;

@@ -179,26 +179,30 @@ export type OrgSubscription = {
 /** Short-lived cookie that carries the trial tier picked at signup. */
 export const PENDING_TRIAL_TIER_COOKIE = "pending_trial_tier"
 
-async function readPendingTrialTier(): Promise<TrialTier | null> {
+/** Narrow an untrusted value (cookie, user metadata) to a trial tier. */
+export function parseTrialTier(raw: unknown): TrialTier | null {
+  return raw === "essentials" || raw === "growth" || raw === "pro" ? raw : null
+}
+
+export async function readPendingTrialTier(): Promise<TrialTier | null> {
   try {
     const { cookies } = await import("next/headers")
     const jar = await cookies()
-    const raw = jar.get(PENDING_TRIAL_TIER_COOKIE)?.value
-    if (raw === "essentials" || raw === "growth" || raw === "pro") return raw
-    return null
+    return parseTrialTier(jar.get(PENDING_TRIAL_TIER_COOKIE)?.value)
   } catch {
     // cookies() throws outside a request scope (cron, jobs) — safe to ignore.
     return null
   }
 }
 
-async function clearPendingTrialTier(): Promise<void> {
+export async function clearPendingTrialTier(): Promise<void> {
   try {
     const { cookies } = await import("next/headers")
     const jar = await cookies()
     jar.delete(PENDING_TRIAL_TIER_COOKIE)
   } catch {
-    // no-op outside request scope
+    // no-op outside request scope, and in Server Components (read-only
+    // cookies) — the cookie then just expires on its own (1h max-age).
   }
 }
 

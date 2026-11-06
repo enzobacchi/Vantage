@@ -1,5 +1,30 @@
 import { describe, expect, it } from "vitest"
-import { ABSOLUTE_DONOR_CEILING, PLANS, TRIAL_DURATION_DAYS, effectiveDonorCap, getStripePriceId } from "./subscription"
+import {
+  ABSOLUTE_DONOR_CEILING,
+  PLANS,
+  TRIAL_DURATION_DAYS,
+  effectiveDonorCap,
+  getStripePriceId,
+  parseTrialTier,
+  resolveTrialLimits,
+} from "./subscription"
+
+describe("trial tier picked at signup", () => {
+  it("accepts only the three signup sizes", () => {
+    expect(parseTrialTier("essentials")).toBe("essentials")
+    expect(parseTrialTier("growth")).toBe("growth")
+    expect(parseTrialTier("pro")).toBe("pro")
+    expect(parseTrialTier("enterprise")).toBeNull()
+    expect(parseTrialTier(undefined)).toBeNull()
+    expect(parseTrialTier(42)).toBeNull()
+  })
+
+  it("gives a Medium/Large trial that plan's donor cap, not the 500 default", () => {
+    expect(resolveTrialLimits("trial", "growth").maxDonors).toBe(2_500)
+    expect(resolveTrialLimits("trial", "pro").maxDonors).toBe(10_000)
+    expect(resolveTrialLimits("trial", null).maxDonors).toBe(500)
+  })
+})
 
 // Canonical pricing — must match the public pricing page
 // (Website/vantage_shadcn/components/pricing-cards.tsx). If one side changes,

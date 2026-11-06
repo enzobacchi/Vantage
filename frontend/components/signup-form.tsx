@@ -123,6 +123,10 @@ export function SignupForm({
             // Names the org on first load (lib/auth.ts). Team-join inherits the
             // inviter's org, so no org name is collected there.
             org_name: isJoinFlow ? undefined : orgName.trim() || undefined,
+            // Sets the trial's donor/AI caps when the org is created
+            // (lib/auth.ts). Kept on the account so it survives email
+            // confirmation in a different browser, where the cookie is absent.
+            trial_tier: isJoinFlow ? undefined : trialSize,
           },
           emailRedirectTo: callbackUrl,
         },

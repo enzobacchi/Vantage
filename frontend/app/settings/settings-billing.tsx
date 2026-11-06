@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import {
   Building2,
   CreditCard,
@@ -75,6 +75,7 @@ export function SettingsBilling() {
   const [actionLoading, setActionLoading] = React.useState<string | null>(null)
   const [billingInterval, setBillingInterval] = React.useState<BillingInterval>("monthly")
   const searchParams = useSearchParams()
+  const router = useRouter()
 
   const fetchStatus = React.useCallback(async () => {
     try {
@@ -93,13 +94,40 @@ export function SettingsBilling() {
     fetchStatus()
   }, [fetchStatus])
 
-  // After Stripe checkout, the webhook may not have arrived yet — re-fetch after a short delay
+  // Back from Stripe checkout: confirm the payment with Stripe directly so the
+  // plan updates now, without waiting on (or depending on) the webhook.
+  const checkoutSessionId = searchParams.get("session_id")
   React.useEffect(() => {
-    if (!searchParams.get("session_id")) return
-    toast.success("Payment successful! Updating your plan...")
-    const timer = setTimeout(() => fetchStatus(), 2000)
-    return () => clearTimeout(timer)
-  }, [searchParams, fetchStatus])
+    if (!checkoutSessionId) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch("/api/stripe/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: checkoutSessionId }),
+        })
+        const json = (await res.json().catch(() => ({}))) as { status?: string }
+        if (cancelled) return
+        if (json.status === "confirmed" || json.status === "already_synced") {
+          toast.success("Payment successful — your plan is active.")
+        } else if (json.status === "pending" || res.status >= 500) {
+          toast.message("Payment is processing. Your plan will update shortly.")
+        } else {
+          toast.error("We couldn't confirm your payment. If you were charged, email support@vantagedonorai.com.")
+        }
+      } catch {
+        if (!cancelled) toast.message("Payment received. Your plan will update shortly.")
+      }
+      if (cancelled) return
+      fetchStatus()
+      // Drop session_id so a reload doesn't re-run this and repeat the toast.
+      router.replace("/settings?tab=billing", { scroll: false })
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [checkoutSessionId, fetchStatus, router])
 
   async function handleCheckout(plan: SubscriptionPlan) {
     setActionLoading(plan)

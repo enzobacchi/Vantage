@@ -1,6 +1,12 @@
 import { createServerSupabaseClient, getUserFromBearerToken } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { TRIAL_DURATION_DAYS } from "@/lib/subscription";
+import {
+  TRIAL_DURATION_DAYS,
+  clearPendingTrialTier,
+  parseTrialTier,
+  readPendingTrialTier,
+  type TrialTier,
+} from "@/lib/subscription";
 import { welcomeTrialEmailHtml } from "@/lib/email-templates";
 
 const FROM_EMAIL = "Vantage <notifications@vantagedonorai.com>";
@@ -117,10 +123,17 @@ export async function getCurrentUserOrg(): Promise<CurrentUserOrg | null> {
       return null;
     }
 
+    // The donor-count size picked at signup (Small/Medium/Large) sets the
+    // trial's caps. Prefer the copy saved on the account — it survives email
+    // confirmation in another browser — and fall back to the signup cookie.
+    const trialTier =
+      parseTrialTier(user.user_metadata?.trial_tier) ?? (await readPendingTrialTier());
+
     await startFreeTrial({
       orgId,
       email: user.email ?? null,
       fullName: (user.user_metadata?.full_name as string | undefined) ?? null,
+      trialTier,
     });
 
     return { userId: user.id, orgId };
@@ -139,6 +152,7 @@ async function startFreeTrial(opts: {
   orgId: string
   email: string | null
   fullName: string | null
+  trialTier: TrialTier | null
 }): Promise<void> {
   const admin = createAdminClient();
   const trialEnd = new Date();
@@ -151,6 +165,7 @@ async function startFreeTrial(opts: {
       {
         org_id: opts.orgId,
         plan_id: "trial",
+        trial_tier: opts.trialTier,
         status: "trialing",
         trial_ends_at: trialEndsAt,
       },
@@ -160,6 +175,8 @@ async function startFreeTrial(opts: {
   if (subError) {
     console.error("[auth/startFreeTrial] subscription insert failed", subError.message);
     // Don't block org creation on subscription write failure.
+  } else if (opts.trialTier) {
+    await clearPendingTrialTier();
   }
 
   if (!opts.email) return;

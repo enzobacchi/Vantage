@@ -225,6 +225,47 @@ export type Database = {
           },
         ]
       }
+      chat_pending_writes: {
+        Row: {
+          created_at: string
+          expires_at: string
+          id: string
+          key_hash: string
+          org_id: string
+          ready: boolean
+          request_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at: string
+          id?: string
+          key_hash: string
+          org_id: string
+          ready?: boolean
+          request_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          id?: string
+          key_hash?: string
+          org_id?: string
+          ready?: boolean
+          request_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_pending_writes_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       custom_field_definitions: {
         Row: {
           created_at: string

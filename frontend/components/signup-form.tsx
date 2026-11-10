@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { createBrowserSupabaseClient } from "@/lib/supabase/client"
@@ -78,10 +78,29 @@ export function SignupForm({
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [emailConfirmRequired, setEmailConfirmRequired] = useState(false)
+  const [existingAccount, setExistingAccount] = useState(false)
+  // Email of an account already signed in on this browser, if any. Signing up
+  // must not leave that session active — otherwise, when the new account
+  // needs email confirmation, the app keeps showing the OLD account's data.
+  const [signedInAs, setSignedInAs] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    createBrowserSupabaseClient()
+      .auth.getUser()
+      .then(({ data }) => {
+        if (!cancelled) setSignedInAs(data.user?.email ?? null)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
+    setExistingAccount(false)
     setEmailConfirmRequired(false)
 
     if (password.length < 8) {
@@ -107,6 +126,15 @@ export function SignupForm({
       }
 
       const supabase = createBrowserSupabaseClient()
+
+      // A new account always starts from a blank slate: end any session
+      // already open in this browser (this device only) before signing up.
+      const { data: current } = await supabase.auth.getSession()
+      if (current.session) {
+        await supabase.auth.signOut({ scope: "local" })
+        setSignedInAs(null)
+      }
+
       const baseUrl =
         (typeof window !== "undefined" ? window.location.origin : null) ||
         process.env.NEXT_PUBLIC_APP_URL ||
@@ -133,6 +161,11 @@ export function SignupForm({
       })
       if (signUpError) {
         const msg = signUpError.message
+        // Email confirmation off: Supabase rejects an email that's taken.
+        if (/already (been )?registered|already exists/i.test(msg)) {
+          setExistingAccount(true)
+          return
+        }
         const isEmailError =
           msg.toLowerCase().includes("email") ||
           msg.toLowerCase().includes("confirmation") ||
@@ -143,6 +176,13 @@ export function SignupForm({
             ? "We couldn't send the confirmation email. The app admin needs to set up email (SMTP) in Supabase. Try again later or ask them to fix it."
             : msg
         )
+        return
+      }
+      // Email confirmation on: for an email that's taken, Supabase returns a
+      // placeholder user with no identities instead of an error (and sends no
+      // email). Don't tell them to check their inbox — point them to sign in.
+      if (data.user && (data.user.identities?.length ?? 0) === 0) {
+        setExistingAccount(true)
         return
       }
       if (data.session) {
@@ -209,6 +249,21 @@ export function SignupForm({
                 : `Start your ${TRIAL_DURATION_DAYS}-day free trial. No credit card required.`}
             </p>
           </div>
+          {signedInAs && (
+            <p
+              className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground"
+              role="status"
+            >
+              You&apos;re signed in as <strong className="text-foreground">{signedInAs}</strong>.
+              Creating a new account will sign you out of it on this device.{" "}
+              <Link
+                href={next && next !== "/dashboard" ? next : "/dashboard"}
+                className="underline hover:text-foreground"
+              >
+                Back to that account
+              </Link>
+            </p>
+          )}
           <Field>
             <FieldLabel htmlFor="name">Full Name</FieldLabel>
             <Input
@@ -322,6 +377,18 @@ export function SignupForm({
           {error && (
             <p className="text-sm text-destructive" role="alert">
               {error}
+            </p>
+          )}
+          {existingAccount && (
+            <p className="text-sm text-destructive" role="alert">
+              An account with this email already exists.{" "}
+              <Link
+                href={next ? `/login?next=${encodeURIComponent(next)}` : "/login"}
+                className="underline"
+              >
+                Sign in instead
+              </Link>
+              {" "}or use a different email.
             </p>
           )}
           <Field>

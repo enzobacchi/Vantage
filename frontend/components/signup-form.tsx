@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { createBrowserSupabaseClient } from "@/lib/supabase/client"
@@ -83,13 +83,16 @@ export function SignupForm({
   // must not leave that session active — otherwise, when the new account
   // needs email confirmation, the app keeps showing the OLD account's data.
   const [signedInAs, setSignedInAs] = useState<string | null>(null)
+  // Once the form is submitted, a slow initial lookup must not bring the
+  // "signed in as" notice back after we've signed that account out.
+  const submittedRef = useRef(false)
 
   useEffect(() => {
     let cancelled = false
     createBrowserSupabaseClient()
       .auth.getUser()
       .then(({ data }) => {
-        if (!cancelled) setSignedInAs(data.user?.email ?? null)
+        if (!cancelled && !submittedRef.current) setSignedInAs(data.user?.email ?? null)
       })
       .catch(() => {})
     return () => {
@@ -117,7 +120,16 @@ export function SignupForm({
     }
 
     setLoading(true)
+    submittedRef.current = true
     try {
+      // Drop handoff cookies left by an earlier, abandoned signup in this
+      // browser so /auth/callback can't apply them to this new account.
+      // They're set again below only if this signup needs them.
+      if (typeof document !== "undefined") {
+        document.cookie = "stripe_checkout_session_id=; path=/; max-age=0; SameSite=Lax"
+        document.cookie = "auth_next_redirect=; path=/; max-age=0; SameSite=Lax"
+      }
+
       // Persist the picked trial tier so getOrgSubscription() can read it when
       // it auto-creates the subscription on first dashboard load. Skipped for
       // team-join invites (they inherit the inviter's org + plan).
@@ -131,7 +143,14 @@ export function SignupForm({
       // already open in this browser (this device only) before signing up.
       const { data: current } = await supabase.auth.getSession()
       if (current.session) {
-        await supabase.auth.signOut({ scope: "local" })
+        const { error: signOutError } = await supabase.auth.signOut({ scope: "local" })
+        // signOut keeps the session when the request fails (network/5xx);
+        // signing up anyway would bring back the old account. Stop instead.
+        const { data: after } = await supabase.auth.getSession()
+        if (signOutError || after.session) {
+          setError("We couldn't sign you out of your current account. Please try again.")
+          return
+        }
         setSignedInAs(null)
       }
 

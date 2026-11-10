@@ -21,6 +21,7 @@ import {
   type FilterRow,
 } from "@/lib/reports/run-filter-query"
 
+import { CLOSED_GATE, type ConfirmGate } from "./confirm-gate"
 import type { ChatPIIRedactor } from "./pii-redactor"
 import { bucketDate, enumerateBuckets, type Interval } from "./timeseries"
 
@@ -76,9 +77,19 @@ function pickMetric(
 export function buildTools(
   orgId: string,
   userId: string,
-  redactor?: ChatPIIRedactor
+  redactor?: ChatPIIRedactor,
+  /**
+   * Server-side write-confirm gate for this request (see confirm-gate.ts).
+   * create_donor / create_donation record each preview and only write a
+   * change previewed in the previous request. Without one, nothing writes.
+   */
+  gate: ConfirmGate = CLOSED_GATE
 ) {
   const supabase = createAdminClient()
+
+  const NOT_APPROVED =
+    "Not approved yet: the user hasn't confirmed this exact change. Call this tool again now WITHOUT confirm to get a preview (a preview you write yourself doesn't count), then wait for the user's reply before confirming."
+  const PREVIEW_FAILED = "Couldn't prepare this change for approval. Please try again in a moment."
 
   /**
    * Fetch donations in a date range plus the columns needed to group or
@@ -972,28 +983,31 @@ export function buildTools(
           }
         }
 
+        const preview = {
+          display_name: name,
+          email: email?.trim() || null,
+          phone: phone?.trim() || null,
+          billing_address: billing_address?.trim() || null,
+          city: city?.trim() || null,
+          state: state?.trim() || null,
+          zip: zip?.trim() || null,
+          donor_type: donor_type || "individual",
+        }
+
         // Human-approval gate: never write on the first call. Show the user a
         // preview and require an explicit confirmation turn before inserting.
         if (!confirm) {
+          if (!(await gate.record("create_donor", preview))) return { error: PREVIEW_FAILED }
           return {
             requires_confirmation: true,
             action: "create_donor",
-            preview: {
-              display_name: name,
-              email: email?.trim() || null,
-              phone: phone?.trim() || null,
-              billing_address: billing_address?.trim() || null,
-              city: city?.trim() || null,
-              state: state?.trim() || null,
-              zip: zip?.trim() || null,
-              donor_type: donor_type || "individual",
-            },
+            preview,
             message:
               "Show the user this donor's details and ask them to confirm. Only call create_donor again with confirm: true after they explicitly say yes.",
           }
         }
-
-        // Enforce donor limit
+        // Enforce donor limit (before using up the approval, so hitting the
+        // limit doesn't cost the user their confirmation).
         if (await isLimitExceeded(orgId, "donors")) {
           return {
             error: "Donor limit reached",
@@ -1001,18 +1015,17 @@ export function buildTools(
           }
         }
 
+        // Server-side half: only the exact donor previewed in an earlier
+        // finished request, and only once (consumed before the insert).
+        if (!gate.consume("create_donor", preview)) {
+          return { error: NOT_APPROVED }
+        }
+
         const { data, error: insertErr } = await supabase
           .from("donors")
           .insert({
             org_id: orgId,
-            display_name: name,
-            email: email?.trim() || null,
-            phone: phone?.trim() || null,
-            billing_address: billing_address?.trim() || null,
-            city: city?.trim() || null,
-            state: state?.trim() || null,
-            zip: zip?.trim() || null,
-            donor_type: donor_type || "individual",
+            ...preview,
             total_lifetime_value: 0,
             last_donation_date: null,
             last_donation_amount: null,
@@ -1093,21 +1106,28 @@ export function buildTools(
 
         // Human-approval gate: never write on the first call. Show the user a
         // preview and require an explicit confirmation turn before inserting.
+        const preview = {
+          donor_id,
+          donor_name: donor.display_name,
+          amount,
+          date,
+          payment_method,
+          memo: memo?.trim() || null,
+        }
         if (!confirm) {
+          if (!(await gate.record("create_donation", preview))) return { error: PREVIEW_FAILED }
           return {
             requires_confirmation: true,
             action: "create_donation",
-            preview: {
-              donor_id,
-              donor_name: donor.display_name,
-              amount,
-              date,
-              payment_method,
-              memo: memo?.trim() || null,
-            },
+            preview,
             message:
               "Show the user this donation's details and ask them to confirm. Only call create_donation again with confirm: true after they explicitly say yes.",
           }
+        }
+        // Server-side half: only the exact gift previewed in an earlier
+        // finished request, and only once (consumed before the insert).
+        if (!gate.consume("create_donation", preview)) {
+          return { error: NOT_APPROVED }
         }
 
         // Insert the donation
@@ -1119,7 +1139,7 @@ export function buildTools(
             amount,
             date,
             payment_method,
-            memo: memo?.trim() || null,
+            memo: preview.memo,
             source: "manual",
           })
           .select("id")

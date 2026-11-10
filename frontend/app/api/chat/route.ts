@@ -15,6 +15,7 @@ import {
   redactPIIPatterns,
   registerReplayedToolOutputs,
 } from "@/lib/chat/pii-redactor"
+import { openConfirmGate } from "@/lib/chat/confirm-gate"
 import { buildSystemPrompt } from "@/lib/chat/system-prompt"
 import { buildTools } from "@/lib/chat/tools"
 import { readJsonObject } from "@/lib/http"
@@ -153,10 +154,19 @@ export async function POST(request: Request) {
   // Earlier turns come back from the client with real names restored.
   redactReplayedText(messages, redactor, lastUserIndex)
 
+  // Write-confirm gate: takes the previews this user was shown in their
+  // previous request (stored server-side, so text-only clients work too).
+  // create_donor / create_donation may write only those, once each.
+  const gate = await openConfirmGate(supabase, {
+    orgId: auth.orgId,
+    userId: auth.userId,
+    requestId: crypto.randomUUID(),
+  })
+
   // The same wrapped tools must reach convertToModelMessages: tool outputs
   // replayed from earlier turns are raw in the UI messages, and only the
   // tools' toModelOutput redacts them before they reach the model.
-  const tools = buildTools(auth.orgId, auth.userId, redactor)
+  const tools = buildTools(auth.orgId, auth.userId, redactor, gate)
 
   const result = streamText({
     model: anthropic("claude-haiku-4-5-20251001"),
@@ -168,6 +178,12 @@ export async function POST(request: Request) {
     stopWhen: stepCountIs(8),
     experimental_transform: redactor.createStreamTransform(),
     onFinish: async ({ text }) => {
+      // This turn's previews become approvable for the user's next message.
+      try {
+        await gate.finalize()
+      } catch (e) {
+        console.error("[chat] Failed to finalize confirm gate:", e)
+      }
       try {
         // Increment monthly chat usage only after the stream finishes
         // successfully — failed requests (e.g. Anthropic 5xx) should not

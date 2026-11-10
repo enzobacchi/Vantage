@@ -12,6 +12,7 @@ import {
   FieldLabel,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { safeNext } from "@/lib/safe-next"
 import { TRIAL_DURATION_DAYS } from "@/lib/subscription"
 
 type TrialSize = "essentials" | "growth" | "pro"
@@ -63,7 +64,7 @@ export function SignupForm({
 }: React.ComponentProps<"div">) {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const next = searchParams.get("next") ?? "/dashboard"
+  const next = safeNext(searchParams.get("next"))
   // Payment Link flow: checkout_session_id is passed from the Stripe success URL
   const checkoutSessionId = searchParams.get("checkout_session_id")
   const isJoinFlow = !!(next && next.includes("/join"))

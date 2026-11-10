@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { safeNext } from "@/lib/safe-next"
 
 export function LoginForm({
   className,
@@ -22,7 +23,7 @@ export function LoginForm({
 }: React.ComponentProps<"div">) {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const next = searchParams.get("next") ?? "/dashboard"
+  const next = safeNext(searchParams.get("next"))
   const fromQb = searchParams.get("qb") === "1"
   const qbError = searchParams.get("error")
   const qbNotConfigured = qbError === "qb_not_configured"

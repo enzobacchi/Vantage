@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { safeNext } from "@/lib/safe-next";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 const AUTH_NEXT_COOKIE = "auth_next_redirect";
@@ -19,7 +20,7 @@ export async function GET(request: Request) {
   const cookieHeader = request.headers.get("cookie") ?? "";
   const cookieNext = cookieHeader.match(new RegExp(`${AUTH_NEXT_COOKIE}=([^;]+)`))?.[1];
   const cookieCheckout = cookieHeader.match(new RegExp(`${STRIPE_CHECKOUT_COOKIE}=([^;]+)`))?.[1];
-  const next = nextParam ?? (cookieNext ? decodeURIComponent(cookieNext) : null) ?? "/dashboard";
+  const next = safeNext(nextParam ?? (cookieNext ? decodeURIComponent(cookieNext) : null));
 
   if (code) {
     const supabase = await createServerSupabaseClient();

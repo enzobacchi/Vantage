@@ -2,10 +2,16 @@ import crypto from "crypto";
 import OAuthClient from "intuit-oauth";
 import { NextRequest, NextResponse } from "next/server";
 
+import { pickBestMembership } from "@/lib/auth";
 import {
   createQBOAuthClient,
   getQBRedirectUriFromRequest,
 } from "@/lib/quickbooks/client";
+import {
+  QB_FORBIDDEN_ROLE_PARAM,
+  mayBindQuickBooks,
+} from "@/lib/quickbooks/connect-permission";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
@@ -16,8 +22,45 @@ function htmlResponse(status: number, title: string, body: string) {
   );
 }
 
+/** Browser-facing origin (honours ngrok/Vercel forwarding; never https://localhost). */
+function requestOrigin(request: NextRequest): string {
+  const host =
+    request.headers.get("x-forwarded-host") ??
+    request.headers.get("host") ??
+    request.nextUrl.host;
+  const isLocal = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(host);
+  const proto = isLocal ? "http" : request.headers.get("x-forwarded-proto") ?? "https";
+  return `${proto}://${host}`;
+}
+
 export async function GET(request: NextRequest) {
   try {
+    // Only owners/admins may (re)bind the org's QuickBooks connection. Signed-out
+    // callers ("Sign in with QuickBooks") have no org yet and pass through; the
+    // callback repeats this check before writing any tokens.
+    // A session-lookup failure is treated as signed out rather than surfacing
+    // the misleading "QuickBooks not configured" page: the callback re-checks
+    // the role and fails closed before any token write.
+    let userId: string | null = null;
+    try {
+      const serverSupabase = await createServerSupabaseClient();
+      const {
+        data: { user },
+      } = await serverSupabase.auth.getUser();
+      userId = user?.id ?? null;
+    } catch (e) {
+      console.error("[QB auth] session lookup failed:", e instanceof Error ? e.message : e);
+    }
+    if (userId) {
+      const membership = await pickBestMembership(userId);
+      if (!mayBindQuickBooks(membership)) {
+        const settingsUrl = new URL("/settings", requestOrigin(request));
+        settingsUrl.searchParams.set("tab", "integrations");
+        settingsUrl.searchParams.set("qb", QB_FORBIDDEN_ROLE_PARAM);
+        return NextResponse.redirect(settingsUrl.toString());
+      }
+    }
+
     try {
       const redirectUri = getQBRedirectUriFromRequest(request);
       console.log("[QB auth] redirectUri:", redirectUri, "| host:", request.headers.get("host"), "| x-forwarded-host:", request.headers.get("x-forwarded-host"));

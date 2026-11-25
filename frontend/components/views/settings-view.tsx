@@ -24,7 +24,7 @@ type SyncSuccessData = {
   [key: string]: unknown
 }
 
-type QBStatus = { connected: boolean; realmId?: string }
+type QBStatus = { connected: boolean; realmId?: string; canManage?: boolean }
 
 export function SettingsView() {
   const searchParams = useSearchParams()
@@ -42,13 +42,18 @@ export function SettingsView() {
   const fetchConnectionStatus = React.useCallback(async () => {
     try {
       const res = await fetch("/api/quickbooks/status")
-      const data = (await res.json()) as { connected?: boolean; realmId?: string }
+      const data = (await res.json()) as {
+        connected?: boolean
+        realmId?: string
+        canManage?: boolean
+      }
       setQbStatus({
         connected: !!data?.connected,
         realmId: data?.realmId ?? undefined,
+        canManage: data?.canManage !== false,
       })
     } catch {
-      setQbStatus({ connected: false })
+      setQbStatus({ connected: false, canManage: true })
     }
   }, [])
 
@@ -169,9 +174,11 @@ export function SettingsView() {
               </div>
             </div>
             <div className="flex flex-wrap gap-3">
-              <Button asChild>
-                <Link href="/api/quickbooks/auth">Connect to QuickBooks</Link>
-              </Button>
+              {qbStatus.canManage === true && (
+                <Button asChild>
+                  <Link href="/api/quickbooks/auth">Connect to QuickBooks</Link>
+                </Button>
+              )}
               <Button
                 variant="outline"
                 onClick={() => runSync()}
@@ -187,6 +194,11 @@ export function SettingsView() {
                 )}
               </Button>
             </div>
+            {qbStatus.canManage === false && (
+              <p className="text-xs text-muted-foreground">
+                Ask an owner or admin to connect QuickBooks — only they can change your organization&apos;s QuickBooks connection.
+              </p>
+            )}
             <div className="space-y-2 border-t pt-4">
               <p className="text-sm text-muted-foreground">
                 Re-fetch all donor data from QuickBooks (fixes $0 lifetime value and updates addresses/names). This can take a few minutes.

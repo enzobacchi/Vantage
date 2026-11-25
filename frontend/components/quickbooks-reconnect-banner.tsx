@@ -15,6 +15,9 @@ import { AlertCircle, X, ArrowRight } from "lucide-react"
  */
 export function QuickBooksReconnectBanner() {
   const [needsReconnect, setNeedsReconnect] = React.useState(false)
+  // Only owners/admins can reconnect (enforced in the OAuth routes); members
+  // still see the warning but are pointed at someone who can fix it.
+  const [canManage, setCanManage] = React.useState(true)
   const [dismissed, setDismissed] = React.useState(false)
 
   React.useEffect(() => {
@@ -23,8 +26,11 @@ export function QuickBooksReconnectBanner() {
       try {
         const res = await fetch("/api/quickbooks/status")
         if (!res.ok) return
-        const data = (await res.json()) as { needsReconnect?: boolean }
-        if (!cancelled) setNeedsReconnect(!!data?.needsReconnect)
+        const data = (await res.json()) as { needsReconnect?: boolean; canManage?: boolean }
+        if (!cancelled) {
+          setNeedsReconnect(!!data?.needsReconnect)
+          setCanManage(data?.canManage !== false)
+        }
       } catch {
         // Status isn't critical for rendering — fail silently.
       }
@@ -41,14 +47,19 @@ export function QuickBooksReconnectBanner() {
     <div className="flex items-center gap-2 bg-destructive/10 px-4 py-2 text-sm text-destructive dark:bg-destructive/20">
       <AlertCircle className="size-4 shrink-0" strokeWidth={1.5} />
       <span className="flex-1">
-        QuickBooks disconnected — new donations and donors have stopped importing. Reconnect to resume syncing.
+        QuickBooks disconnected — new donations and donors have stopped importing.{" "}
+        {canManage
+          ? "Reconnect to resume syncing."
+          : "Ask an owner or admin to reconnect QuickBooks."}
       </span>
-      <a
-        href="/api/quickbooks/auth"
-        className="inline-flex items-center gap-1 whitespace-nowrap font-medium underline underline-offset-2 hover:no-underline"
-      >
-        Reconnect QuickBooks <ArrowRight className="size-3.5" strokeWidth={1.5} />
-      </a>
+      {canManage && (
+        <a
+          href="/api/quickbooks/auth"
+          className="inline-flex items-center gap-1 whitespace-nowrap font-medium underline underline-offset-2 hover:no-underline"
+        >
+          Reconnect QuickBooks <ArrowRight className="size-3.5" strokeWidth={1.5} />
+        </a>
+      )}
       <button
         onClick={() => setDismissed(true)}
         className="ml-1 rounded p-0.5 hover:bg-black/5 dark:hover:bg-white/10"

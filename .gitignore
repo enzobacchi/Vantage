@@ -41,6 +41,7 @@ next-env.d.ts
 .agents/
 .augment/
 .codebuddy/
+.codex/
 .commandcode/
 .continue/
 .cortex/
@@ -65,6 +66,7 @@ next-env.d.ts
 .vibe/
 .windsurf/
 .zencoder/
+frontend/.impeccable/
 
 # Debug
 *.log

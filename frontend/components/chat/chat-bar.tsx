@@ -42,7 +42,7 @@ export function ChatBar() {
       >
         <img
           src="/vantage-icon.png"
-          alt="Vantage AI"
+          alt="Scout, the Vantage Agent"
           className="size-5 shrink-0 opacity-60 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
         />
         <input
@@ -51,7 +51,7 @@ export function ChatBar() {
           value={barInput}
           onChange={(e) => setBarInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Ask me something..."
+          placeholder="Ask Scout anything..."
           className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/60 focus-visible:outline-none py-1.5"
         />
         <div className="flex items-center gap-2">

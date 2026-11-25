@@ -2,7 +2,8 @@ import OpenAI from "openai"
 import { NextRequest, NextResponse } from "next/server"
 
 import { requireUserOrg } from "@/lib/auth"
-import { redactPII, unredactPII, type PIIValues } from "@/lib/pii-redaction"
+import { BRIEFING_SYSTEM_PROMPT, parseBriefing, summarizeGiving } from "@/lib/donor-briefing"
+import { redactPII, type PIIValues } from "@/lib/pii-redaction"
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { isLimitExceeded, incrementUsage, getOrgSubscription, resolveTrialLimits } from "@/lib/subscription"
@@ -120,6 +121,7 @@ export async function GET(
     lifecycle_status: lifecycleStatus,
     total_lifetime_value: donor.total_lifetime_value,
     last_donation_date: donor.last_donation_date,
+    giving_summary: summarizeGiving(donations ?? []),
     donations: (donations ?? []).map((d) => ({
       amount: d.amount,
       date: d.date,
@@ -135,19 +137,6 @@ export async function GET(
 
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
-  const systemPrompt = `You are a nonprofit fundraising advisor. Analyze the donor data provided and return a JSON object with exactly this shape:
-{
-  "summary": "A 2-3 sentence overview of this donor's engagement and giving patterns.",
-  "insights": ["insight 1", "insight 2", "insight 3"],
-  "nextSteps": ["actionable step 1", "actionable step 2"]
-}
-Rules:
-- Never mention the donor by name. Always say "this donor" or "they".
-- Focus on giving trends, engagement frequency, lifecycle status, and actionable recommendations.
-- Keep insights concise (1 sentence each).
-- Next steps should be concrete actions a fundraiser can take this week.
-- Return ONLY valid JSON, no markdown fences.`
-
   // Defense-in-depth: each nested field is already individually redacted above,
   // but wrap the full serialized payload once more in case a name/email/address
   // leaked through an un-redacted field (e.g., a new donor column added later).
@@ -161,23 +150,17 @@ Rules:
     model: "gpt-4o-mini",
     max_tokens: 1024,
     temperature: 0.4,
+    response_format: { type: "json_object" },
     messages: [
-      { role: "system", content: systemPrompt },
+      { role: "system", content: BRIEFING_SYSTEM_PROMPT },
       {
         role: "user",
-        content: `Analyze this donor's data and provide insights:\n${redactedPayload}`,
+        content: `Today is ${new Date().toISOString().slice(0, 10)}. Prepare a visit briefing from this donor's data:\n${redactedPayload}`,
       },
     ],
   })
 
   const raw = completion.choices[0]?.message?.content ?? "{}"
-
-  let parsed: { summary?: string; insights?: string[]; nextSteps?: string[] }
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
-    parsed = { summary: raw, insights: [], nextSteps: [] }
-  }
 
   // Unredact any placeholders the LLM might have echoed back
   const placeholders: Record<string, string> = {}
@@ -187,13 +170,7 @@ Rules:
   if (pii.city) placeholders["DONOR_CITY"] = String(pii.city)
   if (pii.state) placeholders["DONOR_STATE"] = String(pii.state)
 
-  const result = {
-    summary: unredactPII(parsed.summary ?? "", placeholders),
-    insights: (parsed.insights ?? []).map((i) => unredactPII(i, placeholders)),
-    nextSteps: (parsed.nextSteps ?? []).map((s) =>
-      unredactPII(s, placeholders)
-    ),
-  }
+  const result = parseBriefing(raw, placeholders, safeInteractions.length > 0)
 
   // Track usage
   await incrementUsage(orgId, "ai_insights")

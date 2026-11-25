@@ -3,7 +3,7 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import { useChat } from "@ai-sdk/react"
-import type { UIMessage } from "ai"
+import { DefaultChatTransport, type UIMessage } from "ai"
 import {
   ArrowUp,
   ChevronDown,
@@ -25,12 +25,16 @@ import {
 import { toast } from "sonner"
 
 import { cn } from "@/lib/utils"
+import { ScoutAvatar } from "@/components/chat/scout-avatar"
 import { Button } from "@/components/ui/button"
+import * as DialogPrimitive from "@radix-ui/react-dialog"
 import {
-  Sheet,
-  SheetContent,
-  SheetTitle,
-} from "@/components/ui/sheet"
+  Dialog,
+  DialogDescription,
+  DialogOverlay,
+  DialogPortal,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { TextShimmerWave } from "@/components/ui/text-shimmer-wave"
 import { useChatOverlay } from "@/components/chat/chat-provider"
 import { ChatDonorCard } from "@/components/chat/chat-donor-card"
@@ -40,6 +44,7 @@ import { ChatTimeseriesChart } from "@/components/chat/chat-timeseries-chart"
 import { ChatCompareCard } from "@/components/chat/chat-compare-card"
 import { ChatHealthScoreCard } from "@/components/chat/chat-health-score-card"
 import { ChatAtRiskCard } from "@/components/chat/chat-at-risk-card"
+import { ACTION_TOOLS, ChatActionCard, type ActionOutput } from "@/components/chat/chat-action-card"
 
 /* ───────── Markdown-lite renderer ───────── */
 
@@ -89,9 +94,11 @@ const TOOL_CONFIG: Record<string, { label: string; icon: React.ElementType }> = 
   get_donation_timeseries: { label: "Charted donations", icon: LineChart },
   filter_donations: { label: "Searched donations", icon: Receipt },
   get_recent_activity: { label: "Loaded recent activity", icon: Activity },
-  create_donor: { label: "Added donor to CRM", icon: UserCircle },
-  create_donation: { label: "Created donation", icon: Receipt },
+  create_donor: { label: "Prepared new donor", icon: UserCircle },
+  create_donation: { label: "Prepared donation", icon: Receipt },
   get_donor_locations: { label: "Loaded donor locations", icon: Search },
+  log_interaction: { label: "Prepared log entry", icon: Activity },
+  create_task: { label: "Prepared reminder", icon: Activity },
 }
 
 const TOOL_CONFIG_LOADING: Record<string, string> = {
@@ -102,8 +109,10 @@ const TOOL_CONFIG_LOADING: Record<string, string> = {
   get_donation_timeseries: "Charting donations",
   filter_donations: "Searching donations",
   get_recent_activity: "Loading recent activity",
-  create_donor: "Adding donor to CRM",
-  create_donation: "Creating donation",
+  create_donor: "Preparing new donor",
+  create_donation: "Preparing donation",
+  log_interaction: "Preparing log entry",
+  create_task: "Preparing reminder",
   get_donor_locations: "Loading donor locations",
 }
 
@@ -170,6 +179,27 @@ function CopyButton({ text }: { text: string }) {
 
 /* ───────── Message bubble ───────── */
 
+type ToolUIPart = { type: string; state?: string; toolCallId?: string; output?: unknown }
+
+/**
+ * Group a message's confirm-gated write results so a multi-action request
+ * ("log the visit and remind me Friday") renders as ONE card with one Confirm.
+ */
+function groupActionParts(parts: UIMessage["parts"]) {
+  const previews: { index: number; tool: string; output: ActionOutput }[] = []
+  const results: { index: number; tool: string; output: ActionOutput }[] = []
+  parts?.forEach((part, index) => {
+    if (!part.type.startsWith("tool-")) return
+    const tool = part.type.slice(5)
+    const tp = part as ToolUIPart
+    if (!ACTION_TOOLS.has(tool) || tp.state !== "output-available") return
+    const output = tp.output as ActionOutput | undefined
+    if (output?.requires_confirmation) previews.push({ index, tool, output })
+    else if (output?.success) results.push({ index, tool, output })
+  })
+  return { previews, results }
+}
+
 function MessageBubble({
   message,
   onDonorClick,
@@ -177,6 +207,8 @@ function MessageBubble({
   onCloseDonorCard,
   onNavigateDonor,
   isStreaming,
+  isLatest,
+  onReply,
 }: {
   message: UIMessage
   onDonorClick: (id: string) => void
@@ -184,6 +216,8 @@ function MessageBubble({
   onCloseDonorCard: () => void
   onNavigateDonor: () => void
   isStreaming?: boolean
+  isLatest?: boolean
+  onReply?: (text: string) => void
 }) {
   const isUser = message.role === "user"
   const textContent = message.parts
@@ -210,6 +244,8 @@ function MessageBubble({
   // Show inline card below this message if it mentions the active donor
   const showCard = activeDonorId && mentionedDonorIds.has(activeDonorId)
 
+  const actions = React.useMemo(() => groupActionParts(message.parts), [message.parts])
+
   if (isUser) {
     return (
       <div className="flex justify-end">
@@ -222,9 +258,7 @@ function MessageBubble({
 
   return (
     <div className="group/msg flex gap-3 items-start">
-      <div className="flex size-7 shrink-0 items-center justify-center rounded-full mt-0.5">
-        <img src="/vantage-icon.png" alt="Vantage AI" className="size-6" />
-      </div>
+      <ScoutAvatar className="mt-0.5" />
       <div className="flex-1 min-w-0">
         {message.parts?.map((part, i) => {
           if (part.type === "text") {
@@ -236,7 +270,27 @@ function MessageBubble({
             )
           }
           if (part.type.startsWith("tool-")) {
-            const tp = part as { type: string; state?: string; toolCallId?: string; output?: unknown }
+            const tp = part as ToolUIPart
+            const preview = actions.previews.find((a) => a.index === i)
+            if (preview) {
+              if (preview !== actions.previews[0]) return null
+              return (
+                <ChatActionCard
+                  key={i}
+                  items={actions.previews}
+                  status={isLatest && !isStreaming ? "pending" : "superseded"}
+                  onReply={onReply}
+                />
+              )
+            }
+            if (ACTION_TOOLS.has(tp.type.slice(5)) && (tp.output as ActionOutput | undefined)?.error) {
+              return null
+            }
+            const result = actions.results.find((a) => a.index === i)
+            if (result) {
+              if (result !== actions.results[0]) return null
+              return <ChatActionCard key={i} items={actions.results} status="done" />
+            }
             if (tp.type === "tool-create_custom_report") {
               return <BuildCustomReportCard key={i} part={tp} />
             }
@@ -300,9 +354,7 @@ function getShimmerLabel(messages: UIMessage[], status: string): string {
 function ShimmerIndicator({ messages, status }: { messages: UIMessage[]; status: string }) {
   return (
     <div className="flex gap-3 items-start">
-      <div className="flex size-7 shrink-0 items-center justify-center rounded-full mt-0.5">
-        <img src="/vantage-icon.png" alt="Vantage AI" className="size-6" />
-      </div>
+      <ScoutAvatar className="mt-0.5" />
       <div className="pt-1">
         <TextShimmerWave className="text-sm" duration={1}>
           {getShimmerLabel(messages, status)}
@@ -377,7 +429,14 @@ function useChatSession({
     onClose()
   }, [onClose])
 
-  const { messages, sendMessage, status, setMessages, error } = useChat()
+  const [transport] = React.useState(
+    () =>
+      new DefaultChatTransport({
+        api: "/api/chat",
+        body: () => ({ timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+      })
+  )
+  const { messages, sendMessage, status, setMessages, error } = useChat({ transport })
 
   React.useEffect(() => {
     if (error) {
@@ -562,10 +621,11 @@ export function ChatBody({
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border/40 px-5 py-3 shrink-0">
         <div className="flex items-center gap-2.5">
-          <img src="/vantage-icon.png" alt="Vantage AI" className="size-6" />
-          <span className="text-sm font-semibold text-foreground">
-            Vantage AI
-          </span>
+          <ScoutAvatar className="size-8" iconClassName="size-4" />
+          <div className="flex flex-col leading-tight">
+            <span className="text-sm font-semibold text-foreground">Scout</span>
+            <span className="text-[11px] text-muted-foreground">Vantage Agent</span>
+          </div>
           {usage && usage.limit > 0 && (
             <span
               className={cn(
@@ -618,9 +678,13 @@ export function ChatBody({
       {/* Messages area */}
       {!hasMessages && !isLoading ? (
         <div className="flex flex-1 flex-col items-center justify-center px-6 py-12">
-          <h2 className="text-lg font-semibold text-foreground mb-6">
-            What can I help with?
+          <ScoutAvatar className="size-12 mb-4" iconClassName="size-6" />
+          <h2 className="text-lg font-semibold text-foreground mb-1">
+            Hi, I&apos;m Scout.
           </h2>
+          <p className="text-sm text-muted-foreground mb-6">
+            Tell me what you need — I can look things up, log visits, and set reminders.
+          </p>
           <div className="flex flex-wrap items-center justify-center gap-2 max-w-2xl">
             {SUGGESTIONS.map((s) => (
               <button
@@ -649,6 +713,8 @@ export function ChatBody({
                   idx === messages.length - 1 &&
                   message.role === "assistant"
                 }
+                isLatest={idx === messages.length - 1 && !isLoading}
+                onReply={handleSuggestion}
               />
             ))}
             {isLoading &&
@@ -700,7 +766,7 @@ export function ChatBody({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask me something..."
+              placeholder="Ask Scout anything..."
               disabled={isLoading}
               rows={1}
               className="flex-1 resize-none bg-transparent px-4 py-3 text-sm placeholder:text-muted-foreground/60 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 max-h-40"
@@ -722,14 +788,14 @@ export function ChatBody({
           </div>
         )}
         <p className="mt-2 text-center text-[11px] text-muted-foreground/40">
-          Vantage AI can search your donor data. Always verify important information.
+          Scout asks before changing anything. Always verify important information.
         </p>
       </div>
     </>
   )
 }
 
-/* ───────── Chat overlay (sheet wrapper) ───────── */
+/* ───────── Chat overlay (floating window) ───────── */
 
 export function ChatOverlay() {
   const { isOpen, close } = useChatOverlay()
@@ -741,20 +807,31 @@ export function ChatOverlay() {
   }, [close, router])
 
   return (
-    <Sheet open={isOpen} onOpenChange={(o) => { if (!o) close() }}>
-      <SheetContent
-        side="right"
-        showCloseButton={false}
-        className="!max-w-none w-full bg-card sm:w-[520px] lg:w-[600px] p-0 gap-0 flex flex-col border-l border-border/60"
-      >
-        <SheetTitle className="sr-only">Vantage AI chat</SheetTitle>
-        <ChatBody
-          active={isOpen}
-          onClose={close}
-          onMaximize={handleMaximize}
-          mode="sheet"
-        />
-      </SheetContent>
-    </Sheet>
+    <Dialog open={isOpen} onOpenChange={(o) => { if (!o) close() }}>
+      <DialogPortal>
+        <DialogOverlay className="bg-background/60 backdrop-blur-md duration-200 motion-reduce:animate-none" />
+        <DialogPrimitive.Content
+          className={cn(
+            "fixed left-1/2 top-1/2 z-50 flex w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden",
+            "rounded-2xl border border-border/60 bg-card shadow-2xl focus-visible:outline-none",
+            "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-bottom-4 data-[state=open]:duration-300",
+            "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:duration-150",
+            "motion-reduce:animate-none"
+          )}
+          style={{ height: "min(80vh, 720px)" }}
+        >
+          <DialogTitle className="sr-only">Scout, the Vantage Agent</DialogTitle>
+          <DialogDescription className="sr-only">
+            Ask Scout about your donors, or tell it what to log.
+          </DialogDescription>
+          <ChatBody
+            active={isOpen}
+            onClose={close}
+            onMaximize={handleMaximize}
+            mode="sheet"
+          />
+        </DialogPrimitive.Content>
+      </DialogPortal>
+    </Dialog>
   )
 }

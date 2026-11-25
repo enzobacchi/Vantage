@@ -295,7 +295,7 @@ function buildSteps(planSummary?: PlanSummary): OnboardingStep[] {
       render: ({ onSeedPrompt }) => (
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground leading-relaxed">
-            Once your donors are in, ask Vantage AI anything about them. Cmd+J
+            Once your donors are in, ask Scout, your Vantage Agent, anything about them. Cmd+J
             opens the chat from anywhere. Here are a few to try:
           </p>
           <div className="flex flex-col gap-2">

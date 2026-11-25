@@ -56,6 +56,12 @@ type DonorRow = {
 
 const roundCents = (n: number) => Math.round(n * 100) / 100
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** Store calendar dates at noon UTC so they render as the same day in every US timezone. */
+const atMiddayUtc = (date: string) => `${date}T12:00:00.000Z`
+
 type MetricKey = "revenue" | "donor_count" | "gift_count" | "avg_gift"
 
 function pickMetric(
@@ -80,8 +86,9 @@ export function buildTools(
   redactor?: ChatPIIRedactor,
   /**
    * Server-side write-confirm gate for this request (see confirm-gate.ts).
-   * create_donor / create_donation record each preview and only write a
-   * change previewed in the previous request. Without one, nothing writes.
+   * create_donor / create_donation / log_interaction / create_task record
+   * each preview and only write a change previewed in the previous request.
+   * Without one, nothing writes.
    */
   gate: ConfirmGate = CLOSED_GATE
 ) {
@@ -90,6 +97,18 @@ export function buildTools(
   const NOT_APPROVED =
     "Not approved yet: the user hasn't confirmed this exact change. Call this tool again now WITHOUT confirm to get a preview (a preview you write yourself doesn't count), then wait for the user's reply before confirming."
   const PREVIEW_FAILED = "Couldn't prepare this change for approval. Please try again in a moment."
+
+  /** The donor, only if it belongs to this org — the write tools' tenant guard. */
+  async function findOrgDonor(donorId: string): Promise<{ id: string; display_name: string | null } | null> {
+    if (!UUID.test(donorId)) return null
+    const { data, error } = await supabase
+      .from("donors")
+      .select("id,display_name")
+      .eq("id", donorId)
+      .eq("org_id", orgId)
+      .maybeSingle()
+    return error ? null : data
+  }
 
   /**
    * Fetch donations in a date range plus the columns needed to group or
@@ -1160,6 +1179,140 @@ export function buildTools(
           date,
           payment_method,
         }
+      },
+    }),
+
+    log_interaction: tool({
+      description:
+        "Log a touchpoint with an existing donor — a visit/meeting, call, email, or note. Look the donor up with search_donors first. Returns a preview on the first call; only write after the user explicitly approves.",
+      inputSchema: z.object({
+        donor_id: z.string().describe("The donor's ID (look up via search_donors first)"),
+        type: z.enum(["meeting", "call", "email", "note"]).describe("Kind of touchpoint. In-person visits are 'meeting'."),
+        date: z.string().describe("When it happened, YYYY-MM-DD. Use today's date if not specified."),
+        subject: z.string().max(200).optional().describe("Short title, e.g. 'Home visit'"),
+        content: z.string().max(4000).describe("What happened or was discussed, in the user's words"),
+        confirm: z
+          .boolean()
+          .optional()
+          .describe(
+            "Set to true ONLY after the user has explicitly approved logging this. Leave false/unset on the first call — the tool returns a preview to show the user first."
+          ),
+      }),
+      execute: async ({ donor_id, type, date, subject, content, confirm }) => {
+        if (!ISO_DATE.test(date)) {
+          return { error: "Date must be in YYYY-MM-DD format." }
+        }
+        const donor = await findOrgDonor(donor_id)
+        if (!donor) return { error: "Donor not found. Pass the donor's id from a search_donors result (call search_donors with their name first)." }
+
+        const preview = {
+          donor_id,
+          donor_name: donor.display_name,
+          type,
+          date,
+          subject: subject?.trim() || null,
+          content: content.trim(),
+        }
+
+        // Human-approval gate: never write on the first call.
+        if (!confirm) {
+          if (!(await gate.record("log_interaction", preview))) return { error: PREVIEW_FAILED }
+          return {
+            requires_confirmation: true,
+            action: "log_interaction",
+            preview,
+            message:
+              "Show the user what will be logged and ask them to confirm. Only call log_interaction again with confirm: true after they explicitly say yes.",
+          }
+        }
+        // Server-side half: only the exact change previewed in an earlier
+        // finished request, and only once (consumed before the insert).
+        if (!gate.consume("log_interaction", preview)) {
+          return { error: NOT_APPROVED }
+        }
+
+        const { data: inserted, error } = await supabase
+          .from("interactions")
+          .insert({
+            donor_id,
+            type,
+            direction: null,
+            subject: preview.subject,
+            content: preview.content,
+            date: atMiddayUtc(date),
+            status: null,
+          })
+          .select("id")
+          .single()
+
+        if (error) return { error: `Failed to log interaction: ${error.message}` }
+        return { success: true, action: "log_interaction", interaction_id: inserted.id, ...preview }
+      },
+    }),
+
+    create_task: tool({
+      description:
+        "Create a follow-up task or reminder for an existing donor (e.g. 'remind me to send a thank-you Friday'). Look the donor up with search_donors first. Returns a preview on the first call; only write after the user explicitly approves.",
+      inputSchema: z.object({
+        donor_id: z.string().describe("The donor's ID (look up via search_donors first)"),
+        title: z.string().min(1).max(200).describe("What to do, e.g. 'Send thank-you note'"),
+        due_date: z.string().describe("Due date, YYYY-MM-DD. Resolve relative days like 'Friday' against today's date."),
+        notes: z.string().max(2000).optional().describe("Optional extra detail"),
+        confirm: z
+          .boolean()
+          .optional()
+          .describe(
+            "Set to true ONLY after the user has explicitly approved creating this task. Leave false/unset on the first call — the tool returns a preview to show the user first."
+          ),
+      }),
+      execute: async ({ donor_id, title, due_date, notes, confirm }) => {
+        if (!ISO_DATE.test(due_date)) {
+          return { error: "Due date must be in YYYY-MM-DD format." }
+        }
+        const donor = await findOrgDonor(donor_id)
+        if (!donor) return { error: "Donor not found. Pass the donor's id from a search_donors result (call search_donors with their name first)." }
+
+        const preview = {
+          donor_id,
+          donor_name: donor.display_name,
+          title: title.trim(),
+          due_date,
+          notes: notes?.trim() || null,
+        }
+
+        // Human-approval gate: never write on the first call.
+        if (!confirm) {
+          if (!(await gate.record("create_task", preview))) return { error: PREVIEW_FAILED }
+          return {
+            requires_confirmation: true,
+            action: "create_task",
+            preview,
+            message:
+              "Show the user the task and ask them to confirm. Only call create_task again with confirm: true after they explicitly say yes.",
+          }
+        }
+        // Server-side half: only the exact change previewed in an earlier
+        // finished request, and only once (consumed before the insert).
+        if (!gate.consume("create_task", preview)) {
+          return { error: NOT_APPROVED }
+        }
+
+        const { data: inserted, error } = await supabase
+          .from("interactions")
+          .insert({
+            donor_id,
+            type: "task",
+            direction: null,
+            subject: preview.title,
+            content: preview.notes ?? "",
+            date: atMiddayUtc(due_date),
+            status: "pending",
+          })
+          .select("id")
+          .single()
+
+        if (error) return { error: `Failed to create task: ${error.message}` }
+        return { success: true, action: "create_task", task_id: inserted.id, ...preview }
       },
     }),
 

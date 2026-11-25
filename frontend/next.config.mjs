@@ -2,7 +2,10 @@
 const nextConfig = {
   // Root always goes to the marketing site. Runs at the edge before any
   // middleware/page, so this is the reliable hook for domain-level routing.
+  // Skipped in dev — there is no marketing site on localhost, so `/` falls
+  // through to app/page.tsx, which sends dev traffic to /dashboard.
   async redirects() {
+    if (process.env.NODE_ENV === "development") return [];
     return [
       { source: "/", destination: "https://vantagedonorai.com/", permanent: false },
     ];

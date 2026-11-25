@@ -33,7 +33,7 @@ import { updateDonor, type UpdateDonorInput } from "@/app/actions/donors"
 import type { Interaction } from "@/types/database"
 import { EmailComposeDialog } from "@/components/email/email-compose-dialog"
 import { emailEnabled } from "@/lib/features"
-import { DonorInsightsPanel } from "@/components/donors/donor-insights-panel"
+import { DonorBriefingCard } from "@/components/donors/donor-briefing-card"
 import { DonorCustomFieldsCard } from "@/components/donors/donor-custom-fields-card"
 import { DonorHealthScoreCard } from "@/components/donors/donor-health-score"
 import { DonorNotesCard } from "@/components/donors/donor-notes-card"
@@ -697,6 +697,11 @@ export default function DonorProfilePage() {
         </div>
       </div>
 
+      {/* AI pre-visit briefing — leads the profile */}
+      <div className="px-4 lg:px-6">
+        <DonorBriefingCard donorId={donor.id} />
+      </div>
+
       {/* Hero row: Contact + Giving Summary */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-4 lg:px-6">
         <Card>
@@ -962,8 +967,6 @@ export default function DonorProfilePage() {
               </TabsContent>
             </Tabs>
           </Card>
-
-          <DonorInsightsPanel donorId={donor.id} />
         </div>
       </div>
 

@@ -96,6 +96,9 @@ export async function POST(request: Request) {
   const parsed = await readJsonObject(request)
   if (!parsed.ok) return parsed.response
   const messages = (parsed.body as { messages?: UIMessage[] }).messages
+  // The browser's IANA zone, so "today" and "Friday" mean the user's dates.
+  const rawTimeZone = (parsed.body as { timeZone?: unknown }).timeZone
+  const timeZone = typeof rawTimeZone === "string" && rawTimeZone.length <= 64 ? rawTimeZone : undefined
   if (!Array.isArray(messages)) {
     return NextResponse.json(
       { error: "messages must be an array" },
@@ -170,7 +173,7 @@ export async function POST(request: Request) {
 
   const result = streamText({
     model: anthropic("claude-haiku-4-5-20251001"),
-    system: buildSystemPrompt(auth.orgId),
+    system: buildSystemPrompt(auth.orgId, timeZone),
     messages: await convertToModelMessages(messages as AiUIMessage[], { tools }),
     tools,
     maxOutputTokens: 16384,

@@ -392,11 +392,11 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
                 </SidebarMenuItem>
                 <SidebarMenuItem>
                   <SidebarMenuButton
-                    tooltip="Vantage AI"
+                    tooltip="Scout · Vantage Agent"
                     onClick={openChat}
                   >
                     <Sparkles />
-                    <span>Vantage AI</span>
+                    <span>Scout</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               </SidebarMenu>

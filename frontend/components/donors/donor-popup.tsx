@@ -14,7 +14,7 @@ import {
 } from "@/app/donors/[id]/actions"
 import { getDonorInteractions } from "@/app/actions/crm"
 import type { Interaction } from "@/types/database"
-import { DonorInsightsPanel } from "@/components/donors/donor-insights-panel"
+import { DonorBriefingCard } from "@/components/donors/donor-briefing-card"
 import { MagicActionsCard } from "@/components/donors/magic-actions-card"
 import { DonorNotesCard } from "@/components/donors/donor-notes-card"
 import { DonorTagsCard } from "@/components/donors/donor-tags-card"
@@ -168,8 +168,7 @@ export function DonorPopupProvider({ children }: { children: React.ReactNode }) 
 
           {!loading && profile?.donor && donorId && (
             <div className="flex-1 overflow-y-auto p-5 space-y-4">
-              {/* AI Insights */}
-              <DonorInsightsPanel donorId={profile.donor.id} />
+              <DonorBriefingCard donorId={profile.donor.id} />
 
               {/* Stats */}
               <div className="grid grid-cols-3 divide-x border rounded-lg">

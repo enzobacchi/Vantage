@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { useRouter } from "next/navigation"
 import { useNav } from "@/components/nav-context"
-import { ExternalLink, MapPin, Navigation, X, Filter, Map as MapIcon, RefreshCw, Search, Settings2, Pentagon, Trash2, FileText, Download, FilePlus } from "lucide-react"
+import { ExternalLink, Sparkles, MapPin, Navigation, X, Filter, Map as MapIcon, RefreshCw, Search, Settings2, Pentagon, Trash2, FileText, Download, FilePlus } from "lucide-react"
 import Map, { Marker, Popup, Source, Layer } from "react-map-gl/mapbox"
 import type { MapRef } from "react-map-gl/mapbox"
 import MapboxDraw from "@mapbox/mapbox-gl-draw"
@@ -77,6 +77,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
+import { DonorBriefingCard } from "@/components/donors/donor-briefing-card"
 import { toast } from "sonner"
 
 /** Params sent to the map API; all optional. */
@@ -221,6 +229,7 @@ export function DonorMapView() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<DonorMapPoint | null>(null)
+  const [briefingDonor, setBriefingDonor] = useState<DonorMapPoint | null>(null)
   const [flyToSearchOpen, setFlyToSearchOpen] = useState(false)
   const [legendOpen, setLegendOpen] = useState(false)
   const [webglOk, setWebglOk] = useState<boolean | null>(null)
@@ -489,13 +498,25 @@ export function DonorMapView() {
     setFlyToSearchOpen(false)
   }, [])
 
+  // Open framed on every donor, so the rep sees who's near her at a glance.
   const initialViewState = useMemo(() => {
+    if (points.length > 1) {
+      const lats = points.map((p) => p.location_lat)
+      const lngs = points.map((p) => p.location_lng)
+      return {
+        bounds: [
+          [Math.min(...lngs), Math.min(...lats)],
+          [Math.max(...lngs), Math.max(...lats)],
+        ] as [[number, number], [number, number]],
+        fitBoundsOptions: { padding: 80, maxZoom: 13 },
+      }
+    }
     const first = points[0]
     if (first) {
       return {
         latitude: first.location_lat,
         longitude: first.location_lng,
-        zoom: 8,
+        zoom: 12,
       }
     }
     return { latitude: 39.5, longitude: -98.35, zoom: 3 }
@@ -1231,18 +1252,29 @@ export function DonorMapView() {
                           ? "—"
                           : formatCurrency(selected.total_lifetime_value)}
                       </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="mt-3 w-full h-8 text-xs"
-                        onClick={() => {
-                          openDonor(selected.id)
-                          setSelected(null)
-                        }}
-                      >
-                        View profile
-                      </Button>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="h-8 border-0 bg-gradient-to-r from-[#007A3F] to-[#21E0D6] text-xs text-white hover:opacity-90"
+                          onClick={() => setBriefingDonor(selected)}
+                        >
+                          <Sparkles className="size-3.5" strokeWidth={1.5} />
+                          AI Briefing
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 text-xs"
+                          onClick={() => {
+                            openDonor(selected.id)
+                            setSelected(null)
+                          }}
+                        >
+                          View profile
+                        </Button>
+                      </div>
                     </div>
                   </Popup>
                 ) : null}
@@ -1554,6 +1586,38 @@ export function DonorMapView() {
         </div>
       )}
       </div>
+
+      {/* One-tap pre-visit briefing without leaving the map */}
+      <Sheet open={briefingDonor != null} onOpenChange={(open) => { if (!open) setBriefingDonor(null) }}>
+        <SheetContent side="right" className="w-full gap-0 overflow-y-auto sm:max-w-xl">
+          <SheetHeader className="border-b border-border/60">
+            <SheetTitle>{briefingDonor?.display_name ?? "Donor"}</SheetTitle>
+            <SheetDescription>
+              Total giving:{" "}
+              {briefingDonor?.total_lifetime_value == null
+                ? "—"
+                : formatCurrency(briefingDonor.total_lifetime_value)}
+            </SheetDescription>
+          </SheetHeader>
+          {briefingDonor && (
+            <div className="space-y-4 p-4">
+              <DonorBriefingCard donorId={briefingDonor.id} autoGenerate />
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  openDonor(briefingDonor.id)
+                  setBriefingDonor(null)
+                  setSelected(null)
+                }}
+              >
+                View full profile
+              </Button>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }

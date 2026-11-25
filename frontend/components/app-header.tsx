@@ -159,17 +159,17 @@ export function AppHeader() {
             <button
               className="relative flex items-center justify-center size-10 rounded-lg hover:bg-muted/60 transition-colors"
               onClick={openChat}
-              aria-label="Chat with Vantage AI (⌘J)"
+              aria-label="Ask Scout, the Vantage Agent (⌘J)"
             >
               <img
                 src="/vantage-icon.png"
-                alt="Vantage AI"
+                alt="Scout, the Vantage Agent"
                 className="size-8 chat-logo-spin"
               />
             </button>
           </TooltipTrigger>
           <TooltipContent side="bottom">
-            Chat with Vantage AI
+            Ask Scout
             <kbd className="ml-1.5 pointer-events-none inline-flex h-4 select-none items-center gap-0.5 rounded border bg-muted px-1 font-mono text-[10px] font-medium">
               <span className="text-xs">⌘</span>J
             </kbd>

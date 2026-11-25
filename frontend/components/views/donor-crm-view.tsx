@@ -82,6 +82,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { EmailComposeDialog, type EmailRecipient } from "@/components/email/email-compose-dialog"
+import { DonorBriefingCard } from "@/components/donors/donor-briefing-card"
 import { emailEnabled } from "@/lib/features"
 
 function formatDate(value: string | null | undefined) {
@@ -1330,6 +1331,8 @@ export function DonorCRMView() {
                         <span className="text-sm font-semibold tabular-nums mt-0.5">{formatCurrency(thisMonthSum)}</span>
                       </div>
                     </div>
+
+                    {sheetDonorId && <DonorBriefingCard donorId={sheetDonorId} />}
 
                     {/* Active pledge summary (if any) */}
                     {sheetActivePledges.length > 0 && (

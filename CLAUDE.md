@@ -1,10 +1,16 @@
 # CLAUDE.md
 
-Context file for Claude Code (claude.ai/code) and Cursor when working in this repository. This is the **single source of truth** — `.cursorrules` just points here. Update this file in the same change set as any architecture shift.
+Context file for Claude Code (claude.ai/code) and Cursor when working in this repository. This is the **single source of truth for how the code works** — `.cursorrules` and `AGENTS.md` just point here. Update this file in the same change set as any architecture shift.
+
+## Start Here
+
+**Always read PROJECT_CONTEXT.md first before taking any action, and update the task checklist as items are completed.**
+
+`PROJECT_CONTEXT.md` (repo root) owns three things this file deliberately does not: the stack summary, the **Slop-Free Zones** (code where a casual change causes silent data loss, cross-tenant leakage, or unrecoverable state), and the active task checklist. This file is the reference manual — architecture, conventions, commands, key files, env vars. When the two disagree about **work state**, `PROJECT_CONTEXT.md` wins. When they disagree about **how the code works**, this file wins and `PROJECT_CONTEXT.md` should be corrected to point here rather than restating it.
 
 ## Product
 
-**Vantage** is an AI-powered donor CRM for small-to-midsize nonprofits and ministries. It replaces manual data entry with intelligent automation and integrates directly with accounting software (QuickBooks today, Xero/FreshBooks/Sage planned).
+**Vantage** is an AI-powered donor CRM for small-to-midsize nonprofits and ministries. It replaces manual data entry with intelligent automation and integrates directly with accounting software (QuickBooks today; other accounting integrations are roadmap — see `PROJECT_CONTEXT.md`).
 
 **Target user**: Faith-based organizations and small nonprofits with 1–5 staff managing donors, receipts, and bookkeeping — typically under 5,000 donors.
 
@@ -16,17 +22,21 @@ All root-level scripts proxy to `/frontend`:
 npm run dev      # Start dev server (port 3000)
 npm run build    # Production build (also runs TypeScript type-check)
 npm run lint     # ESLint check
-npm test         # Vitest (unit tests for lib/ logic: subscription, rate-limit, PII, QB crypto, cursors)
+npm test         # Vitest — unit tests colocated in lib/ as *.test.ts (node env only; no jsdom, so component tests aren't runnable as configured)
 ```
 
-CI (`.github/workflows/ci.yml`) gates every push/PR on lint + tests + build. Match that locally before pushing.
+Run a single test from `frontend/` (don't forward paths through the root proxy script): `npx vitest run lib/subscription.test.ts`, or `npx vitest` for watch mode. Standalone typecheck (no dedicated script): `npx tsc --noEmit` from `frontend/`.
+
+CI (`.github/workflows/ci.yml`) gates every PR and pushes to `main` on lint + tests + build. The CI build uses placeholder env vars (fake Supabase anon key), so build-time code must tolerate missing real env. Match lint+test+build locally before pushing.
+
+Dev scripts (run via `npx tsx` from `frontend/`): `scripts/seed-qb-sandbox.ts` seeds a QuickBooks sandbox with nonprofit data; `scripts/test-ai-report-queries.ts` is an AI report-builder eval against the live chat model (needs `ANTHROPIC_API_KEY`).
 
 ## Architecture
 
 **Single Next.js 16 application** in `/frontend` (App Router, React 19). There is no separate backend service.
 
 - **Server Actions** (`frontend/app/actions/`) — all mutations. ~28 action files (list the directory for the current set) covering auth, audit, crm, dashboard, donations, donors, email-rate-limit, feedback, folders, import, legal, lists, notifications, onboarding(+progress), pipeline, pledges, receipt-templates, reports, search, settings, tags, team, plus api-keys, custom-fields, dashboard-preferences, report-shares, year-end-receipts.
-- **API Routes** (`frontend/app/api/`) — reads, streaming, OAuth, webhooks. Major route groups: chat, dashboard (metrics + smart-actions), donors (list, detail, insights, score, search, map, states, geocode), donations (list, options, recent, trend), email (send + bulk-send), interactions, tags, reports, pipeline, organization, quickbooks (auth, callback, status), stripe (checkout, confirm, portal, status, webhook), cron (sync, digest), sync, export, tasks, feedback, account, auth, billing, gmail, notifications, push-token, receipts, routes, team, transcribe.
+- **API Routes** (`frontend/app/api/`) — reads, streaming, OAuth, webhooks. Major route groups: chat, dashboard (metrics + smart-actions), donors (list, detail, insights, score, search, map, states, geocode), donations (list, options, recent, trend), email (send + bulk-send), interactions, tags, reports, pipeline, organization, quickbooks (auth, callback, status), stripe (checkout, confirm, portal, status, webhook), cron (sync, digest, trial-reminders — schedules declared in `frontend/vercel.json`), sync, export, tasks, feedback, account, auth, billing, gmail, notifications, push-token, receipts, routes, team, transcribe.
 - **Public/mobile API** (`frontend/app/api/v1/`) — the versioned external API namespace (Bearer/API-key auth). See `docs/api-v1.md`, `frontend/lib/api-v1.ts`, `frontend/lib/api-auth.ts`. API keys are SHA-256 hashed in the `api_keys` table, scope- and plan-gated, rate-limited.
 - **No client state management** — server-driven via Server Components and Actions. Client state uses `useState` only.
 
@@ -50,7 +60,7 @@ A sibling Expo app lives at `/Users/enzobacchiocchi/Developer/Vantage/Mobile` (i
 - **Donor Health Score**: Deterministic 0–100 score computed by `frontend/lib/donor-score.ts` (no LLM). Five weighted factors: recency (30%), frequency (25%), monetary trend (20%), engagement (15%), consistency (10%). Labels: Excellent/Good/Fair/At Risk/Cold. Includes trend analysis (rising/stable/declining/new/inactive) and suggested ask amounts.
 - **Pledges**: Recurring or one-time giving commitments. Frequencies: `one_time`, `monthly`, `quarterly`, `annual`. Statuses: `active`, `fulfilled`, `cancelled`, `overdue`. Linked to donations via `pledge_id` FK. Progress tracked by `frontend/lib/pledge-helpers.ts`.
 - **Interactions**: Touchpoints (email, call, meeting, note, task) in the `interactions` table with direction (inbound/outbound) and status (pending/completed). Full CRUD via `/api/interactions`.
-- **Reports**: Dynamic — store filter criteria as JSON in `saved_reports`, not result snapshots.
+- **Reports**: Dynamic — store filter criteria as JSON in `saved_reports`, not result snapshots. The criteria schema and query execution live in `frontend/lib/reports/` (`filter-schema.ts`, `run-filter-query.ts`).
 - **Opportunities**: Fundraising pipeline with stages: identified → qualified → solicited → committed → closed_won/lost.
 - **Donation Options**: Org-scoped categories, campaigns, and funds in `org_donation_options`.
 - **Tags**: Org-scoped tags assignable to donors, with bulk tag operations.
@@ -58,8 +68,8 @@ A sibling Expo app lives at `/Users/enzobacchiocchi/Developer/Vantage/Mobile` (i
 
 ### AI / Intelligence Layer
 
-- **Donor Insights**: `GET /api/donors/[id]/insights` generates AI briefings via OpenAI. PII is redacted before LLM calls (`frontend/lib/pii-redaction.ts`) and unredacted in the response.
-- **Chat Agent**: Claude Haiku 4.5 via Vercel AI SDK + `@ai-sdk/anthropic`. Cmd+J overlay, persisted to `chat_history` table. 13 tools (see `frontend/lib/chat/tools.ts`): `search_donors`, `get_donor_summary`, `get_donation_metrics`, `filter_donations`, `create_donor`, `create_donation`, `get_recent_activity`, `get_donor_locations`, `get_donor_health_score`, `get_at_risk_donors`, `compare_periods`, `get_donation_timeseries`, `create_custom_report`. PII redaction in `frontend/lib/chat/pii-redactor.ts` (+ `pii-helpers.ts`): `ChatPIIRedactor.wrapTools()` redacts only the model's copy of each tool result (`toModelOutput`) — names, street address/zip, custom fields, campaign/fund/category names — and unredacts placeholders in tool inputs; the client still gets raw outputs for cards. The chat route must pass the same wrapped tools to `convertToModelMessages` so replayed history is redacted. Before redacting any text, the route calls `registerReplayedToolOutputs` so values seen only in replayed tool outputs are known; `toModelOutput` also re-hides values restored into that call's arguments, and replayed tool `errorText` is redacted in `redactReplayedText`. `create_donor`/`create_donation` use a **two-phase confirm gate**: first call returns `{ requires_confirmation: true, preview }`; the write only happens on a second call with `confirm: true`, and only for the exact change previewed in the user's previous chat request, once. The server enforces it (`lib/chat/confirm-gate.ts`): each preview stores a hash in `chat_pending_writes`, made approvable by `gate.finalize()` when that request finishes; the chat route's `openConfirmGate` takes that user's finished rows at the start of each request and passes the gate to `buildTools`, whose write tools `consume` it before inserting. Stored server-side because mobile and reloaded web chat replay history as text only. The prompt (`lib/chat/system-prompt.ts`) drives the preview-then-ask flow. The mobile app consumes the same stream — its tool handling (`Mobile/lib/chat/stream.ts`) must stay in sync with `tools.ts`.
+- **Donor AI Briefing**: `GET /api/donors/[id]/insights` returns a pre-visit briefing `{ summary, givingHistory, lastConversation, talkingPoints[] }` via OpenAI. Prompt + parsing live in `frontend/lib/donor-briefing.ts` (`lastConversation` is forced to `null` when the donor has no interactions). PII is redacted before LLM calls (`frontend/lib/pii-redaction.ts`) and unredacted in the response. UI: `components/donors/donor-briefing-card.tsx`, shown at the top of the donor profile, in the CRM side sheet, in the chat donor popup, and from the map popup's "AI Briefing" button (opens a sheet over the map, `autoGenerate`).
+- **Chat Agent — "Scout, the Vantage Agent"**: Claude Haiku 4.5 via Vercel AI SDK + `@ai-sdk/anthropic`. Opens as a centred floating window (`ChatOverlay` in `components/chat/chat-overlay.tsx`, Radix Dialog) from the bottom chat bar or Cmd+J; full-page mode at `/chat`. Persisted to `chat_history`. Tools live in `frontend/lib/chat/tools.ts` (read it for the current set) — read tools plus the write tools `create_donor`, `create_donation`, `log_interaction`, `create_task`, and `create_custom_report`. PII redaction in `frontend/lib/chat/pii-redactor.ts` (+ `pii-helpers.ts`): `ChatPIIRedactor.wrapTools()` redacts only the model's copy of each tool result (`toModelOutput`) — names, street address/zip, custom fields, campaign/fund/category names — and unredacts placeholders in tool inputs; the client still gets raw outputs for cards. The chat route must pass the same wrapped tools to `convertToModelMessages` so replayed history is redacted. Before redacting any text, the route calls `registerReplayedToolOutputs` so values seen only in replayed tool outputs are known; `toModelOutput` also re-hides values restored into that call's arguments, and replayed tool `errorText` is redacted in `redactReplayedText`. Every write tool except `create_custom_report` uses a **two-phase confirm gate**: first call returns `{ requires_confirmation: true, preview }`; the write only happens on a second call with `confirm: true`, and only for the exact change previewed in the user's previous chat request, once. The server enforces it (`lib/chat/confirm-gate.ts`): each preview stores a hash in `chat_pending_writes`, made approvable by `gate.finalize()` when that request finishes; the chat route's `openConfirmGate` takes that user's finished rows at the start of each request and passes the gate to `buildTools`, whose write tools `consume` it before inserting. Stored server-side because mobile and reloaded web chat replay history as text only. The prompt (`lib/chat/system-prompt.ts`) drives the preview-then-ask flow. The chat client sends the browser `timeZone`, so the system prompt's "today"/weekday list is the user's local date. Previews render as one `ChatActionCard` (`components/chat/chat-action-card.tsx`) with Confirm/Cancel that send a reply. Tasks are `interactions` rows with `type: "task"`, `status: "pending"`; tool-written dates are stored at noon UTC. The mobile app consumes the same stream — its tool handling (`Mobile/lib/chat/stream.ts`) and `Mobile/components/chat/ToolPill.tsx` labels must stay in sync with `tools.ts`.
 - **Smart Actions**: Dashboard recommendations generated via API, surfaced in `frontend/components/smart-actions.tsx`.
 - **Weekly Digest**: AI-summarized weekly digest emails via `frontend/lib/digest-ai.ts` + `/api/cron/digest`.
 - **Semantic Search**: pgvector embeddings stored on `donors` table via Supabase `match_donors` RPC. Not yet exposed in UI.
@@ -67,11 +77,11 @@ A sibling Expo app lives at `/Users/enzobacchiocchi/Developer/Vantage/Mobile` (i
 
 ### Database
 
-Supabase (PostgreSQL + pgvector). Migrations in `/supabase/migrations/`.
+Supabase (PostgreSQL + pgvector). Migrations in `/supabase/migrations/` — **this folder is not a complete schema and is applied by hand at production**; read `PROJECT_CONTEXT.md` → Slop-Free Zones before adding or applying one.
 
 Key tables: `organizations`, `organization_members`, `donors`, `donations`, `donor_notes`, `interactions`, `opportunities`, `pledges`, `saved_reports`, `report_folders`, `report_shares`, `saved_lists`, `org_donation_options`, `receipt_templates`, `tags`, `donor_tags`, `chat_history`, `subscriptions`, `subscription_usage`, `audit_logs`, `notification_preferences`, `donor_merge_history`, `api_keys`, `custom_field_definitions`, `dashboard_preferences`, `email_send_log`, `gmail_credentials`, `push_tokens`, `stripe_webhook_events`, `chat_pending_writes`.
 
-Atomic RPCs (July 2026 hardening, migrations `20260704`/`20260705`): `increment_usage` (usage metering, called from `lib/subscription.ts`) and `try_consume_email_quota` (email send/bulk-send quota). Use these — do not read-modify-write usage counters.
+Atomic RPCs (July 2026 hardening): `increment_usage` (usage metering, called from `lib/subscription.ts`; migration `20260704000000_atomic_usage_increment`) and `try_consume_email_quota` (email send/bulk-send quota; migration `20260705000000_audit_hardening`). Use these — do not read-modify-write usage counters.
 
 RLS is enabled but the admin client bypasses it — **always scope queries manually by `org_id`**.
 
@@ -89,7 +99,7 @@ Because a user with no membership gets a fresh org on next sign-in, anything tha
 
 ### Integrations
 
-- **QuickBooks**: Full OAuth 2.0 flow + sync (customers → donors, sales receipts/invoices → donations). Helpers in `frontend/lib/quickbooks-helpers.ts`. Supports sandbox and production environments. Auto-sync via `/api/cron/sync`.
+- **QuickBooks**: Full OAuth 2.0 flow + sync (customers → donors, sales receipts/invoices → donations). The sync engine is `frontend/lib/sync/run-sync.ts` (behind `/api/sync` and `/api/cron/sync`); OAuth client, request wrapper, write-back, and token crypto live in `frontend/lib/quickbooks/`; data-parsing helpers in `frontend/lib/quickbooks-helpers.ts`. Supports sandbox and production environments.
 - **Stripe**: Subscription billing — checkout sessions, billing portal, webhook handling. Client in `frontend/lib/stripe.ts`. Stripe → `subscriptions` row mapping lives in `frontend/lib/stripe-subscription-sync.ts`, shared by the webhook and `POST /api/stripe/confirm` (Settings → Billing calls it on return from Checkout, so an upgrade never depends solely on webhook delivery). Usage tracking via `subscription_usage` table with limits on AI insights, email sends, and donor count.
 - **Resend**: Transactional and bulk email. Single send at `POST /api/email/send`, bulk send at `POST /api/email/bulk-send` (rate-limited to 10/hour). Templates in `frontend/lib/email-templates.ts`: password reset, new donation, milestone, team activity, system alert, weekly digest.
 - **Gmail**: OAuth send-as-user integration (`frontend/lib/gmail/`, routes under `/api/gmail/`). Tokens stored encrypted in `gmail_credentials`; config via `GOOGLE_OAUTH_*` env vars.
@@ -119,9 +129,11 @@ Multi-step onboarding wizard (`frontend/components/onboarding-wizard.tsx`) with 
 - **Lucide React** icons only, at **1.5px stroke width**.
 - **Both light and dark mode** — always implement design changes for both modes. Use theme-aware tokens (`bg-background`, `bg-card`, `text-foreground`, `text-muted-foreground`, `border-border`) instead of hardcoded colors. Test that new UI looks correct in both themes.
 - Light-mode specifics when hardcoded values are needed: `bg-white` / `bg-zinc-50/50` backgrounds, `text-zinc-950` headings, `text-zinc-500` metadata, `border-zinc-200` borders.
-- **Accent color**: Green-to-cyan gradient (`from-[#007A3F] to-[#21E0D6]`) matching the Vantage logo icon. **Reserved for AI features and standout product features only** — do not use on standard CRUD buttons (e.g. Create Report, Save). Apply via `bg-gradient-to-r from-[#007A3F] to-[#21E0D6] text-white hover:opacity-90 border-0`. For gradient borders, use a `p-[1px]` wrapper with the gradient background and `bg-card` inner div.
-- `shadow-sm` only. `hover:bg-accent` for interactive elements.
+- **Accent color**: Green-to-cyan gradient (`from-[#007A3F] to-[#21E0D6]`) matching the Vantage logo icon (`public/vantage-icon.png`, wordmarks `public/vantage-wordmark-{dark,light}.png`). **Reserved for AI features and standout product features only** — do not use on standard CRUD buttons (e.g. Create Report, Save). Apply via `bg-gradient-to-r from-[#007A3F] to-[#21E0D6] text-white hover:opacity-90 border-0`. For gradient borders, use a `p-[1px]` wrapper with the gradient background and `bg-card` inner div. Secondary AI tints use the `teal-*` palette.
+- **Scout** (the Vantage Agent) has its own mascot mark, `ScoutAvatar` (`components/chat/scout-avatar.tsx`): a telescope on the gradient disc, used inside the chat window. Entry points (chat bar, header button) keep the Vantage logo.
+- `shadow-sm` only. `hover:bg-accent` for interactive elements. Honor `prefers-reduced-motion` for any new animation.
 - User feedback via **Sonner `toast`** — never `alert()`.
+- A short-lived "Evergreen" rebrand (forest/spring palette, Summit logo) was abandoned in Oct 2026 — don't reintroduce `brand-*` tokens or the Summit mark. A backup of that work lives outside the repo in `Vantage/backups/evergreen-rebrand-2026-10-29/`.
 
 ## Coding Standards
 
@@ -145,6 +157,10 @@ Multi-step onboarding wizard (`frontend/components/onboarding-wizard.tsx`) with 
 | `frontend/lib/donor-score.ts` | Donor health score (0–100, deterministic) |
 | `frontend/lib/pledge-helpers.ts` | Pledge formatting and progress calculation |
 | `frontend/lib/quickbooks-helpers.ts` | QB data parsing and API helpers |
+| `frontend/lib/sync/run-sync.ts` | QuickBooks sync engine (largest lib module) |
+| `frontend/lib/quickbooks/` | QB OAuth client, request wrapper, write-back, token crypto |
+| `frontend/lib/reports/` | Saved-report filter schema + query execution |
+| `frontend/lib/cron-auth.ts` | `CRON_SECRET` enforcement for `/api/cron/*` |
 | `frontend/lib/email-templates.ts` | Email HTML templates (receipts, digest, alerts) |
 | `frontend/lib/stripe.ts` | Stripe client |
 | `frontend/lib/org-teardown.ts` | Org deletion (cancel Stripe → donations → donors → org row) and removal of logins left with no org |
@@ -202,6 +218,7 @@ GOOGLE_OAUTH_REDIRECT_URI     # Gmail integration OAuth
 UPSTASH_REDIS_REST_URL        # Rate limiting (optional; in-memory fallback if unset)
 UPSTASH_REDIS_REST_TOKEN      # Rate limiting
 FEEDBACK_EMAIL_TO             # Destination for in-app feedback
+DEBUG_PII_REDACTION           # "true" logs PII-redaction diagnostics in the donor insights route (debug only)
 ```
 
 Note: some map code reads `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN` as well as `NEXT_PUBLIC_MAPBOX_TOKEN` — set both to the same value until unified.
@@ -209,6 +226,11 @@ Note: some map code reads `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN` as well as `NEXT_PUB
 ## Deployment
 
 Vercel. The root `package.json` proxies all scripts to `/frontend`. Single Vercel project pointing at the repo root.
+
+Two gotchas:
+
+- `/` redirects to `https://vantagedonorai.com/` in every non-development env (`frontend/next.config.mjs`) — don't test `/` against preview/prod deploys.
+- Security headers/CSP live in `frontend/proxy.ts` middleware (with a second header layer in `frontend/vercel.json`) — deliberately not in `next.config.mjs`; don't add CSP there or the two sources get intersected. The two layers currently **disagree** on Permissions-Policy and HSTS; see `PROJECT_CONTEXT.md` Tier 1.
 
 ## MCP Servers
 

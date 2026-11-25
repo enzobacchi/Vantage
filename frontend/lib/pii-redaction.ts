@@ -36,6 +36,17 @@ function escapeForReplacement(value: string): string {
 }
 
 /**
+ * Values under 4 characters (2-letter states, short city names) match only as
+ * whole words — as substrings they would clobber ordinary words and JSON keys
+ * ("increasing" with state IN, "call" with state CA). Longer values keep
+ * substring matching so possessives/plurals of names are still caught.
+ */
+function piiPattern(value: string): RegExp {
+  const escaped = escapeForReplacement(value)
+  return new RegExp(value.length < 4 ? `(?<![A-Za-z0-9])${escaped}(?![A-Za-z0-9])` : escaped, "gi")
+}
+
+/**
  * Redact PII from text before sending to OpenAI.
  * Replaces names, emails, addresses with placeholders.
  * Returns redacted text and a map of placeholder -> real value for unredaction.
@@ -47,43 +58,43 @@ export function redactPII(text: string, pii: PIIValues): RedactionResult {
   if (pii.name != null && String(pii.name).trim() !== "") {
     const v = String(pii.name).trim()
     placeholders["DONOR_NAME"] = v
-    redacted = redacted.replace(new RegExp(escapeForReplacement(v), "gi"), PLACEHOLDERS.DONOR_NAME)
+    redacted = redacted.replace(piiPattern(v), PLACEHOLDERS.DONOR_NAME)
   }
 
   if (pii.email != null && String(pii.email).trim() !== "") {
     const v = String(pii.email).trim()
     placeholders["DONOR_EMAIL"] = v
-    redacted = redacted.replace(new RegExp(escapeForReplacement(v), "gi"), PLACEHOLDERS.DONOR_EMAIL)
+    redacted = redacted.replace(piiPattern(v), PLACEHOLDERS.DONOR_EMAIL)
   }
 
   if (pii.address != null && String(pii.address).trim() !== "") {
     const v = String(pii.address).trim()
     placeholders["DONOR_ADDRESS"] = v
-    redacted = redacted.replace(new RegExp(escapeForReplacement(v), "gi"), PLACEHOLDERS.DONOR_ADDRESS)
+    redacted = redacted.replace(piiPattern(v), PLACEHOLDERS.DONOR_ADDRESS)
   }
 
   if (pii.city != null && String(pii.city).trim() !== "") {
     const v = String(pii.city).trim()
     placeholders["DONOR_CITY"] = v
-    redacted = redacted.replace(new RegExp(escapeForReplacement(v), "gi"), PLACEHOLDERS.DONOR_CITY)
+    redacted = redacted.replace(piiPattern(v), PLACEHOLDERS.DONOR_CITY)
   }
 
   if (pii.state != null && String(pii.state).trim() !== "") {
     const v = String(pii.state).trim()
     placeholders["DONOR_STATE"] = v
-    redacted = redacted.replace(new RegExp(escapeForReplacement(v), "gi"), PLACEHOLDERS.DONOR_STATE)
+    redacted = redacted.replace(piiPattern(v), PLACEHOLDERS.DONOR_STATE)
   }
 
   if (pii.phone != null && String(pii.phone).trim() !== "") {
     const v = String(pii.phone).trim()
     placeholders["DONOR_PHONE"] = v
-    redacted = redacted.replace(new RegExp(escapeForReplacement(v), "gi"), PLACEHOLDERS.DONOR_PHONE)
+    redacted = redacted.replace(piiPattern(v), PLACEHOLDERS.DONOR_PHONE)
   }
 
   if (pii.zip != null && String(pii.zip).trim() !== "") {
     const v = String(pii.zip).trim()
     placeholders["DONOR_ZIP"] = v
-    redacted = redacted.replace(new RegExp(escapeForReplacement(v), "gi"), PLACEHOLDERS.DONOR_ZIP)
+    redacted = redacted.replace(piiPattern(v), PLACEHOLDERS.DONOR_ZIP)
   }
 
   // Pattern-based redaction: catch phone numbers and emails that may appear

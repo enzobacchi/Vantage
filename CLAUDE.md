@@ -25,9 +25,9 @@ npm run lint     # ESLint check
 npm test         # Vitest — unit tests colocated in lib/ as *.test.ts (node env only; no jsdom, so component tests aren't runnable as configured)
 ```
 
-Run a single test from `frontend/` (don't forward paths through the root proxy script): `npx vitest run lib/subscription.test.ts`, or `npx vitest` for watch mode. Standalone typecheck (no dedicated script): `npx tsc --noEmit` from `frontend/`.
+Run a single test from `frontend/` (don't forward paths through the root proxy script): `npx vitest run lib/subscription.test.ts`, or `npx vitest` for watch mode. Standalone typecheck: `npm run typecheck` from `frontend/`.
 
-CI (`.github/workflows/ci.yml`) gates every PR and pushes to `main` on lint + tests + build. The CI build uses placeholder env vars (fake Supabase anon key), so build-time code must tolerate missing real env. Match lint+test+build locally before pushing.
+CI (`.github/workflows/ci.yml`) gates every PR and pushes to `main` on lint + typecheck + tests + build. The CI build uses placeholder env vars (fake Supabase anon key), so build-time code must tolerate missing real env. Match lint+typecheck+test+build locally before pushing.
 
 Dev scripts (run via `npx tsx` from `frontend/`): `scripts/seed-qb-sandbox.ts` seeds a QuickBooks sandbox with nonprofit data; `scripts/test-ai-report-queries.ts` is an AI report-builder eval against the live chat model (needs `ANTHROPIC_API_KEY`).
 
@@ -70,14 +70,16 @@ A sibling Expo app lives at `/Users/enzobacchiocchi/Developer/Vantage/Mobile` (i
 
 - **Donor AI Briefing**: `GET /api/donors/[id]/insights` returns a pre-visit briefing `{ summary, givingHistory, lastConversation, talkingPoints[] }` via OpenAI. Prompt + parsing live in `frontend/lib/donor-briefing.ts` (`lastConversation` is forced to `null` when the donor has no interactions). PII is redacted before LLM calls (`frontend/lib/pii-redaction.ts`) and unredacted in the response. UI: `components/donors/donor-briefing-card.tsx`, shown at the top of the donor profile, in the CRM side sheet, in the chat donor popup, and from the map popup's "AI Briefing" button (opens a sheet over the map, `autoGenerate`).
 - **Chat Agent — "Scout, the Vantage Agent"**: Claude Haiku 4.5 via Vercel AI SDK + `@ai-sdk/anthropic`. Opens as a centred floating window (`ChatOverlay` in `components/chat/chat-overlay.tsx`, Radix Dialog) from the bottom chat bar or Cmd+J; full-page mode at `/chat`. Persisted to `chat_history`. Tools live in `frontend/lib/chat/tools.ts` (read it for the current set) — read tools plus the write tools `create_donor`, `create_donation`, `log_interaction`, `create_task`, and `create_custom_report`. PII redaction in `frontend/lib/chat/pii-redactor.ts` (+ `pii-helpers.ts`): `ChatPIIRedactor.wrapTools()` redacts only the model's copy of each tool result (`toModelOutput`) — names, street address/zip, custom fields, campaign/fund/category names — and unredacts placeholders in tool inputs; the client still gets raw outputs for cards. The chat route must pass the same wrapped tools to `convertToModelMessages` so replayed history is redacted. Before redacting any text, the route calls `registerReplayedToolOutputs` so values seen only in replayed tool outputs are known; `toModelOutput` also re-hides values restored into that call's arguments, and replayed tool `errorText` is redacted in `redactReplayedText`. Every write tool except `create_custom_report` uses a **two-phase confirm gate**: first call returns `{ requires_confirmation: true, preview }`; the write only happens on a second call with `confirm: true`, and only for the exact change previewed in the user's previous chat request, once. The server enforces it (`lib/chat/confirm-gate.ts`): each preview stores a hash in `chat_pending_writes`, made approvable by `gate.finalize()` when that request finishes; the chat route's `openConfirmGate` takes that user's finished rows at the start of each request and passes the gate to `buildTools`, whose write tools `consume` it before inserting. Stored server-side because mobile and reloaded web chat replay history as text only. The prompt (`lib/chat/system-prompt.ts`) drives the preview-then-ask flow. The chat client sends the browser `timeZone`, so the system prompt's "today"/weekday list is the user's local date. Previews render as one `ChatActionCard` (`components/chat/chat-action-card.tsx`) with Confirm/Cancel that send a reply. Tasks are `interactions` rows with `type: "task"`, `status: "pending"`; tool-written dates are stored at noon UTC. The mobile app consumes the same stream — its tool handling (`Mobile/lib/chat/stream.ts`) and `Mobile/components/chat/ToolPill.tsx` labels must stay in sync with `tools.ts`.
-- **Smart Actions**: Dashboard recommendations generated via API, surfaced in `frontend/components/smart-actions.tsx`.
+- **Smart Actions**: Dashboard recommendations served by `/api/dashboard/smart-actions`. No web component renders them today (the mobile app consumes the route).
 - **Weekly Digest**: AI-summarized weekly digest emails via `frontend/lib/digest-ai.ts` + `/api/cron/digest`.
 - **Semantic Search**: pgvector embeddings stored on `donors` table via Supabase `match_donors` RPC. Not yet exposed in UI.
 - Always redact PII before sending any donor data to LLMs. Never auto-execute AI suggestions — always require human approval.
 
 ### Database
 
-Supabase (PostgreSQL + pgvector). Migrations in `/supabase/migrations/` — **this folder is not a complete schema and is applied by hand at production**; read `PROJECT_CONTEXT.md` → Slop-Free Zones before adding or applying one.
+Supabase (PostgreSQL + pgvector). `/supabase/migrations/` starts from `20261125000000_baseline.sql`, a schema-only dump of production (plus the function-grant revokes `pg_dump` omits); new migrations go after it. The pre-baseline files live in `/supabase/migrations_archive/` for reference only and are never applied. **Production's migration history has not been reconciled with the baseline yet, so never run `supabase db push` — migrations are still applied to production by hand**; read `PROJECT_CONTEXT.md` → Slop-Free Zones before adding or applying one.
+
+Local database: `supabase start` from the repo root builds a full copy from the baseline (project id `vantage`, API on port 55321, Postgres on 55322 — offset so it can run beside other local Supabase projects); `supabase db reset --local` rebuilds it. Rehearse every migration there before production. It has no data and no `org-logos` storage bucket.
 
 Key tables: `organizations`, `organization_members`, `donors`, `donations`, `donor_notes`, `interactions`, `opportunities`, `pledges`, `saved_reports`, `report_folders`, `report_shares`, `saved_lists`, `org_donation_options`, `receipt_templates`, `tags`, `donor_tags`, `chat_history`, `subscriptions`, `subscription_usage`, `audit_logs`, `notification_preferences`, `donor_merge_history`, `api_keys`, `custom_field_definitions`, `dashboard_preferences`, `email_send_log`, `gmail_credentials`, `push_tokens`, `stripe_webhook_events`, `chat_pending_writes`.
 
@@ -174,13 +176,12 @@ Multi-step onboarding wizard (`frontend/components/onboarding-wizard.tsx`) with 
 | `frontend/lib/format.ts` | Currency formatting |
 | `frontend/lib/digest-ai.ts` | AI-generated weekly digest summaries |
 | `frontend/lib/chat/` | Chat agent tools, system prompt, PII helpers |
-| `frontend/components/chat/` | Chat overlay, provider, messages, input |
+| `frontend/components/chat/` | Chat overlay, bar, provider, and result cards |
 | `frontend/components/donors/` | Donor detail cards (insights, notes, tags, pledges, health score) |
 | `frontend/components/email/` | Email compose dialog with bulk send |
-| `frontend/components/smart-actions.tsx` | Smart actions dashboard component |
 | `frontend/components/onboarding-wizard.tsx` | Multi-step onboarding flow |
 | `frontend/components/onboarding-checklist.tsx` | Onboarding milestone tracker |
-| `frontend/components/views/` | Top-level view components (CRM, map, reports, donations, pipeline, tasks, dashboard, settings, chat) |
+| `frontend/components/views/` | Top-level view components (CRM, map, reports, donations, tasks, dashboard, settings) |
 | `frontend/app/settings/` | Settings pages with sidebar nav (profile, org, team, billing, donation options, email templates, notifications, integrations, year-end receipts, audit log) |
 | `frontend/types/database.ts` | Generated TypeScript types for DB schema |
 | `frontend/app/actions/` | All server actions (mutations) |

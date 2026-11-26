@@ -25,6 +25,8 @@ npm run lint     # ESLint check
 npm test         # Vitest — unit tests colocated in lib/ as *.test.ts (node env only; no jsdom, so component tests aren't runnable as configured)
 ```
 
+Browser tests (`frontend/e2e/*.e2e.ts`, Playwright driving your installed Chrome) cover the everyday paths against the seeded sample organisation on the **local stack only**: `supabase start` (repo root), then from `frontend/` `npx tsx scripts/seed-sample-org.ts` once and `npm run test:e2e`. They need `frontend/.env.local` pointing at the local stack with `SEED_OWNER_EMAIL`/`SEED_OWNER_PASSWORD` set, and refuse to run against anything else. They are not in CI yet. Speed baseline: `docs/perf-baseline-2026-11.md`.
+
 Run a single test from `frontend/` (don't forward paths through the root proxy script): `npx vitest run lib/subscription.test.ts`, or `npx vitest` for watch mode. Standalone typecheck: `npm run typecheck` from `frontend/`.
 
 CI (`.github/workflows/ci.yml`) gates every PR and pushes to `main` on lint + typecheck + tests + build. The CI build uses placeholder env vars (fake Supabase anon key), so build-time code must tolerate missing real env. Match lint+typecheck+test+build locally before pushing.

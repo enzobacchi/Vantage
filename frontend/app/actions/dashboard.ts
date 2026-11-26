@@ -2,6 +2,7 @@
 
 import { getCurrentUserOrg } from "@/lib/auth"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { fetchAllRows } from "@/lib/supabase/fetch-all"
 
 export type TopDonorRow = {
   id: string
@@ -75,21 +76,29 @@ export async function getTopDonors(
     cutoff = `${now.getFullYear()}-01-01`
   }
 
-  // Single query using org_id directly — no batch loop needed
-  const { data: donationRows, error: donationError } = await supabase
-    .from("donations")
-    .select("donor_id, amount, date")
-    .eq("org_id", org.orgId)
-    .gte("date", cutoff)
-
-  if (donationError) return []
+  // Paged: a single select stops at 1,000 rows, which would rank donors on a
+  // partial set of gifts.
+  let donationRows: Record<string, unknown>[]
+  try {
+    donationRows = await fetchAllRows<Record<string, unknown>>((from, to) =>
+      supabase
+        .from("donations")
+        .select("donor_id, amount, date")
+        .eq("org_id", org.orgId)
+        .gte("date", cutoff)
+        .order("id")
+        .range(from, to)
+    )
+  } catch {
+    return []
+  }
 
   const sumByDonor = new Map<
     string,
     { total: number; lastDate: string | null }
   >()
 
-  for (const row of (donationRows ?? []) as Record<string, unknown>[]) {
+  for (const row of donationRows) {
     const donorId = String(row.donor_id)
     const amount = toNumber(row.amount)
     const dateRaw = row.date

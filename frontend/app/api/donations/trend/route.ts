@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireUserOrg } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { fetchAllRows } from "@/lib/supabase/fetch-all";
 
 export const runtime = "nodejs";
 
@@ -39,15 +40,20 @@ export async function GET() {
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 11, 1));
   const startIso = start.toISOString().slice(0, 10); // YYYY-MM-DD
 
-  // Single query using org_id directly — no batch loop needed
-  const { data, error } = await supabase
-    .from("donations")
-    .select("amount, date")
-    .eq("org_id", auth.orgId)
-    .gte("date", startIso);
-
-  if (error) {
-    console.error("[donations/trend]", error.message);
+  // Paged: a single select stops at 1,000 rows.
+  let data: { amount: unknown; date: string }[];
+  try {
+    data = await fetchAllRows<{ amount: unknown; date: string }>((from, to) =>
+      supabase
+        .from("donations")
+        .select("amount, date")
+        .eq("org_id", auth.orgId)
+        .gte("date", startIso)
+        .order("id")
+        .range(from, to)
+    );
+  } catch (e) {
+    console.error("[donations/trend]", e instanceof Error ? e.message : e);
     return NextResponse.json(
       { error: "Failed to load donation trend." },
       { status: 500 }
@@ -55,7 +61,7 @@ export async function GET() {
   }
 
   const totals = new Map<string, number>();
-  for (const row of (data ?? []) as { amount: unknown; date: string }[]) {
+  for (const row of data) {
     if (typeof row?.date !== "string") continue;
     const d = new Date(`${row.date}T00:00:00Z`);
     if (Number.isNaN(d.getTime())) continue;

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireUserOrg } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { fetchAllByIds, fetchAllRows } from "@/lib/supabase/fetch-all";
 import {
   DEFAULT_REPORT_COLUMNS,
   REPORT_COLUMN_LABELS,
@@ -116,18 +117,21 @@ async function generateRouteReportContent(
     return headers.join(",") + "\n";
   }
 
-  const { data: donors, error } = await supabase
-    .from("donors")
-    .select(
-      "id,first_name,last_name,display_name,email,phone,billing_address,city,state,zip,mailing_address,mailing_city,mailing_state,mailing_zip,total_lifetime_value,last_donation_amount,last_donation_date"
-    )
-    .eq("org_id", orgId)
-    .in("id", donorIds);
-
-  if (error) throw new Error(error.message);
+  // Chunked and paged: a map selection can hold thousands of donors.
+  const donors = await fetchAllByIds<DonorRow>(donorIds, (ids, from, to) =>
+    supabase
+      .from("donors")
+      .select(
+        "id,first_name,last_name,display_name,email,phone,billing_address,city,state,zip,mailing_address,mailing_city,mailing_state,mailing_zip,total_lifetime_value,last_donation_amount,last_donation_date"
+      )
+      .eq("org_id", orgId)
+      .in("id", ids)
+      .order("id")
+      .range(from, to) as unknown as PromiseLike<{ data: DonorRow[] | null; error: { message: string } | null }>
+  );
 
   const byId = new Map<string, DonorRow>();
-  for (const d of (donors ?? []) as DonorRow[]) byId.set(d.id, d);
+  for (const d of donors) byId.set(d.id, d);
 
   const ordered: DonorRow[] = donorIds
     .map((id) => byId.get(id))
@@ -150,29 +154,23 @@ async function generateCrmReportContent(
   const search = (criteria.search ?? "").trim().toLowerCase();
   const selectedColumns = criteria.selectedColumns?.length ? criteria.selectedColumns : DEFAULT_COLUMNS;
 
-  let query = supabase
-    .from("donors")
-    .select("id,first_name,last_name,display_name,email,phone,billing_address,city,state,zip,mailing_address,mailing_city,mailing_state,mailing_zip,total_lifetime_value,last_donation_amount,last_donation_date")
-    .eq("org_id", orgId)
-    .order("total_lifetime_value", { ascending: false, nullsFirst: false });
+  // Tag filter as an inner join (no donor-id list sent back to the database),
+  // and paged so the export is not cut at 1,000 donors.
+  const columns =
+    "id,first_name,last_name,display_name,email,phone,billing_address,city,state,zip,mailing_address,mailing_city,mailing_state,mailing_zip,total_lifetime_value,last_donation_amount,last_donation_date";
+  const donors = await fetchAllRows<DonorRow>((from, to) => {
+    let query = supabase
+      .from("donors")
+      .select(filterTagIds ? `${columns},donor_tags!inner(tag_id)` : columns)
+      .eq("org_id", orgId);
+    if (filterTagIds) query = query.in("donor_tags.tag_id", filterTagIds);
+    return query
+      .order("total_lifetime_value", { ascending: false, nullsFirst: false })
+      .order("id")
+      .range(from, to) as unknown as PromiseLike<{ data: DonorRow[] | null; error: { message: string } | null }>;
+  });
 
-  if (filterTagIds?.length) {
-    const { data: donorIdsWithTag } = await supabase
-      .from("donor_tags")
-      .select("donor_id")
-      .in("tag_id", filterTagIds);
-    const ids = [...new Set((donorIdsWithTag ?? []).map((r: { donor_id: string }) => r.donor_id))];
-    if (ids.length === 0) {
-      const header = selectedColumns.map((c) => COLUMN_LABELS[c] ?? c).join(",");
-      return header + "\n";
-    }
-    query = query.in("id", ids);
-  }
-
-  const { data: donors, error } = await query;
-  if (error) throw new Error(error.message);
-
-  let list = (donors ?? []) as DonorRow[];
+  let list = donors;
 
   if (search) {
     list = list.filter((d) => (d.display_name ?? "").toLowerCase().includes(search));

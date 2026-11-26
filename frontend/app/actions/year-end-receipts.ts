@@ -1,6 +1,7 @@
 "use server"
 
 import { createAdminClient } from "@/lib/supabase/admin"
+import { fetchAllByIds, fetchAllRows } from "@/lib/supabase/fetch-all"
 import { getCurrentUserOrg, getCurrentUserOrgWithRole } from "@/lib/auth"
 import { logAuditEvent } from "@/lib/audit"
 import {
@@ -34,16 +35,21 @@ export async function getYearEndSummaries(
   const yearStart = `${year}-01-01`
   const yearEnd = `${year}-12-31`
 
-  const { data: donations, error } = await supabase
-    .from("donations")
-    .select("donor_id, amount, date")
-    .eq("org_id", org.orgId)
-    .gte("date", yearStart)
-    .lte("date", yearEnd)
-    .order("date", { ascending: true })
-
-  if (error) throw new Error(error.message)
-  if (!donations || donations.length === 0) return []
+  // Paged: a receipt built from the first 1,000 gifts of the year would
+  // understate what donors gave.
+  const donations = await fetchAllRows<{ donor_id: string; amount: unknown; date: string | null }>(
+    (from, to) =>
+      supabase
+        .from("donations")
+        .select("donor_id, amount, date")
+        .eq("org_id", org.orgId)
+        .gte("date", yearStart)
+        .lte("date", yearEnd)
+        .order("date", { ascending: true })
+        .order("id")
+        .range(from, to)
+  )
+  if (donations.length === 0) return []
 
   // Aggregate by donor
   const byDonor = new Map<
@@ -72,15 +78,19 @@ export async function getYearEndSummaries(
 
   // Fetch donor info
   const donorIds = [...byDonor.keys()]
-  const { data: donors } = await supabase
-    .from("donors")
-    .select("id, display_name, email")
-    .eq("org_id", org.orgId)
-    .in("id", donorIds)
-
-  const donorMap = new Map(
-    (donors ?? []).map((d) => [d.id, d])
+  const donors = await fetchAllByIds<{ id: string; display_name: string | null; email: string | null }>(
+    donorIds,
+    (ids, from, to) =>
+      supabase
+        .from("donors")
+        .select("id, display_name, email")
+        .eq("org_id", org.orgId)
+        .in("id", ids)
+        .order("id")
+        .range(from, to)
   )
+
+  const donorMap = new Map(donors.map((d) => [d.id, d]))
 
   const summaries: YearEndDonorSummary[] = []
   for (const [donorId, agg] of byDonor) {

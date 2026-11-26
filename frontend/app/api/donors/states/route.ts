@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireUserOrg } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { fetchAllRows } from "@/lib/supabase/fetch-all";
 
 export const runtime = "nodejs";
 
@@ -17,23 +18,20 @@ export async function GET() {
     const supabase = createAdminClient();
     const orgId = auth.orgId;
 
-    const { data, error } = await supabase
-      .from("donors")
-      .select("state")
-      .eq("org_id", orgId)
-      .not("state", "is", null)
-      .order("state", { ascending: true });
-
-    if (error) {
-      console.error("[donors/states]", error.message);
-      return NextResponse.json(
-        { error: "Failed to load states." },
-        { status: 500 }
-      );
-    }
+    // Paged: with one 1,000-row request, states late in the alphabet vanish.
+    const data = await fetchAllRows<{ state: string | null }>((from, to) =>
+      supabase
+        .from("donors")
+        .select("state")
+        .eq("org_id", orgId)
+        .not("state", "is", null)
+        .order("state", { ascending: true })
+        .order("id")
+        .range(from, to)
+    );
 
     const states = Array.from(
-      new Set((data ?? []).map((r) => r.state as string).filter(Boolean))
+      new Set(data.map((r) => r.state as string).filter(Boolean))
     ).sort();
 
     return NextResponse.json(states);

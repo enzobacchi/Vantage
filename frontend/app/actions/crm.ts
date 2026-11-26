@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { fetchAllRows } from "@/lib/supabase/fetch-all"
 import { getCurrentUserOrg } from "@/lib/auth"
 import type { Interaction } from "@/types/database"
 
@@ -158,34 +159,24 @@ export async function getAllTasks(
 
   const supabase = createAdminClient()
 
-  // Get all donor IDs for the org
-  const { data: orgDonors, error: donorError } = await supabase
-    .from("donors")
-    .select("id, display_name")
-    .eq("org_id", org.orgId)
+  // Scope by org through the donor join rather than listing donor ids: a
+  // large org's id list overflows the request, and the result came back empty.
+  type TaskRow = Interaction & { donors: { display_name: string | null } | null }
+  const rows = await fetchAllRows<TaskRow>((from, to) => {
+    let query = supabase
+      .from("interactions")
+      .select("*, donors!inner(display_name, org_id)")
+      .eq("type", "task")
+      .eq("donors.org_id", org.orgId)
+    if (status && status !== "all") query = query.eq("status", status)
+    return query
+      .order("date", { ascending: false })
+      .order("id")
+      .range(from, to) as unknown as PromiseLike<{ data: TaskRow[] | null; error: { message: string } | null }>
+  })
 
-  if (donorError) throw new Error(donorError.message)
-  if (!orgDonors || orgDonors.length === 0) return []
-
-  const donorMap = new Map(orgDonors.map((d) => [d.id, d.display_name]))
-  const donorIds = orgDonors.map((d) => d.id)
-
-  let query = supabase
-    .from("interactions")
-    .select("*")
-    .eq("type", "task")
-    .in("donor_id", donorIds)
-    .order("date", { ascending: false })
-
-  if (status && status !== "all") {
-    query = query.eq("status", status)
-  }
-
-  const { data, error } = await query
-  if (error) throw new Error(error.message)
-
-  return (data ?? []).map((row) => ({
-    ...(row as Interaction),
-    donor_name: donorMap.get(row.donor_id) ?? null,
+  return rows.map(({ donors, ...task }) => ({
+    ...(task as Interaction),
+    donor_name: donors?.display_name ?? null,
   }))
 }

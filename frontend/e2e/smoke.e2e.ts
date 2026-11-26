@@ -9,7 +9,7 @@ import { expect, test } from "@playwright/test"
 test("dashboard shows the organisation's headline numbers", async ({ page }) => {
   await page.goto("/dashboard")
   await expect(page.getByRole("heading", { name: "Dashboard", level: 1 })).toBeVisible()
-  await expect(page.getByText("Sample Outreach (Local)")).toBeVisible()
+  await expect(page.getByText("Sample Outreach (Local)").first()).toBeVisible()
   await expect(page.getByText(/Total Donors\s*3,000/)).toBeVisible()
   await expect(page.getByText(/Total Revenue\s*\$[\d,]+/)).toBeVisible()
 })

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { IN_CHUNK_SIZE, fetchAllByIds } from "@/lib/supabase/fetch-all"
 import { getCurrentUserOrg } from "@/lib/auth"
 import { notifyNewDonation, checkAndNotifyMilestones } from "@/lib/notifications"
 import { tryPushDonationInline } from "@/lib/quickbooks/writeback"
@@ -293,6 +294,27 @@ export type BulkUpdateDonationsInput = {
 }
 
 /**
+ * The subset of `donationIds` that belong to this org, checked through the
+ * donor join (the org boundary every donation is tied to). Chunked and paged
+ * so a large selection or a large org is never silently cut short.
+ */
+async function ownedDonations(
+  supabase: ReturnType<typeof createAdminClient>,
+  orgId: string,
+  donationIds: string[]
+): Promise<Array<{ id: string; donor_id: string }>> {
+  return fetchAllByIds<{ id: string; donor_id: string }>(donationIds, (ids, from, to) =>
+    supabase
+      .from("donations")
+      .select("id, donor_id, donors!inner(org_id)")
+      .eq("donors.org_id", orgId)
+      .in("id", ids)
+      .order("id")
+      .range(from, to)
+  )
+}
+
+/**
  * Bulk update donations. Only donations belonging to org (via donor) are updated.
  */
 export async function bulkUpdateDonations(input: BulkUpdateDonationsInput): Promise<number> {
@@ -322,35 +344,22 @@ export async function bulkUpdateDonations(input: BulkUpdateDonationsInput): Prom
 
   if (Object.keys(updates).length === 0) return 0
 
-  const { data: orgDonors } = await supabase
-    .from("donors")
-    .select("id")
-    .eq("org_id", org.orgId)
-  const orgDonorIds = new Set((orgDonors ?? []).map((d: { id: string }) => d.id))
-
-  const { data: donations } = await supabase
-    .from("donations")
-    .select("id,donor_id")
-    .in("id", input.donationIds)
-
-  const validIds = (donations ?? [])
-    .filter((d: { donor_id: string }) => orgDonorIds.has(d.donor_id))
-    .map((d: { id: string }) => d.id)
+  const donations = await ownedDonations(supabase, org.orgId, input.donationIds)
+  const validIds = donations.map((d) => d.id)
 
   if (validIds.length === 0) return 0
 
-  const { error } = await supabase
-    .from("donations")
-    .update(updates)
-    .in("id", validIds)
+  for (let i = 0; i < validIds.length; i += IN_CHUNK_SIZE) {
+    const { error } = await supabase
+      .from("donations")
+      .update(updates)
+      .in("id", validIds.slice(i, i + IN_CHUNK_SIZE))
+    if (error) throw new Error(error.message)
+  }
 
-  if (error) throw new Error(error.message)
-
-  const donorIds = [...new Set((donations ?? []).map((d: { donor_id: string }) => d.donor_id))]
+  const donorIds = [...new Set(donations.map((d) => d.donor_id))]
   for (const donorId of donorIds) {
-    if (orgDonorIds.has(donorId)) {
-      await recalcDonorTotals(supabase, donorId)
-    }
+    await recalcDonorTotals(supabase, donorId)
   }
 
   revalidatePath("/dashboard")
@@ -372,33 +381,21 @@ export async function markDonationsAcknowledged(input: {
 
   const supabase = createAdminClient()
 
-  // Verify donations belong to org via donor
-  const { data: orgDonors } = await supabase
-    .from("donors")
-    .select("id")
-    .eq("org_id", org.orgId)
-  const orgDonorIds = new Set((orgDonors ?? []).map((d: { id: string }) => d.id))
-
-  const { data: donations } = await supabase
-    .from("donations")
-    .select("id,donor_id")
-    .in("id", input.donationIds)
-
-  const validIds = (donations ?? [])
-    .filter((d: { donor_id: string }) => orgDonorIds.has(d.donor_id))
-    .map((d: { id: string }) => d.id)
+  const donations = await ownedDonations(supabase, org.orgId, input.donationIds)
+  const validIds = donations.map((d) => d.id)
 
   if (validIds.length === 0) return 0
 
-  const { error } = await supabase
-    .from("donations")
-    .update({
+  for (let i = 0; i < validIds.length; i += IN_CHUNK_SIZE) {
+    const { error } = await supabase
+      .from("donations")
+      .update({
       acknowledgment_sent_at: new Date().toISOString(),
       acknowledgment_sent_by: input.sentBy?.trim() || null,
     })
-    .in("id", validIds)
-
-  if (error) throw new Error(error.message)
+      .in("id", validIds.slice(i, i + IN_CHUNK_SIZE))
+    if (error) throw new Error(error.message)
+  }
 
   revalidatePath("/dashboard/donations")
   return validIds.length
@@ -443,15 +440,22 @@ export async function bulkCreateDonations(
 
   // Verify all referenced donors belong to this org in one query.
   const donorIds = [...new Set(rows.map((r) => r.donor_id))]
-  const { data: orgDonors, error: donorErr } = await supabase
-    .from("donors")
-    .select("id, display_name, total_lifetime_value")
-    .eq("org_id", org.orgId)
-    .in("id", donorIds)
-  if (donorErr) throw new Error(donorErr.message)
+  const orgDonors = await fetchAllByIds<{
+    id: string
+    display_name: string | null
+    total_lifetime_value: number | string | null
+  }>(donorIds, (ids, from, to) =>
+    supabase
+      .from("donors")
+      .select("id, display_name, total_lifetime_value")
+      .eq("org_id", org.orgId)
+      .in("id", ids)
+      .order("id")
+      .range(from, to)
+  )
 
   const donorMap = new Map<string, { display_name: string | null; total_lifetime_value: number | string | null }>()
-  for (const d of orgDonors ?? []) {
+  for (const d of orgDonors) {
     donorMap.set(d.id as string, {
       display_name: d.display_name as string | null,
       total_lifetime_value: d.total_lifetime_value as number | string | null,
@@ -580,32 +584,21 @@ export async function clearDonationAcknowledgment(donationIds: string[]): Promis
 
   const supabase = createAdminClient()
 
-  const { data: orgDonors } = await supabase
-    .from("donors")
-    .select("id")
-    .eq("org_id", org.orgId)
-  const orgDonorIds = new Set((orgDonors ?? []).map((d: { id: string }) => d.id))
-
-  const { data: donations } = await supabase
-    .from("donations")
-    .select("id,donor_id")
-    .in("id", donationIds)
-
-  const validIds = (donations ?? [])
-    .filter((d: { donor_id: string }) => orgDonorIds.has(d.donor_id))
-    .map((d: { id: string }) => d.id)
+  const donations = await ownedDonations(supabase, org.orgId, donationIds)
+  const validIds = donations.map((d) => d.id)
 
   if (validIds.length === 0) return 0
 
-  const { error } = await supabase
-    .from("donations")
-    .update({
+  for (let i = 0; i < validIds.length; i += IN_CHUNK_SIZE) {
+    const { error } = await supabase
+      .from("donations")
+      .update({
       acknowledgment_sent_at: null,
       acknowledgment_sent_by: null,
     })
-    .in("id", validIds)
-
-  if (error) throw new Error(error.message)
+      .in("id", validIds.slice(i, i + IN_CHUNK_SIZE))
+    if (error) throw new Error(error.message)
+  }
 
   revalidatePath("/dashboard/donations")
   return validIds.length

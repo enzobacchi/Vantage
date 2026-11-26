@@ -2,6 +2,7 @@ import { tool } from "ai"
 import { z } from "zod"
 
 import { createAdminClient } from "@/lib/supabase/admin"
+import { fetchAllByIds, fetchAllRows } from "@/lib/supabase/fetch-all"
 import { getDonorLifecycleStatus } from "@/lib/donor-lifecycle"
 import { computeDonorHealthScore } from "@/lib/donor-score"
 import { buildAddressForGeocode, geocodeAddress } from "@/lib/geocode"
@@ -154,18 +155,18 @@ export function buildTools(
   ): Promise<Map<string, DonorRow>> {
     const map = new Map<string, DonorRow>()
     if (donorIds.length === 0) return map
-    // PostgREST caps at 1000 rows per query — chunk the id list so large
-    // donor sets don't get silently truncated.
-    const CHUNK = 500
-    for (let i = 0; i < donorIds.length; i += CHUNK) {
-      const slice = donorIds.slice(i, i + CHUNK)
-      const { data } = await supabase
+    // Chunked so the id list fits in a request, and so large donor sets
+    // aren't silently truncated. Throws rather than grouping on a partial map.
+    const rows = await fetchAllByIds<DonorRow>(donorIds, (ids, from, to) =>
+      supabase
         .from("donors")
         .select("id,donor_type,state,last_donation_date,total_lifetime_value")
         .eq("org_id", orgId)
-        .in("id", slice)
-      for (const d of (data ?? []) as DonorRow[]) map.set(d.id, d)
-    }
+        .in("id", ids)
+        .order("id")
+        .range(from, to)
+    )
+    for (const d of rows) map.set(d.id, d)
     return map
   }
 
@@ -1382,15 +1383,20 @@ export function buildTools(
           .describe("Max results (default 20)"),
       }),
       execute: async ({ group_by = "state", limit = 20 }) => {
-        const { data, error } = await supabase
-          .from("donors")
-          .select("id,display_name,city,state")
-          .eq("org_id", orgId)
-          .not(group_by === "city" ? "city" : "state", "is", null)
-
-        if (error) return { error: "Failed to load donor locations." }
-
-        const rows = data ?? []
+        let rows: Array<{ id: string; display_name: string | null; city: string | null; state: string | null }>
+        try {
+          rows = await fetchAllRows((from, to) =>
+            supabase
+              .from("donors")
+              .select("id,display_name,city,state")
+              .eq("org_id", orgId)
+              .not(group_by === "city" ? "city" : "state", "is", null)
+              .order("id")
+              .range(from, to)
+          )
+        } catch {
+          return { error: "Failed to load donor locations." }
+        }
 
         // Group and count
         const counts: Record<string, { count: number; donors: { id: string; name: string }[] }> = {}
@@ -1508,31 +1514,47 @@ export function buildTools(
 
         const donorIds = donors.map((d) => d.id)
 
-        // Batch fetch donations and interactions
-        const [donationsRes, interactionsRes] = await Promise.all([
-          supabase
-            .from("donations")
-            .select("donor_id,amount,date")
-            .eq("org_id", orgId)
-            .in("donor_id", donorIds)
-            .order("date", { ascending: true }),
-          supabase
-            .from("interactions")
-            .select("donor_id,date,type")
-            .in("donor_id", donorIds)
-            .order("date", { ascending: true }),
-        ])
+        // Every donation and interaction for these donors, chunked and paged.
+        // A single request stops at 1,000 rows and, sorted oldest first, would
+        // drop exactly the recent activity the score depends on.
+        let donationRows: Array<{ donor_id: string; amount: number | string | null; date: string | null }>
+        let interactionRows: Array<{ donor_id: string | null; date: string | null; type: string }>
+        try {
+          ;[donationRows, interactionRows] = await Promise.all([
+            fetchAllByIds<(typeof donationRows)[number]>(donorIds, (ids, from, to) =>
+              supabase
+                .from("donations")
+                .select("donor_id,amount,date")
+                .eq("org_id", orgId)
+                .in("donor_id", ids)
+                .order("date", { ascending: true })
+                .order("id")
+                .range(from, to)
+            ),
+            fetchAllByIds<(typeof interactionRows)[number]>(donorIds, (ids, from, to) =>
+              supabase
+                .from("interactions")
+                .select("donor_id,date,type")
+                .in("donor_id", ids)
+                .order("date", { ascending: true })
+                .order("id")
+                .range(from, to)
+            ),
+          ])
+        } catch {
+          return { error: "Failed to load donor activity." }
+        }
 
         // Group by donor
         const donationsByDonor = new Map<string, { amount: number | string | null; date: string | null }[]>()
-        for (const d of donationsRes.data ?? []) {
+        for (const d of donationRows) {
           const list = donationsByDonor.get(d.donor_id) ?? []
           list.push({ amount: d.amount, date: d.date })
           donationsByDonor.set(d.donor_id, list)
         }
 
         const interactionsByDonor = new Map<string, { date: string | null; type: string }[]>()
-        for (const i of interactionsRes.data ?? []) {
+        for (const i of interactionRows) {
           if (!i.donor_id) continue
           const list = interactionsByDonor.get(i.donor_id) ?? []
           list.push({ date: i.date, type: i.type })

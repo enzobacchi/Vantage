@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 
 import { requireUserOrg } from "@/lib/auth"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { fetchAllByIds } from "@/lib/supabase/fetch-all"
 import { stripSqlArtifacts } from "@/lib/utils"
 
 import {
@@ -11,6 +12,7 @@ import {
   mapRowToOutputColumns,
   runFilterQuery,
   type FilterRow,
+  MAX_ROWS,
 } from "@/lib/reports/run-filter-query"
 
 export const runtime = "nodejs"
@@ -97,19 +99,28 @@ export async function POST(request: Request) {
           )
         )
       ).join(",")
-      const { data, error } = await supabase
-        .from("donors")
-        .select(selectStr)
-        .eq("org_id", auth.orgId)
-        .in("id", donorIds)
-        .limit(5000)
-      if (error) {
+      // Chunked and paged: a map selection can hold thousands of donors.
+      try {
+        rawRows = (
+          await fetchAllByIds<Record<string, unknown>>(donorIds, (ids, from, to) =>
+            supabase
+              .from("donors")
+              .select(selectStr)
+              .eq("org_id", auth.orgId)
+              .in("id", ids)
+              .order("id")
+              .range(from, to) as unknown as PromiseLike<{
+              data: Array<Record<string, unknown>> | null
+              error: { message: string } | null
+            }>
+          )
+        ).slice(0, MAX_ROWS)
+      } catch {
         return NextResponse.json(
           { error: "Failed to execute report query." },
           { status: 500 }
         )
       }
-      rawRows = (data ?? []) as unknown as Array<Record<string, unknown>>
     } else {
       try {
         const result = await runFilterQuery({

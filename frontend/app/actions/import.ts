@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { getCurrentUserOrg } from "@/lib/auth";
 import { geocodeAddress } from "@/lib/geocode";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { fetchAllByIds, fetchAllRows } from "@/lib/supabase/fetch-all";
 import { effectiveDonorCap, getOrgSubscription, resolveTrialLimits } from "@/lib/subscription";
 
 // ---------------------------------------------------------------------------
@@ -98,10 +99,15 @@ export async function importDonorsFromCSV(
 
   // Pre-load existing donors for duplicate matching. Priority: external_id
   // (stable key from a previous CRM), then display_name + email.
-  const { data: existingDonors } = await supabase
-    .from("donors")
-    .select("id, display_name, email, external_id, custom_fields")
-    .eq("org_id", orgId);
+  // Paged: a donor missing from this list gets created again as a duplicate.
+  const existingDonors = await fetchAllRows<Record<string, unknown>>((from, to) =>
+    supabase
+      .from("donors")
+      .select("id, display_name, email, external_id, custom_fields")
+      .eq("org_id", orgId)
+      .order("id")
+      .range(from, to)
+  );
 
   const existingMap = new Map<string, string>();
   const existingCustomFields = new Map<string, Record<string, unknown>>();
@@ -465,10 +471,15 @@ export async function importDonationsFromCSV(
   };
 
   // --- Load donors for matching ---
-  const { data: existingDonors } = await supabase
-    .from("donors")
-    .select("id, display_name, email, external_id")
-    .eq("org_id", orgId);
+  // Paged: a donor missing from this list would have their gifts skipped.
+  const existingDonors = await fetchAllRows<Record<string, unknown>>((from, to) =>
+    supabase
+      .from("donors")
+      .select("id, display_name, email, external_id")
+      .eq("org_id", orgId)
+      .order("id")
+      .range(from, to)
+  );
 
   const byExternalId = new Map<string, string>();
   const byEmail = new Map<string, string>();
@@ -626,12 +637,19 @@ async function batchRecalcDonorTotals(
 ): Promise<void> {
   if (donorIds.length === 0) return;
 
-  const { data: donations } = await supabase
-    .from("donations")
-    .select("donor_id,amount,date")
-    .eq("org_id", orgId)
-    .in("donor_id", donorIds)
-    .order("date", { ascending: false });
+  // Chunked and paged: an import can touch thousands of donors.
+  const donations = await fetchAllByIds<{ donor_id: string; amount: unknown; date: string | null }>(
+    donorIds,
+    (ids, from, to) =>
+      supabase
+        .from("donations")
+        .select("donor_id,amount,date")
+        .eq("org_id", orgId)
+        .in("donor_id", ids)
+        .order("date", { ascending: false })
+        .order("id")
+        .range(from, to)
+  );
 
   const agg = new Map<
     string,

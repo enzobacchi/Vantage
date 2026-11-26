@@ -4,6 +4,7 @@ import { requireUserOrg } from "@/lib/auth";
 import { readJsonObject } from "@/lib/http";
 import { buildAddressForGeocode, geocodeAddress } from "@/lib/geocode";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { fetchAllByIds, fetchAllRows } from "@/lib/supabase/fetch-all";
 import { isLimitExceeded } from "@/lib/subscription";
 
 export const runtime = "nodejs";
@@ -63,20 +64,31 @@ async function fetchDonorExtras(
   supabase: ReturnType<typeof createAdminClient>,
   donorIds: string[]
 ) {
-  const [donationsRes, donorTagsRes] = await Promise.all([
-    supabase
-      .from("donations")
-      .select("donor_id, date")
-      .in("donor_id", donorIds),
-    supabase
-      .from("donor_tags")
-      .select("donor_id, tag_id")
-      .in("donor_id", donorIds),
+  // Only ever called for one page of donors. Still chunked and paged: a page
+  // of major donors can have more than 1,000 gifts between them.
+  const [donationRows, donorTagRows] = await Promise.all([
+    fetchAllByIds<{ donor_id: string; date: string | null }>(donorIds, (ids, from, to) =>
+      supabase
+        .from("donations")
+        .select("donor_id, date")
+        .in("donor_id", ids)
+        .order("id")
+        .range(from, to)
+    ),
+    fetchAllByIds<{ donor_id: string; tag_id: string }>(donorIds, (ids, from, to) =>
+      supabase
+        .from("donor_tags")
+        .select("donor_id, tag_id")
+        .in("donor_id", ids)
+        .order("donor_id")
+        .order("tag_id")
+        .range(from, to)
+    ),
   ]);
 
   // Build first_donation_date map
   const firstByDonor: Record<string, string> = {};
-  for (const row of donationsRes.data ?? []) {
+  for (const row of donationRows) {
     const id = row.donor_id;
     const d = row.date;
     if (!d) continue;
@@ -86,7 +98,6 @@ async function fetchDonorExtras(
   }
 
   // Build tags-by-donor map
-  const donorTagRows = donorTagsRes.data ?? [];
   const tagIds = [...new Set(donorTagRows.map((r) => r.tag_id))];
   const tagsByDonor: Record<string, DonorTag[]> = {};
   donorIds.forEach((id) => {
@@ -112,6 +123,33 @@ async function fetchDonorExtras(
   return { firstByDonor, tagsByDonor };
 }
 
+/**
+ * Ids of this org's donors carrying any of the given tags. Scoped to the org
+ * through the donor join (a tag id alone is not an org boundary) and paged.
+ */
+async function fetchTaggedDonorIds(
+  supabase: ReturnType<typeof createAdminClient>,
+  orgId: string,
+  tagIds: string[]
+): Promise<Set<string>> {
+  const rows = await fetchAllRows<{ donor_id: string }>((from, to) =>
+    supabase
+      .from("donor_tags")
+      .select("donor_id, donors!inner(org_id)")
+      .eq("donors.org_id", orgId)
+      .in("tag_id", tagIds)
+      .order("donor_id")
+      .order("tag_id")
+      .range(from, to)
+  );
+  return new Set(rows.map((r) => r.donor_id));
+}
+
+const DONOR_COLUMNS =
+  "id, external_id, display_name, email, total_lifetime_value, last_donation_amount, last_donation_date, billing_address, state, notes, assigned_to, custom_fields";
+
+type DonorRow = Omit<DonorListItem, "first_donation_date" | "tags">;
+
 export type DonorListResponse = {
   donors: DonorListItem[];
   total: number;
@@ -120,6 +158,15 @@ export type DonorListResponse = {
 export async function GET(request: Request) {
   const auth = await requireUserOrg();
   if (!auth.ok) return auth.response;
+  try {
+    return await listDonors(request, auth.orgId);
+  } catch (e) {
+    console.error("[donors] GET:", e instanceof Error ? e.message : e);
+    return NextResponse.json({ error: "Failed to load donors." }, { status: 500 });
+  }
+}
+
+async function listDonors(request: Request, orgId: string): Promise<NextResponse> {
 
   const { searchParams } = new URL(request.url);
   const tagIdsParam = searchParams.get("tagIds");
@@ -146,19 +193,24 @@ export async function GET(request: Request) {
   const supabase = createAdminClient();
 
   if (dateFilterActive) {
-    // Step 1: Get donations in date range directly by org_id (single query, no batching)
-    const { data: donationsInRange } = await supabase
-      .from("donations")
-      .select("donor_id, date, amount")
-      .eq("org_id", auth.orgId)
-      .gte("date", fromParam)
-      .lte("date", toParam)
-      .order("date", { ascending: false });
+    // Step 1: every donation in the date range (paged past the 1,000-row cap)
+    const donationsInRange = await fetchAllRows<{ donor_id: string; date: string | null; amount: unknown }>(
+      (from, to) =>
+        supabase
+          .from("donations")
+          .select("donor_id, date, amount")
+          .eq("org_id", orgId)
+          .gte("date", fromParam)
+          .lte("date", toParam)
+          .order("date", { ascending: false })
+          .order("id")
+          .range(from, to)
+    );
 
     // Aggregate totals and last donation per donor in JS
     const totalByDonorInRange: Record<string, number> = {};
     const lastDonationInRange: Record<string, { date: string; amount: number }> = {};
-    for (const row of donationsInRange ?? []) {
+    for (const row of donationsInRange) {
       const id = row.donor_id;
       const amt = row.amount != null ? Number(row.amount) : 0;
       const dateStr = row.date != null ? String(row.date).slice(0, 10) : null;
@@ -176,11 +228,7 @@ export async function GET(request: Request) {
 
     // Apply tag filter if present
     if (filterTagIds?.length) {
-      const { data: donorIdsWithTag } = await supabase
-        .from("donor_tags")
-        .select("donor_id")
-        .in("tag_id", filterTagIds);
-      const taggedIds = new Set((donorIdsWithTag ?? []).map((r) => r.donor_id));
+      const taggedIds = await fetchTaggedDonorIds(supabase, orgId, filterTagIds);
       donorIdsInRange = donorIdsInRange.filter((id) => taggedIds.has(id));
     }
 
@@ -188,12 +236,8 @@ export async function GET(request: Request) {
       return NextResponse.json({ donors: [] as DonorListItem[], total: 0 } satisfies DonorListResponse);
     }
 
-    // Step 2: Fetch donor details and extras in parallel
-    let donorsQueryInRange = supabase
-      .from("donors")
-      .select("id, external_id, display_name, email, total_lifetime_value, last_donation_amount, last_donation_date, billing_address, state, notes, assigned_to, custom_fields")
-      .in("id", donorIdsInRange)
-      .eq("org_id", auth.orgId);
+    // Step 2: donor details, in id chunks (the id list can run to thousands)
+    let assigneeClause: string | null = null;
     if (assigneeFilter) {
       const clauses: string[] = [];
       if (assigneeFilter.userIds.length > 0) {
@@ -203,21 +247,18 @@ export async function GET(request: Request) {
       if (clauses.length === 0) {
         return NextResponse.json({ donors: [] as DonorListItem[], total: 0 } satisfies DonorListResponse);
       }
-      donorsQueryInRange = donorsQueryInRange.or(clauses.join(","));
+      assigneeClause = clauses.join(",");
     }
-    const [donorsRes, extras] = await Promise.all([
-      donorsQueryInRange,
-      fetchDonorExtras(supabase, donorIdsInRange),
-    ]);
+    const donorsInRange = await fetchAllByIds<DonorRow>(donorIdsInRange, (ids, from, to) => {
+      let q = supabase.from("donors").select(DONOR_COLUMNS).in("id", ids).eq("org_id", orgId);
+      if (assigneeClause) q = q.or(assigneeClause);
+      return q.order("id").range(from, to) as unknown as PromiseLike<{
+        data: DonorRow[] | null;
+        error: { message: string } | null;
+      }>;
+    });
 
-    if (donorsRes.error) {
-      return NextResponse.json(
-        { error: "Failed to load donors.", details: donorsRes.error.message },
-        { status: 500 }
-      );
-    }
-
-    let sorted = (donorsRes.data ?? []).sort((a, b) => {
+    let sorted = donorsInRange.sort((a, b) => {
       if (sortParam === "recent") {
         const da = lastDonationInRange[a.id]?.date ?? "";
         const db = lastDonationInRange[b.id]?.date ?? "";
@@ -256,6 +297,7 @@ export async function GET(request: Request) {
 
     const total = sorted.length;
     const list = sorted.slice(page * limit, page * limit + limit);
+    const extras = await fetchDonorExtras(supabase, list.map((d) => d.id));
 
     const result: DonorListItem[] = list.map((d) => {
       const lastInRange = lastDonationInRange[d.id];
@@ -275,24 +317,16 @@ export async function GET(request: Request) {
 
   // --- Non-date-filtered path ---
 
-  let tagFilteredIds: string[] | null = null;
-  if (filterTagIds?.length) {
-    const { data: donorIdsWithTag } = await supabase
-      .from("donor_tags")
-      .select("donor_id")
-      .in("tag_id", filterTagIds);
-    tagFilteredIds = [...new Set((donorIdsWithTag ?? []).map((r) => r.donor_id))];
-    if (tagFilteredIds.length === 0) {
-      return NextResponse.json({ donors: [] as DonorListItem[], total: 0 } satisfies DonorListResponse);
-    }
-  }
+  // Tag filter: an inner join on donor_tags, so no donor-id list has to be
+  // shipped back to the database.
+  const tagFilter = filterTagIds?.length ? filterTagIds : null;
 
   // Count query (exact total for pagination)
   let countQuery = supabase
     .from("donors")
-    .select("id", { count: "exact", head: true })
-    .eq("org_id", auth.orgId);
-  if (tagFilteredIds) countQuery = countQuery.in("id", tagFilteredIds);
+    .select(tagFilter ? "id, donor_tags!inner(tag_id)" : "id", { count: "exact", head: true })
+    .eq("org_id", orgId);
+  if (tagFilter) countQuery = countQuery.in("donor_tags.tag_id", tagFilter);
   if (searchQuery) countQuery = countQuery.ilike("display_name", `%${searchQuery}%`);
   if (assigneeFilter) {
     const clauses: string[] = [];
@@ -329,12 +363,13 @@ export async function GET(request: Request) {
   // Data query with offset pagination
   let query = supabase
     .from("donors")
-    .select("id, external_id, display_name, email, total_lifetime_value, last_donation_amount, last_donation_date, billing_address, state, notes, assigned_to, custom_fields")
-    .eq("org_id", auth.orgId)
+    .select(tagFilter ? `${DONOR_COLUMNS}, donor_tags!inner(tag_id)` : DONOR_COLUMNS)
+    .eq("org_id", orgId)
     .order(orderColumn, { ascending, nullsFirst: false })
+    .order("id")
     .range(page * limit, page * limit + limit - 1);
 
-  if (tagFilteredIds) query = query.in("id", tagFilteredIds);
+  if (tagFilter) query = query.in("donor_tags.tag_id", tagFilter);
   if (searchQuery) query = query.ilike("display_name", `%${searchQuery}%`);
   if (assigneeFilter) {
     const clauses: string[] = [];
@@ -355,7 +390,9 @@ export async function GET(request: Request) {
     );
   }
 
-  const list = (donors ?? []) as Omit<DonorListItem, "first_donation_date" | "tags">[];
+  const list = ((donors ?? []) as unknown as Array<DonorRow & { donor_tags?: unknown }>).map(
+    ({ donor_tags: _joined, ...donor }) => donor as DonorRow
+  );
   if (list.length === 0) {
     return NextResponse.json({ donors: [] as DonorListItem[], total } satisfies DonorListResponse);
   }

@@ -3,6 +3,7 @@ import OpenAI from "openai"
 
 import { requireUserOrg } from "@/lib/auth"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { fetchAllByIds, fetchAllRows } from "@/lib/supabase/fetch-all"
 import { getDonorLifecycleStatus, type LifecycleStatus } from "@/lib/donor-lifecycle"
 import { buildPIIMapFromDonors, redactWithMap, unredactWithMap } from "@/lib/chat/pii-helpers"
 
@@ -69,10 +70,15 @@ export async function GET() {
       opportunitiesRes,
       tasksRes,
     ] = await Promise.all([
-      supabase
-        .from("donors")
-        .select("id,display_name,email,total_lifetime_value,last_donation_date,donor_type")
-        .eq("org_id", auth.orgId),
+      // Paged: lifecycle counts must cover every donor, not the first 1,000.
+      fetchAllRows<Record<string, unknown>>((from, to) =>
+        supabase
+          .from("donors")
+          .select("id,display_name,email,total_lifetime_value,last_donation_date,donor_type")
+          .eq("org_id", auth.orgId)
+          .order("id")
+          .range(from, to)
+      ),
       // Last 7 days donations with donor info
       supabase
         .from("donations")
@@ -109,7 +115,7 @@ export async function GET() {
         .lt("date", now.toISOString()),
     ])
 
-    const donors = (donorsRes.data ?? []) as Array<{
+    const donors = donorsRes as unknown as Array<{
       id: string
       display_name: string | null
       email: string | null
@@ -139,20 +145,17 @@ export async function GET() {
     const weekDonorIds = [...new Set(recentDonations.map((d) => d.donor_id))]
     const firstGiftDonorIds = new Set<string>()
     if (weekDonorIds.length > 0) {
-      const priorDonorIds = new Set<string>()
-      const pageSize = 1000
-      for (let offset = 0; priorDonorIds.size < weekDonorIds.length; offset += pageSize) {
-        const { data: page } = await supabase
+      const priorRows = await fetchAllByIds<{ donor_id: string }>(weekDonorIds, (ids, from, to) =>
+        supabase
           .from("donations")
           .select("donor_id")
           .eq("org_id", auth.orgId)
-          .in("donor_id", weekDonorIds)
+          .in("donor_id", ids)
           .lt("date", sevenDaysAgo.slice(0, 10))
-          .range(offset, offset + pageSize - 1)
-        const rows = (page ?? []) as Array<{ donor_id: string }>
-        for (const r of rows) priorDonorIds.add(r.donor_id)
-        if (rows.length < pageSize) break
-      }
+          .order("id")
+          .range(from, to)
+      )
+      const priorDonorIds = new Set(priorRows.map((r) => r.donor_id))
       for (const id of weekDonorIds) {
         if (!priorDonorIds.has(id)) firstGiftDonorIds.add(id)
       }

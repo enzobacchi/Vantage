@@ -81,3 +81,86 @@ test("tasks view lists the organisation's pending tasks", async ({ page }) => {
   await expect(page.getByText(/^Follow up with /).first()).toBeVisible()
   await expect(page.getByText("No pending tasks")).toHaveCount(0)
 })
+
+/** Every donor id of the org, paged by primary key. */
+async function allDonorIds(orgId: string): Promise<string[]> {
+  const ids: string[] = []
+  let lastId = "00000000-0000-0000-0000-000000000000"
+  for (;;) {
+    const { data, error } = await admin.from("donors").select("id").eq("org_id", orgId).gt("id", lastId).order("id").limit(500)
+    if (error) throw new Error(error.message)
+    ids.push(...(data ?? []).map((d) => d.id as string))
+    if ((data ?? []).length < 500) return ids
+    lastId = ids[ids.length - 1]
+  }
+}
+
+test("donor list date filter counts every donor who gave in the range", async ({ page }) => {
+  const orgId = await sampleOrgId()
+  const from = `${new Date().getFullYear() - 2}-01-01`
+  const to = `${new Date().getFullYear()}-12-31`
+
+  // Truth: distinct donors with positive giving in the range, paged by id.
+  const totals = new Map<string, number>()
+  let lastId = "00000000-0000-0000-0000-000000000000"
+  for (;;) {
+    const { data, error } = await admin
+      .from("donations")
+      .select("id, donor_id, amount")
+      .eq("org_id", orgId)
+      .gte("date", from)
+      .lte("date", to)
+      .gt("id", lastId)
+      .order("id")
+      .limit(500)
+    if (error) throw new Error(error.message)
+    for (const row of data ?? []) totals.set(row.donor_id, (totals.get(row.donor_id) ?? 0) + Number(row.amount ?? 0))
+    if ((data ?? []).length < 500) break
+    lastId = String(data![data!.length - 1].id)
+  }
+  const expected = [...totals.values()].filter((v) => v > 0).length
+  expect(expected).toBeGreaterThan(1000)
+
+  const res = await page.request.get(`/api/donors?from=${from}&to=${to}&limit=50`)
+  expect(res.ok()).toBe(true)
+  const body = await res.json()
+  expect(body.total).toBe(expected)
+  expect(body.donors).toHaveLength(50)
+})
+
+test("donor list tag filter works for a tag on 1,500 donors", async ({ page }) => {
+  const orgId = await sampleOrgId()
+  const donorIds = (await allDonorIds(orgId)).slice(0, 1500)
+  const { data: tag, error: tagError } = await admin
+    .from("tags")
+    .insert({ organization_id: orgId, name: `scale-test-${Date.now()}`, color: "gray" })
+    .select("id")
+    .single()
+  if (tagError || !tag) throw new Error(tagError?.message ?? "tag insert failed")
+
+  try {
+    for (let i = 0; i < donorIds.length; i += 500) {
+      const { error } = await admin
+        .from("donor_tags")
+        .insert(donorIds.slice(i, i + 500).map((donor_id) => ({ donor_id, tag_id: tag.id })))
+      if (error) throw new Error(error.message)
+    }
+
+    const res = await page.request.get(`/api/donors?tagIds=${tag.id}&limit=50`)
+    expect(res.ok()).toBe(true)
+    const body = await res.json()
+    expect(body.total).toBe(1500)
+    expect(body.donors).toHaveLength(50)
+    expect(body.donors[0].tags.map((t: { id: string }) => t.id)).toContain(tag.id)
+
+    const from = `${new Date().getFullYear() - 2}-01-01`
+    const to = `${new Date().getFullYear()}-12-31`
+    const dated = await page.request.get(`/api/donors?tagIds=${tag.id}&from=${from}&to=${to}&limit=50`)
+    expect(dated.ok()).toBe(true)
+    const datedBody = await dated.json()
+    expect(datedBody.total).toBeGreaterThan(500)
+    expect(datedBody.total).toBeLessThanOrEqual(1500)
+  } finally {
+    await admin.from("tags").delete().eq("id", tag.id) // cascades donor_tags
+  }
+})

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { fetchAllRows } from "./fetch-all"
+import { fetchAllByIds, fetchAllRows } from "./fetch-all"
 
 function pager(total: number) {
   const calls: Array<[number, number]> = []
@@ -30,5 +30,44 @@ describe("fetchAllRows", () => {
     await expect(
       fetchAllRows(async () => ({ data: null, error: { message: "boom" } }))
     ).rejects.toThrow("boom")
+  })
+})
+
+describe("fetchAllByIds", () => {
+  it("splits a long id list into chunks and returns every match", async () => {
+    const ids = Array.from({ length: 450 }, (_, i) => `id-${i}`)
+    const chunks: number[] = []
+    const rows = await fetchAllByIds(ids, async (chunk, from) => {
+      if (from === 0) chunks.push(chunk.length)
+      return { data: from === 0 ? chunk.map((id) => ({ id })) : [], error: null }
+    })
+    expect(chunks).toEqual([200, 200, 50])
+    expect(rows).toHaveLength(450)
+  })
+
+  it("pages within a chunk that matches more than 1000 rows", async () => {
+    const perChunk = Array.from({ length: 2300 }, (_, i) => ({ i }))
+    const rows = await fetchAllByIds(["a"], async (_chunk, from, to) => ({
+      data: perChunk.slice(from, to + 1),
+      error: null,
+    }))
+    expect(rows).toHaveLength(2300)
+  })
+
+  it("asks for each id once and makes no request for an empty list", async () => {
+    let calls = 0
+    const rows = await fetchAllByIds(["a", "a", "b"], async (chunk) => {
+      calls++
+      return { data: chunk.map((id) => ({ id })), error: null }
+    })
+    expect(rows).toEqual([{ id: "a" }, { id: "b" }])
+    expect(await fetchAllByIds([], async () => ({ data: [], error: null }))).toEqual([])
+    expect(calls).toBe(1)
+  })
+
+  it("throws when any chunk fails", async () => {
+    await expect(
+      fetchAllByIds(["a"], async () => ({ data: null, error: { message: "nope" } }))
+    ).rejects.toThrow("nope")
   })
 })

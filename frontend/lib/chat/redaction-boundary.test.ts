@@ -264,7 +264,7 @@ describe("chat redaction boundary (AI SDK integration)", () => {
     const tools = redactor.wrapTools({
       filter_donations: tool({
         inputSchema: z.object({ fund_name: z.string() }),
-        execute: async ({ fund_name }) => {
+        execute: async ({ fund_name }): Promise<string> => {
           throw new Error(`No gifts for "${fund_name}" near 4410 Garland Ave`)
         },
       }),

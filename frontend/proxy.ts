@@ -31,6 +31,22 @@ function isAllowedOrigin(origin: string | null, requestUrl: URL): boolean {
   return false
 }
 
+/**
+ * Development only: when NEXT_PUBLIC_SUPABASE_URL points at a local Supabase
+ * stack (`supabase start`), the browser must be allowed to reach it. Returns
+ * nothing in production or for any non-local address.
+ */
+function localSupabaseOrigins(): string {
+  if (process.env.NODE_ENV !== "development") return ""
+  try {
+    const url = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "")
+    if (url.hostname !== "127.0.0.1" && url.hostname !== "localhost") return ""
+    return ` ${url.origin} ws://${url.host}`
+  } catch {
+    return ""
+  }
+}
+
 /** Apply security headers to every response. */
 function applySecurityHeaders(response: NextResponse): void {
   response.headers.set("X-Frame-Options", "DENY")
@@ -50,7 +66,7 @@ function applySecurityHeaders(response: NextResponse): void {
       "style-src 'self' 'unsafe-inline' https://api.mapbox.com",
       "img-src 'self' data: blob: https: http:",
       "font-src 'self' data:",
-      "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.mapbox.com https://events.mapbox.com https://api.openai.com https://api.anthropic.com https://api.resend.com https://va.vercel-scripts.com",
+      `connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.mapbox.com https://events.mapbox.com https://api.openai.com https://api.anthropic.com https://api.resend.com https://va.vercel-scripts.com${localSupabaseOrigins()}`,
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",

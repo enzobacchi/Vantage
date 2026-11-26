@@ -95,7 +95,8 @@ Tick items as you complete them, in the same change set as the work. Add discove
 ### 3.1 Tier 1 — in-flight and blocked (roughly in this order)
 
 - [x] Merge `main` into `audit/hardening-2026-07` (2026-11-25: fast-forwarded to `main`, uncommitted Scout/briefing work re-applied on top; legacy `gift_*` readers are gone). Chat conflicts resolved by keeping main's redactor and server-side gate and routing `log_interaction`/`create_task` through it.
-- [ ] Two migrations share the `20260705000000` timestamp (`_audit_hardening`, `_retarget_donation_option_fks`); both are applied in production. Renaming one is a migration-folder change — needs sign-off.
+- [x] Two migrations shared the `20260705000000` timestamp — moot since 2026-11-25: all pre-baseline files moved to `supabase/migrations_archive/` and `supabase/migrations/` now starts from a production baseline.
+- [ ] Reconcile production's migration history with the baseline (`supabase migration repair`: mark the old versions reverted and the baseline applied). Records-only, but it is a production write — needs sign-off. Until then, never `supabase db push`.
 - [ ] **Overdue** (was due ~Jul 19): drop the `gift_*` legacy tables, the donations payment-type column, and the July backup table; then regenerate `frontend/types/database.ts` and re-append the tail block. Blocked by the merge above.
 - [ ] Fix the `proxy.ts` / `frontend/vercel.json` header conflict. `Permissions-Policy` has microphone and geolocation **exactly inverted** between the two, and the HSTS max-age disagrees. Voice entry and the donor map each depend on one of those. Make `proxy.ts` the source and have `vercel.json` agree or stop setting them.
 - [ ] QuickBooks write-back sandbox end-to-end test (push, pull, no duplicate) before enabling the customer toggle. Keep write-back OFF during the Bloomerang history import — cron would push historical gifts into live books.

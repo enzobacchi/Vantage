@@ -21,6 +21,7 @@ import { buildTools } from "@/lib/chat/tools"
 import { readJsonObject } from "@/lib/http"
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { loadDonorPiiIndex } from "@/lib/chat/donor-pii-index"
 import { getUsage, incrementUsage, isLimitExceeded } from "@/lib/subscription"
 
 export const runtime = "nodejs"
@@ -112,13 +113,13 @@ export async function POST(request: Request) {
   // Seed the redactor from the org's donor index so user messages and tool
   // results share a consistent placeholder map, and so the outbound stream
   // transform can unredact any name the model types back verbatim.
-  const { data: donorIndex } = await supabase
-    .from("donors")
-    .select("display_name,email,phone")
-    .eq("org_id", auth.orgId)
-    .order("id", { ascending: true }) // stable placeholder numbering across requests
-    .limit(5000)
-  if (donorIndex) redactor.seedFromDonors(donorIndex)
+  // Fail closed: with a missing or partial list, donor names would reach the model.
+  try {
+    redactor.seedFromDonors(await loadDonorPiiIndex(supabase, auth.orgId))
+  } catch (e) {
+    console.error("[chat] Failed to load donor index:", e instanceof Error ? e.message : e)
+    return NextResponse.json({ error: "Could not start the chat. Please try again." }, { status: 500 })
+  }
 
   // Seed every campaign/fund/category name too: tool outputs replayed from
   // earlier turns are converted before any tool runs this request. Stable

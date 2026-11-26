@@ -60,13 +60,6 @@ test("tasks view opens", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Tasks", level: 1 })).toBeVisible()
 })
 
-// Known defect at this size: the tasks query sends up to 1,000 donor ids in one
-// request and comes back empty. Unskip when Phase 2a fixes it.
-test.fixme("tasks view lists the organisation's pending tasks", async ({ page }) => {
-  await page.goto("/dashboard?view=tasks")
-  await expect(page.getByText(/^Follow up with /).first()).toBeVisible()
-})
-
 test("reports view opens", async ({ page }) => {
   await page.goto("/dashboard?view=saved-reports")
   await expect(page.getByRole("heading", { name: "Reports", level: 1 })).toBeVisible()

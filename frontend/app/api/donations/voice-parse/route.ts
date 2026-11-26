@@ -18,6 +18,7 @@ import {
 import { transcribeEnabledServer } from "@/lib/features"
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { loadDonorPiiIndex } from "@/lib/chat/donor-pii-index"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -149,13 +150,16 @@ export async function POST(request: Request) {
 
   // ── Step 2: redact transcript before sending to the parser LLM ────
   const supabase = createAdminClient()
-  const { data: donorIndex } = await supabase
-    .from("donors")
-    .select("display_name,email,phone")
-    .eq("org_id", auth.orgId)
-    .limit(5000)
+  // Fail closed: never send the parser a transcript redacted with a partial list.
+  let donorIndex
+  try {
+    donorIndex = await loadDonorPiiIndex(supabase, auth.orgId)
+  } catch (e) {
+    console.error("[voice-parse] Failed to load donor index:", e instanceof Error ? e.message : e)
+    return NextResponse.json({ error: "Could not process the recording. Please try again." }, { status: 500 })
+  }
 
-  const piiMap = buildPIIMapFromDonors(donorIndex ?? [])
+  const piiMap = buildPIIMapFromDonors(donorIndex)
   const redactedTranscript = redactPIIPatterns(
     redactWithMapWordBoundary(rawTranscript, piiMap)
   )

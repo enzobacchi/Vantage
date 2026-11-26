@@ -7,6 +7,7 @@ import {
   Map,
   MapPin,
   MessageSquare,
+  PenLine,
   Route,
   Settings,
   Users,
@@ -15,6 +16,7 @@ import {
 import { searchDonors, type SearchDonorResult } from "@/app/actions/search"
 import { useChatOverlay } from "@/components/chat/chat-provider"
 import { useNav } from "@/components/nav-context"
+import { useQuickLog } from "@/components/touchpoints/quick-log"
 import {
   CommandDialog,
   CommandEmpty,
@@ -77,6 +79,7 @@ export function CommandMenu() {
   const router = useRouter()
   const { setActiveView, openDonor } = useNav()
   const { open: chatOpen } = useChatOverlay()
+  const quickLog = useQuickLog()
   const { open, setOpen } = useCommandMenu()
   const [search, setSearch] = React.useState("")
   const [donors, setDonors] = React.useState<SearchDonorResult[]>([])
@@ -172,6 +175,12 @@ export function CommandMenu() {
         </CommandGroup>
         <CommandSeparator />
         <CommandGroup heading="Quick Actions">
+          {quickLog.enabled && (
+            <CommandItem onSelect={() => run(() => quickLog.open())}>
+              <PenLine className="mr-2 size-4" />
+              Log a touchpoint
+            </CommandItem>
+          )}
           <CommandItem
             onSelect={() => run(() => setActiveView("donor-crm"))}
           >

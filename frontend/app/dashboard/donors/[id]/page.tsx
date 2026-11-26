@@ -15,6 +15,7 @@ import {
   MapPin,
   Pencil,
   Phone,
+  Plus,
   Save,
   Send,
   UserCircle2,
@@ -37,6 +38,7 @@ import { DonorBriefingCard } from "@/components/donors/donor-briefing-card"
 import { DonorCustomFieldsCard } from "@/components/donors/donor-custom-fields-card"
 import { DonorHealthScoreCard } from "@/components/donors/donor-health-score"
 import { DonorMeterCard } from "@/components/donors/donor-meter-card"
+import { useQuickLog } from "@/components/touchpoints/quick-log"
 import { DonorNotesCard } from "@/components/donors/donor-notes-card"
 import { DonorPledgesCard } from "@/components/donors/donor-pledges-card"
 import { DonorTagsCard } from "@/components/donors/donor-tags-card"
@@ -552,6 +554,22 @@ export default function DonorProfilePage() {
   const [logActivityOpen, setLogActivityOpen] = React.useState(false)
   const [logActivityTab, setLogActivityTab] = React.useState<"call" | "email" | "task">("call")
   const [emailDialogOpen, setEmailDialogOpen] = React.useState(false)
+  const quickLog = useQuickLog()
+
+  // A touchpoint logged (or undone) through quick log: refresh the timeline.
+  const quickLogVersion = quickLog.version
+  React.useEffect(() => {
+    if (quickLogVersion === 0) return
+    let cancelled = false
+    getDonorInteractions(donorId)
+      .then((ints) => {
+        if (!cancelled) setInteractions(ints)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [quickLogVersion, donorId])
 
   const loadData = React.useCallback(async () => {
     try {
@@ -684,17 +702,27 @@ export default function DonorProfilePage() {
               Send Email
             </Button>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setLogActivityTab("call")
-              setLogActivityOpen(true)
-            }}
-          >
-            <Phone className="size-3.5 mr-1.5" />
-            Log Activity
-          </Button>
+          {quickLog.enabled ? (
+            <Button
+              size="sm"
+              onClick={() => quickLog.open({ id: donor.id, name: donor.display_name ?? "This donor" })}
+            >
+              <Plus className="size-3.5 mr-1.5" />
+              Log touchpoint
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setLogActivityTab("call")
+                setLogActivityOpen(true)
+              }}
+            >
+              <Phone className="size-3.5 mr-1.5" />
+              Log Activity
+            </Button>
+          )}
         </div>
       </div>
 

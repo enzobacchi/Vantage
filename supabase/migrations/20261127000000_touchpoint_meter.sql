@@ -69,6 +69,9 @@ CREATE TABLE IF NOT EXISTS "public"."org_touchpoint_kinds" (
 );
 
 -- ── One meter per donor ─────────────────────────────────────────────────────
+-- A row is created the first time a donor's meter is viewed or changed; until
+-- then the donor has an implicit meter (see donor_meter_fills). A new row's
+-- cycle starts at the epoch, so points logged before the row existed count.
 -- The fill is not stored. It is carried_points plus the points of touchpoints
 -- logged (created_at) on or after cycle_started_at. Counting by when a
 -- touchpoint was logged, not when it happened, means last week's coffee entered
@@ -80,7 +83,7 @@ CREATE TABLE IF NOT EXISTS "public"."donor_meters" (
     "capacity" integer NOT NULL,
     "capacity_source" "text" DEFAULT 'suggested'::"text" NOT NULL,
     "carried_points" integer DEFAULT 0 NOT NULL,
-    "cycle_started_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "cycle_started_at" timestamp with time zone DEFAULT '1970-01-01 00:00:00+00'::timestamp with time zone NOT NULL,
     "updated_by" "uuid" REFERENCES "auth"."users"("id") ON DELETE SET NULL,
     "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     CONSTRAINT "donor_meters_capacity_check" CHECK ("capacity" > 0),
@@ -116,22 +119,87 @@ CREATE TABLE IF NOT EXISTS "public"."meter_asks" (
 CREATE INDEX IF NOT EXISTS "meter_asks_donor_idx" ON "public"."meter_asks" USING "btree" ("donor_id", "asked_at" DESC);
 CREATE INDEX IF NOT EXISTS "meter_asks_org_idx" ON "public"."meter_asks" USING "btree" ("org_id", "asked_at" DESC);
 
--- ── Current fill for every metered donor of an organisation ────────────────
+-- ── Current meter for an organisation's donors ─────────────────────────────
+-- Every donor has a meter, whether or not a donor_meters row exists yet:
+--   * no row  → capacity is the suggestion from giving history, and every
+--     point ever logged for the donor counts (points only exist from the day
+--     this feature shipped, so there is no older history to exclude);
+--   * a row   → its capacity, and points logged since its cycle started.
+-- The suggestion mirrors suggestCapacity()/bestYearlyGiving() in
+-- frontend/lib/meter/rules.ts: 40 × (best of the last three fiscal years ÷
+-- 10,000)^0.44, rounded to 5, floor 20. A browser test checks the two agree.
+--
+-- p_donor_ids limits the result to those donors (one page of the donor list);
+-- p_min_fill drops donors below that fill (the "ready to ask" list passes 1).
 
-CREATE OR REPLACE FUNCTION "public"."donor_meter_fills"("p_org_id" "uuid")
-    RETURNS TABLE("donor_id" "uuid", "capacity" integer, "fill" integer, "cycle_started_at" timestamp with time zone)
+CREATE OR REPLACE FUNCTION "public"."donor_meter_fills"(
+    "p_org_id" "uuid",
+    "p_donor_ids" "uuid"[] DEFAULT NULL,
+    "p_min_fill" integer DEFAULT 0
+)
+    RETURNS TABLE("donor_id" "uuid", "capacity" integer, "fill" integer, "capacity_source" "text", "cycle_started_at" timestamp with time zone)
     LANGUAGE "sql" STABLE
     SET "search_path" TO ''
     AS $$
-    SELECT m."donor_id",
-           m."capacity",
-           (m."carried_points" + COALESCE(SUM(i."points"), 0))::integer AS "fill",
-           m."cycle_started_at"
-    FROM "public"."donor_meters" m
-    LEFT JOIN "public"."interactions" i
-           ON i."donor_id" = m."donor_id" AND i."created_at" >= m."cycle_started_at" AND i."points" > 0
-    WHERE m."org_id" = "p_org_id"
-    GROUP BY m."donor_id", m."capacity", m."carried_points", m."cycle_started_at"
+    WITH fy AS (
+        -- First day of the fiscal year two before the current one, and the last day of the current one.
+        SELECT o."fiscal_year_start_month" AS m,
+               make_date(
+                   EXTRACT(YEAR FROM CURRENT_DATE)::int
+                     - CASE WHEN EXTRACT(MONTH FROM CURRENT_DATE)::int >= o."fiscal_year_start_month" THEN 0 ELSE 1 END
+                     - 2,
+                   o."fiscal_year_start_month", 1) AS earliest
+        FROM "public"."organizations" o
+        WHERE o."id" = "p_org_id"
+    ),
+    pts AS (
+        SELECT d."id" AS donor_id,
+               m."capacity",
+               m."capacity_source",
+               m."cycle_started_at",
+               (COALESCE(m."carried_points", 0) + COALESCE((
+                   SELECT SUM(i."points")
+                   FROM "public"."interactions" i
+                   WHERE i."donor_id" = d."id"
+                     AND i."points" > 0
+                     AND i."created_at" >= COALESCE(m."cycle_started_at", '-infinity'::timestamptz)
+               ), 0))::integer AS fill
+        FROM "public"."donors" d
+        LEFT JOIN "public"."donor_meters" m ON m."donor_id" = d."id"
+        WHERE d."org_id" = "p_org_id"
+          AND ("p_donor_ids" IS NULL OR d."id" = ANY ("p_donor_ids"))
+    ),
+    kept AS (
+        SELECT * FROM pts WHERE pts.fill >= "p_min_fill"
+    ),
+    best AS (
+        SELECT k.donor_id, COALESCE(MAX(y.total), 0) AS best
+        FROM kept k
+        CROSS JOIN fy
+        LEFT JOIN LATERAL (
+            SELECT SUM(dn."amount") AS total
+            FROM "public"."donations" dn
+            WHERE dn."donor_id" = k.donor_id
+              AND dn."date" >= fy.earliest
+              AND dn."date" < (fy.earliest + INTERVAL '3 years')::date
+            GROUP BY EXTRACT(YEAR FROM dn."date")::int
+                       - CASE WHEN EXTRACT(MONTH FROM dn."date")::int >= fy.m THEN 0 ELSE 1 END
+        ) y ON TRUE
+        WHERE k."capacity" IS NULL
+        GROUP BY k.donor_id
+    )
+    SELECT k.donor_id,
+           COALESCE(
+               k."capacity",
+               CASE WHEN b.best > 0
+                    THEN GREATEST(20, (ROUND(40 * POWER(b.best::double precision / 10000, 0.44) / 5) * 5)::integer)
+                    ELSE 20 END
+           ) AS capacity,
+           k.fill,
+           COALESCE(k."capacity_source", 'suggested') AS capacity_source,
+           k."cycle_started_at"
+    FROM kept k
+    LEFT JOIN best b ON b.donor_id = k.donor_id
 $$;
 
 -- ── Record an ask and move the meter, as one step ───────────────────────────
@@ -207,7 +275,7 @@ GRANT ALL ON TABLE "public"."org_touchpoint_kinds" TO "service_role";
 GRANT ALL ON TABLE "public"."donor_meters" TO "service_role";
 GRANT ALL ON TABLE "public"."meter_asks" TO "service_role";
 
-REVOKE ALL ON FUNCTION "public"."donor_meter_fills"("uuid") FROM PUBLIC, "anon", "authenticated";
+REVOKE ALL ON FUNCTION "public"."donor_meter_fills"("uuid", "uuid"[], integer) FROM PUBLIC, "anon", "authenticated";
 REVOKE ALL ON FUNCTION "public"."record_meter_ask"("uuid", "uuid", timestamp with time zone, "text", numeric, numeric, integer, integer, integer, "uuid", "text", "uuid") FROM PUBLIC, "anon", "authenticated";
-GRANT EXECUTE ON FUNCTION "public"."donor_meter_fills"("uuid") TO "service_role";
+GRANT EXECUTE ON FUNCTION "public"."donor_meter_fills"("uuid", "uuid"[], integer) TO "service_role";
 GRANT EXECUTE ON FUNCTION "public"."record_meter_ask"("uuid", "uuid", timestamp with time zone, "text", numeric, numeric, integer, integer, integer, "uuid", "text", "uuid") TO "service_role";

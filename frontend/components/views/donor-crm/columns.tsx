@@ -16,6 +16,8 @@ import * as React from "react"
 import { formatCurrency } from "@/lib/format"
 import { DataTableColumnHeader } from "@/components/ui/data-table-column-header"
 import { ScoreBadge } from "@/components/donors/donor-health-score"
+import { MiniMeter } from "@/components/meter/mini-meter"
+import type { MeterFillMap } from "@/app/actions/meter"
 
 export type DonorTag = { id: string; name: string; color: string }
 
@@ -77,8 +79,28 @@ export function createDonorColumns(options: {
   onOpenDonorSheet: (donorId: string) => void
   onSendEmail?: (donor: Donor) => void
   assigneeMap?: Map<string, string>
+  /** Meters for the donors on this page; omit when the touchpoint meter is off. */
+  meterFills?: MeterFillMap | null
 }): ColumnDef<Donor>[] {
-  const { onOpenDonorSheet, onSendEmail, assigneeMap } = options
+  const { onOpenDonorSheet, onSendEmail, assigneeMap, meterFills } = options
+
+  const meterColumn: ColumnDef<Donor>[] = meterFills
+    ? [
+        {
+          id: "touchpoint_meter",
+          header: "Meter",
+          cell: ({ row }) => {
+            const meter = meterFills[row.original.id]
+            return meter ? (
+              <MiniMeter fill={meter.fill} capacity={meter.capacity} ready={meter.ready} />
+            ) : (
+              <span className="text-xs text-muted-foreground">—</span>
+            )
+          },
+          enableSorting: false,
+        },
+      ]
+    : []
 
   return [
     {
@@ -136,6 +158,7 @@ export function createDonorColumns(options: {
       cell: ({ row }) => <DonorScoreCell donorId={row.original.id} />,
       enableSorting: false,
     },
+    ...meterColumn,
     {
       accessorKey: "tags",
       header: "Tags",

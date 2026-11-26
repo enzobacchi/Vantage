@@ -1,5 +1,5 @@
 import type { createAdminClient } from "@/lib/supabase/admin"
-import { fetchAllRows } from "@/lib/supabase/fetch-all"
+import { fetchAllByIds, fetchAllRows } from "@/lib/supabase/fetch-all"
 import { fiscalYearOf, fiscalYearRange } from "@/lib/fiscal-year"
 
 import {
@@ -24,6 +24,8 @@ import {
 type Admin = ReturnType<typeof createAdminClient>
 
 export const MAX_CAPACITY = 2000
+
+const FIRST_CYCLE_START = "1970-01-01T00:00:00.000Z"
 
 export type MeterContext = { orgId: string; donorId: string; userId: string | null }
 
@@ -133,6 +135,9 @@ async function ensureMeterRow(
       org_id: ctx.orgId,
       capacity: suggested,
       capacity_source: "suggested",
+      // The first cycle starts at the epoch, not now: points logged before
+      // this row existed (from any screen, by anyone) must still count.
+      cycle_started_at: FIRST_CYCLE_START,
       updated_by: ctx.userId,
     },
     { onConflict: "donor_id", ignoreDuplicates: true }
@@ -271,8 +276,7 @@ export async function recordMeterAsk(
   if (!(await donorInOrg(admin, input))) return NOT_FOUND
 
   try {
-    const row = await loadMeterRow(admin, input)
-    if (!row) return NOT_FOUND
+    const row = await ensureMeterRow(admin, input, await suggestedCapacityFor(admin, input))
     const touchpoints = await cycleTouchpoints(admin, input, row)
     const fillBefore = row.carried_points + touchpoints.reduce((sum, t) => sum + t.points, 0)
     const next = applyAskOutcome(toState(row), fillBefore, outcome, new Date().toISOString())
@@ -301,4 +305,91 @@ export async function recordMeterAsk(
   } catch (e) {
     return { ok: false, reason: "db", message: e instanceof Error ? e.message : "Could not record the ask." }
   }
+}
+
+// ── Meters across many donors ───────────────────────────────────────────────
+
+export type MeterFill = { donorId: string; fill: number; capacity: number; percent: number; ready: boolean }
+
+/**
+ * Meters for many donors at once, worked out in the database
+ * (`donor_meter_fills`). Covers donors with no meter row yet: their capacity
+ * is the suggestion and every point logged for them counts.
+ */
+export async function listMeterFills(
+  admin: Admin,
+  orgId: string,
+  opts: { donorIds?: string[]; minFill?: number } = {}
+): Promise<MeterFill[]> {
+  if (opts.donorIds && opts.donorIds.length === 0) return []
+  const rows = await fetchAllRows<{ donor_id: string; capacity: number; fill: number }>((from, to) =>
+    admin
+      .rpc("donor_meter_fills", {
+        p_org_id: orgId,
+        p_donor_ids: opts.donorIds ?? null,
+        p_min_fill: opts.minFill ?? 0,
+      })
+      .order("donor_id")
+      .range(from, to)
+  )
+  return rows.map((r) => {
+    const status = meterStatus(
+      { capacity: r.capacity, carriedPoints: 0, cycleStartedAt: FIRST_CYCLE_START },
+      r.fill
+    )
+    return { donorId: r.donor_id, ...status }
+  })
+}
+
+export type ReadyToAskRow = MeterFill & {
+  name: string
+  assignedTo: string | null
+  lastDonationDate: string | null
+}
+
+/**
+ * Donors with anything on their meter, fullest first. `assignedTo` narrows to
+ * one relationship owner (`null` = unassigned donors); omit it for everyone.
+ */
+export async function listReadyToAsk(
+  admin: Admin,
+  orgId: string,
+  opts: { assignedTo?: string | null }
+): Promise<ReadyToAskRow[]> {
+  const fills = await listMeterFills(admin, orgId, { minFill: 1 })
+  if (fills.length === 0) return []
+
+  const donors = await fetchAllByIds<{
+    id: string
+    display_name: string | null
+    assigned_to: string | null
+    last_donation_date: string | null
+  }>(
+    fills.map((f) => f.donorId),
+    (ids, from, to) =>
+      admin
+        .from("donors")
+        .select("id, display_name, assigned_to, last_donation_date")
+        .eq("org_id", orgId)
+        .in("id", ids)
+        .order("id")
+        .range(from, to)
+  )
+  const byId = new Map(donors.map((d) => [d.id, d]))
+
+  return fills
+    .flatMap((f) => {
+      const d = byId.get(f.donorId)
+      if (!d) return []
+      if (opts.assignedTo !== undefined && d.assigned_to !== opts.assignedTo) return []
+      return [
+        {
+          ...f,
+          name: d.display_name ?? "Unnamed donor",
+          assignedTo: d.assigned_to,
+          lastDonationDate: d.last_donation_date,
+        },
+      ]
+    })
+    .sort((a, b) => b.fill / b.capacity - a.fill / a.capacity || b.fill - a.fill || a.name.localeCompare(b.name))
 }

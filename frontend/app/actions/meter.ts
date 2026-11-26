@@ -1,6 +1,7 @@
 "use server"
 
 import { revalidatePath } from "next/cache"
+import { z } from "zod"
 
 import { getCurrentUserOrg } from "@/lib/auth"
 import { logAuditEvent } from "@/lib/audit"
@@ -9,9 +10,12 @@ import { loadTouchpointKinds } from "@/lib/meter/log-touchpoint"
 import type { AskOutcome, TouchpointKind } from "@/lib/meter/rules"
 import {
   getDonorMeter,
+  listMeterFills,
+  listReadyToAsk,
   recordMeterAsk,
   setMeterCapacity,
   type DonorMeter,
+  type ReadyToAskRow,
 } from "@/lib/meter/service"
 import { isFeatureEnabled } from "@/lib/org-features"
 import { createAdminClient } from "@/lib/supabase/admin"
@@ -27,6 +31,9 @@ import { createAdminClient } from "@/lib/supabase/admin"
  */
 
 type Session = { orgId: string; userId: string }
+
+const donorIdList = z.array(z.string().uuid()).max(200)
+const ownerFilter = z.union([z.literal("all"), z.literal("unassigned"), z.string().uuid()])
 
 async function meterSession(): Promise<Session | null> {
   const org = await getCurrentUserOrg()
@@ -126,4 +133,67 @@ export async function recordAsk(
   })
   revalidatePath(`/dashboard/donors/${donorId}`)
   return { ok: true }
+}
+
+// ── Meters across many donors ───────────────────────────────────────────────
+
+export type MeterFillMap = Record<string, { fill: number; capacity: number; percent: number; ready: boolean }>
+
+/** Meters for one page of the donor list. Empty (and `enabled: false`) when the feature is off. */
+export async function getMeterFillsForDonors(
+  rawDonorIds: unknown
+): Promise<{ enabled: boolean; fills: MeterFillMap }> {
+  const session = await meterSession()
+  if (!session) return { enabled: false, fills: {} }
+  const ids = donorIdList.safeParse(rawDonorIds)
+  if (!ids.success || ids.data.length === 0) return { enabled: true, fills: {} }
+
+  try {
+    const fills = await listMeterFills(createAdminClient(), session.orgId, { donorIds: ids.data })
+    return {
+      enabled: true,
+      fills: Object.fromEntries(
+        fills.map((f) => [f.donorId, { fill: f.fill, capacity: f.capacity, percent: f.percent, ready: f.ready }])
+      ),
+    }
+  } catch (e) {
+    console.error("[meter] fills failed:", e instanceof Error ? e.message : e)
+    return { enabled: true, fills: {} }
+  }
+}
+
+export type ReadyToAskResult =
+  | { enabled: false }
+  | { enabled: true; ok: true; rows: ReadyToAskRow[]; readyCount: number; total: number }
+  | { enabled: true; ok: false; error: string }
+
+const READY_LIST_LIMIT = 50
+
+/**
+ * Donors with points on their meter, fullest first. `owner` is "all",
+ * "unassigned", or a team member's user id.
+ */
+export async function getReadyToAsk(rawOwner: unknown): Promise<ReadyToAskResult> {
+  const session = await meterSession()
+  if (!session) return { enabled: false }
+  const owner = ownerFilter.safeParse(rawOwner)
+  if (!owner.success) return { enabled: true, ok: false, error: "Unknown filter." }
+
+  try {
+    const rows = await listReadyToAsk(
+      createAdminClient(),
+      session.orgId,
+      owner.data === "all" ? {} : { assignedTo: owner.data === "unassigned" ? null : owner.data }
+    )
+    return {
+      enabled: true,
+      ok: true,
+      rows: rows.slice(0, READY_LIST_LIMIT),
+      readyCount: rows.filter((r) => r.ready).length,
+      total: rows.length,
+    }
+  } catch (e) {
+    console.error("[meter] ready-to-ask failed:", e instanceof Error ? e.message : e)
+    return { enabled: true, ok: false, error: "Could not load the list." }
+  }
 }

@@ -120,6 +120,7 @@ Because a user with no membership gets a fresh org on next sign-in, anything tha
 - **Request parsing**: mutation routes parse bodies through `readJsonObject()` in `frontend/lib/http.ts` — use it for any new mutation route instead of raw `req.json()`.
 - **Usage metering**: always via the atomic RPCs above, never direct counter updates.
 - **Feature flags**: server+public env pairs (e.g. `EMAIL_ENABLED`/`NEXT_PUBLIC_EMAIL_ENABLED`) resolved in `frontend/lib/features.ts`.
+- **Per-organisation feature switches** (design-partner rollout): registry and `isFeatureEnabled(orgId, key)` in `frontend/lib/org-features/`, backed by the `org_features` table. Rollout path: off for everyone → on for named orgs → `onForEveryone: true` → delete the entry. Always pass an org id derived from the signed-in user; every flip goes through `setOrgFeature`, which writes the audit log.
 - Cron routes authenticate with `CRON_SECRET`.
 - **Integration health checks**: `frontend/lib/health-checks.ts` — validates the Stripe key, Resend key, and every org's QuickBooks connection (reconnect flag + stale-sync detection); runs daily piggybacked on `/api/cron/sync` (Hobby cron cap) and emails `FEEDBACK_EMAIL_TO` when something is broken.
 

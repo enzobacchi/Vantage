@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin"
 import { fetchAllByIds, fetchAllRows } from "@/lib/supabase/fetch-all"
 import { getCurrentUserOrg, getCurrentUserOrgWithRole } from "@/lib/auth"
 import { logAuditEvent } from "@/lib/audit"
+import { loadTouchpointKinds, logTouchpoint } from "@/lib/meter/log-touchpoint"
 import {
   GmailNeedsReauthError,
   GmailNotConnectedError,
@@ -148,6 +149,8 @@ export async function sendYearEndReceipts(input: {
   let skipped = 0
   const errors: Array<{ donorName: string; error: string }> = []
 
+  const touchpointKinds = await loadTouchpointKinds(supabase, org.orgId)
+
   for (const donorId of input.donorIds) {
     const summary = summaryMap.get(donorId)
     if (!summary) {
@@ -184,14 +187,18 @@ export async function sendYearEndReceipts(input: {
         html: `<p>${body.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>")}</p>`,
       })
 
-      await supabase.from("interactions").insert({
-        donor_id: donorId,
-        type: "email",
+      // A receipt is not relationship-building: logged at zero points.
+      const logged = await logTouchpoint(supabase, {
+        orgId: org.orgId,
+        userId: org.userId,
+        donorId,
+        kind: "receipt",
         direction: "outbound",
         subject,
         content: `Year-end tax receipt for ${input.year}`,
-        date: new Date().toISOString(),
+        kinds: touchpointKinds,
       })
+      if (!logged.ok) console.error("[year-end-receipts] timeline log failed:", logged.message)
 
       await supabase.from("email_send_log").insert({
         org_id: org.orgId,

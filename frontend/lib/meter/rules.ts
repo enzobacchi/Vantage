@@ -6,7 +6,8 @@ import { fiscalYearOf, fiscalYearRange } from "@/lib/fiscal-year"
  * Every donor has a meter with a capacity. Each touchpoint adds points; when
  * the meter is full it is time to make an ask. Recording the ask's outcome
  * starts a new cycle. The fill is never stored: it is carried points plus the
- * touchpoints logged since the cycle started, so merging donors or editing and
+ * touchpoints logged since the cycle started (by when they were entered, not
+ * when they happened — last week's coffee entered today still counts), so merging donors or editing and
  * deleting touchpoints stays correct with no extra bookkeeping.
  */
 
@@ -73,6 +74,7 @@ export const DEFAULT_TOUCHPOINT_KINDS: readonly TouchpointKind[] = [
   { key: "text", label: "Text", baseType: "note", points: 10 },
   { key: "call", label: "Call", baseType: "call", points: 15 },
   { key: "letter", label: "Handwritten note", baseType: "note", points: 15 },
+  { key: "meeting", label: "Meeting", baseType: "meeting", points: 25 },
   { key: "event", label: "Event", baseType: "meeting", points: 25 },
   { key: "coffee", label: "Coffee or meal", baseType: "meeting", points: 50 },
   { key: "visit", label: "Visit", baseType: "meeting", points: 50 },
@@ -101,18 +103,18 @@ export type MeterState = {
   capacity: number
   /** Points brought into the current cycle from the previous one. */
   carriedPoints: number
-  /** ISO timestamp; touchpoints dated on or after this count toward the fill. */
+  /** ISO timestamp; touchpoints logged on or after this count toward the fill. */
   cycleStartedAt: string
 }
 
 export function meterFill(
   state: MeterState,
-  touchpoints: ReadonlyArray<{ date: string; points: number }>
+  touchpoints: ReadonlyArray<{ loggedAt: string; points: number }>
 ): number {
   const cycleStart = Date.parse(state.cycleStartedAt)
   let fill = state.carriedPoints
   for (const t of touchpoints) {
-    if (Date.parse(t.date) >= cycleStart) fill += t.points
+    if (Date.parse(t.loggedAt) >= cycleStart) fill += t.points
   }
   return fill
 }

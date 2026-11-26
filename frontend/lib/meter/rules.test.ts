@@ -128,17 +128,17 @@ describe("touchpoint kinds and points", () => {
 describe("meterFill", () => {
   it("adds up touchpoints since the cycle started, plus carried points", () => {
     const fill = meterFill(meter({ carriedPoints: 20 }), [
-      { date: "2026-02-01T10:00:00Z", points: 5 },
-      { date: "2026-03-01T10:00:00Z", points: 10 },
-      { date: "2026-04-01T10:00:00Z", points: 50 },
+      { loggedAt: "2026-02-01T10:00:00Z", points: 5 },
+      { loggedAt: "2026-03-01T10:00:00Z", points: 10 },
+      { loggedAt: "2026-04-01T10:00:00Z", points: 50 },
     ])
     expect(fill).toBe(85)
   })
 
   it("ignores touchpoints from before the cycle started", () => {
     const fill = meterFill(meter({ cycleStartedAt: "2026-03-15T00:00:00Z" }), [
-      { date: "2026-03-14T23:59:59Z", points: 50 },
-      { date: "2026-03-15T00:00:00Z", points: 10 },
+      { loggedAt: "2026-03-14T23:59:59Z", points: 50 },
+      { loggedAt: "2026-03-15T00:00:00Z", points: 10 },
     ])
     expect(fill).toBe(10)
   })
@@ -189,6 +189,6 @@ describe("applyAskOutcome", () => {
 
   it("keeps a new cycle consistent: fill right after the ask equals carried points", () => {
     const next = applyAskOutcome(meter(), 120, { kind: "gave_partial", amountAsked: 100_000, amountGiven: 50_000 }, now)
-    expect(meterFill(next, [{ date: "2026-11-25T14:59:00Z", points: 50 }])).toBe(60)
+    expect(meterFill(next, [{ loggedAt: "2026-11-25T14:59:00Z", points: 50 }])).toBe(60)
   })
 })

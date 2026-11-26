@@ -4,6 +4,7 @@ import { z } from "zod"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { fetchAllByIds, fetchAllRows } from "@/lib/supabase/fetch-all"
 import { getDonorLifecycleStatus } from "@/lib/donor-lifecycle"
+import { logTouchpoint } from "@/lib/meter/log-touchpoint"
 import { computeDonorHealthScore } from "@/lib/donor-score"
 import { buildAddressForGeocode, geocodeAddress } from "@/lib/geocode"
 import { recalcDonorTotals } from "@/lib/recalc-donor-totals"
@@ -1232,22 +1233,18 @@ export function buildTools(
           return { error: NOT_APPROVED }
         }
 
-        const { data: inserted, error } = await supabase
-          .from("interactions")
-          .insert({
-            donor_id,
-            type,
-            direction: null,
-            subject: preview.subject,
-            content: preview.content,
-            date: atMiddayUtc(date),
-            status: null,
-          })
-          .select("id")
-          .single()
+        const logged = await logTouchpoint(supabase, {
+          orgId,
+          userId,
+          donorId: donor_id,
+          type,
+          subject: preview.subject,
+          content: preview.content,
+          date: atMiddayUtc(date),
+        })
 
-        if (error) return { error: `Failed to log interaction: ${error.message}` }
-        return { success: true, action: "log_interaction", interaction_id: inserted.id, ...preview }
+        if (!logged.ok) return { error: `Failed to log interaction: ${logged.message}` }
+        return { success: true, action: "log_interaction", interaction_id: logged.interaction.id, ...preview }
       },
     }),
 
@@ -1298,22 +1295,19 @@ export function buildTools(
           return { error: NOT_APPROVED }
         }
 
-        const { data: inserted, error } = await supabase
-          .from("interactions")
-          .insert({
-            donor_id,
-            type: "task",
-            direction: null,
-            subject: preview.title,
-            content: preview.notes ?? "",
-            date: atMiddayUtc(due_date),
-            status: "pending",
-          })
-          .select("id")
-          .single()
+        const logged = await logTouchpoint(supabase, {
+          orgId,
+          userId,
+          donorId: donor_id,
+          type: "task",
+          subject: preview.title,
+          content: preview.notes ?? "",
+          date: atMiddayUtc(due_date),
+          status: "pending",
+        })
 
-        if (error) return { error: `Failed to create task: ${error.message}` }
-        return { success: true, action: "create_task", task_id: inserted.id, ...preview }
+        if (!logged.ok) return { error: `Failed to create task: ${logged.message}` }
+        return { success: true, action: "create_task", task_id: logged.interaction.id, ...preview }
       },
     }),
 

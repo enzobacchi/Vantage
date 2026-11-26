@@ -36,6 +36,7 @@ import { emailEnabled } from "@/lib/features"
 import { DonorBriefingCard } from "@/components/donors/donor-briefing-card"
 import { DonorCustomFieldsCard } from "@/components/donors/donor-custom-fields-card"
 import { DonorHealthScoreCard } from "@/components/donors/donor-health-score"
+import { DonorMeterCard } from "@/components/donors/donor-meter-card"
 import { DonorNotesCard } from "@/components/donors/donor-notes-card"
 import { DonorPledgesCard } from "@/components/donors/donor-pledges-card"
 import { DonorTagsCard } from "@/components/donors/donor-tags-card"
@@ -809,6 +810,12 @@ export default function DonorProfilePage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 px-4 lg:px-6">
         {/* Left column — health, pledges, tags */}
         <div className="space-y-4">
+          <DonorMeterCard
+            donorId={donor.id}
+            donorName={donor.display_name ?? "this donor"}
+            people={assignees}
+            refreshKey={interactions}
+          />
           <DonorHealthScoreCard donorId={donor.id} />
           <DonorPledgesCard donorId={donor.id} />
           <DonorTagsCard donorId={donor.id} />

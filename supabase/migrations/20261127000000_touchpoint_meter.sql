@@ -38,7 +38,7 @@ REVOKE ALL ON FUNCTION "public"."set_interaction_org_id"() FROM PUBLIC, "anon", 
 
 DROP TRIGGER IF EXISTS "interactions_set_org_id" ON "public"."interactions";
 CREATE TRIGGER "interactions_set_org_id"
-    BEFORE INSERT OR UPDATE OF "donor_id" ON "public"."interactions"
+    BEFORE INSERT OR UPDATE OF "donor_id", "org_id" ON "public"."interactions"
     FOR EACH ROW EXECUTE FUNCTION "public"."set_interaction_org_id"();
 
 UPDATE "public"."interactions" i
@@ -70,7 +70,9 @@ CREATE TABLE IF NOT EXISTS "public"."org_touchpoint_kinds" (
 
 -- ── One meter per donor ─────────────────────────────────────────────────────
 -- The fill is not stored. It is carried_points plus the points of touchpoints
--- dated on or after cycle_started_at.
+-- logged (created_at) on or after cycle_started_at. Counting by when a
+-- touchpoint was logged, not when it happened, means last week's coffee entered
+-- today still counts. Both timestamps come from the database clock.
 
 CREATE TABLE IF NOT EXISTS "public"."donor_meters" (
     "donor_id" "uuid" PRIMARY KEY REFERENCES "public"."donors"("id") ON DELETE CASCADE,
@@ -127,14 +129,15 @@ CREATE OR REPLACE FUNCTION "public"."donor_meter_fills"("p_org_id" "uuid")
            m."cycle_started_at"
     FROM "public"."donor_meters" m
     LEFT JOIN "public"."interactions" i
-           ON i."donor_id" = m."donor_id" AND i."date" >= m."cycle_started_at" AND i."points" > 0
+           ON i."donor_id" = m."donor_id" AND i."created_at" >= m."cycle_started_at" AND i."points" > 0
     WHERE m."org_id" = "p_org_id"
     GROUP BY m."donor_id", m."capacity", m."carried_points", m."cycle_started_at"
 $$;
 
 -- ── Record an ask and move the meter, as one step ───────────────────────────
 -- The new state is worked out by the app (frontend/lib/meter/rules.ts) and
--- applied here together with the ask row. `p_expected_cycle_started_at` makes
+-- applied here together with the ask row; the new cycle starts at the database's
+-- current time. `p_expected_cycle_started_at` makes
 -- a double submit a no-op: the second call no longer matches and raises.
 
 CREATE OR REPLACE FUNCTION "public"."record_meter_ask"(
@@ -147,7 +150,6 @@ CREATE OR REPLACE FUNCTION "public"."record_meter_ask"(
     "p_fill_before" integer,
     "p_new_capacity" integer,
     "p_new_carried_points" integer,
-    "p_new_cycle_started_at" timestamp with time zone,
     "p_opportunity_id" "uuid",
     "p_note" "text",
     "p_recorded_by" "uuid"
@@ -175,7 +177,7 @@ BEGIN
         "org_id", "donor_id", "opportunity_id", "asked_at", "outcome", "amount_asked", "amount_given",
         "fill_before", "capacity_before", "fill_after", "capacity_after", "note", "recorded_by"
     ) VALUES (
-        "p_org_id", "p_donor_id", "p_opportunity_id", "p_new_cycle_started_at", "p_outcome", "p_amount_asked", "p_amount_given",
+        "p_org_id", "p_donor_id", "p_opportunity_id", "now"(), "p_outcome", "p_amount_asked", "p_amount_given",
         "p_fill_before", v_meter."capacity", "p_new_carried_points", "p_new_capacity", "p_note", "p_recorded_by"
     ) RETURNING "id" INTO v_ask_id;
 
@@ -183,7 +185,7 @@ BEGIN
     SET "capacity" = "p_new_capacity",
         "capacity_source" = CASE WHEN "p_new_capacity" <> v_meter."capacity" THEN 'manual' ELSE "capacity_source" END,
         "carried_points" = "p_new_carried_points",
-        "cycle_started_at" = "p_new_cycle_started_at",
+        "cycle_started_at" = "now"(),
         "updated_by" = "p_recorded_by",
         "updated_at" = "now"()
     WHERE "donor_id" = "p_donor_id";
@@ -206,6 +208,6 @@ GRANT ALL ON TABLE "public"."donor_meters" TO "service_role";
 GRANT ALL ON TABLE "public"."meter_asks" TO "service_role";
 
 REVOKE ALL ON FUNCTION "public"."donor_meter_fills"("uuid") FROM PUBLIC, "anon", "authenticated";
-REVOKE ALL ON FUNCTION "public"."record_meter_ask"("uuid", "uuid", timestamp with time zone, "text", numeric, numeric, integer, integer, integer, timestamp with time zone, "uuid", "text", "uuid") FROM PUBLIC, "anon", "authenticated";
+REVOKE ALL ON FUNCTION "public"."record_meter_ask"("uuid", "uuid", timestamp with time zone, "text", numeric, numeric, integer, integer, integer, "uuid", "text", "uuid") FROM PUBLIC, "anon", "authenticated";
 GRANT EXECUTE ON FUNCTION "public"."donor_meter_fills"("uuid") TO "service_role";
-GRANT EXECUTE ON FUNCTION "public"."record_meter_ask"("uuid", "uuid", timestamp with time zone, "text", numeric, numeric, integer, integer, integer, timestamp with time zone, "uuid", "text", "uuid") TO "service_role";
+GRANT EXECUTE ON FUNCTION "public"."record_meter_ask"("uuid", "uuid", timestamp with time zone, "text", numeric, numeric, integer, integer, integer, "uuid", "text", "uuid") TO "service_role";

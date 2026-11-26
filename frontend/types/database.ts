@@ -866,12 +866,16 @@ export type Database = {
         Row: {
           content: string
           created_at: string
+          created_by: string | null
           date: string
           direction: string | null
           donor_id: string
           id: string
+          org_id: string | null
+          points: number
           status: string | null
           subject: string | null
+          touchpoint_type: string | null
           type: string
         }
         Insert: {

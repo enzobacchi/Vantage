@@ -4,11 +4,14 @@ import { revalidatePath } from "next/cache"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { fetchAllRows } from "@/lib/supabase/fetch-all"
 import { getCurrentUserOrg } from "@/lib/auth"
+import { logTouchpoint } from "@/lib/meter/log-touchpoint"
 import type { Interaction } from "@/types/database"
 
 type InteractionInsert = {
   donor_id: string
   type: "email" | "call" | "meeting" | "note" | "task"
+  /** Touchpoint kind ("coffee", "text", …). When given, it decides the type and points. */
+  kind?: string
   direction?: "inbound" | "outbound" | null
   subject?: string | null
   content: string
@@ -59,40 +62,24 @@ export async function logInteraction(data: InteractionInsert): Promise<Interacti
     throw new Error("Unauthorized")
   }
 
-  const supabase = createAdminClient()
-  const { data: donor, error: donorError } = await supabase
-    .from("donors")
-    .select("id")
-    .eq("id", data.donor_id)
-    .eq("org_id", org.orgId)
-    .maybeSingle()
-
-  if (donorError || !donor) {
-    throw new Error("Donor not found.")
-  }
-
-  const row = {
-    donor_id: data.donor_id,
+  const result = await logTouchpoint(createAdminClient(), {
+    orgId: org.orgId,
+    userId: org.userId,
+    donorId: data.donor_id,
+    kind: data.kind,
     type: data.type,
-    direction: data.direction ?? null,
-    subject: data.subject ?? null,
-    content: data.content ?? "",
-    date: data.date ?? new Date().toISOString(),
-    status: data.type === "task" ? (data.status ?? "pending") : null,
-  }
-
-  const { data: inserted, error } = await supabase
-    .from("interactions")
-    .insert(row)
-    .select()
-    .single()
-
-  if (error) {
-    throw new Error(error.message)
+    direction: data.direction,
+    subject: data.subject,
+    content: data.content,
+    date: data.date,
+    status: data.status,
+  })
+  if (!result.ok) {
+    throw new Error(result.message)
   }
 
   revalidatePath("/dashboard")
-  return inserted as Interaction
+  return result.interaction
 }
 
 /**

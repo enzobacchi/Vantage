@@ -11,6 +11,12 @@ import { encrypt } from "@/lib/encryption";
 import { encryptQbToken } from "@/lib/quickbooks/token-crypto";
 import { logAuditEvent } from "@/lib/audit";
 import { pickBestMembership } from "@/lib/auth";
+import {
+  QB_FORBIDDEN_ROLE_PARAM,
+  QB_REALM_CLAIMED_LOGIN_ERROR,
+  mayBindQuickBooks,
+  maySignedOutBindRealm,
+} from "@/lib/quickbooks/connect-permission";
 
 export const runtime = "nodejs";
 
@@ -57,6 +63,31 @@ export async function GET(request: Request) {
   }
 
   try {
+    // Resolve the caller and the org the tokens would bind to BEFORE exchanging
+    // the code, so a plain member never gets a token written (defense in depth:
+    // /api/quickbooks/auth refuses them too, but this route is reachable directly).
+    // pickBestMembership prefers the shared org, matching getCurrentUserOrg —
+    // a multi-org user must never bind tokens to an org sync won't run against.
+    const serverSupabase = await createServerSupabaseClient();
+    const {
+      data: { user },
+    } = await serverSupabase.auth.getUser();
+    const membership = user?.id ? await pickBestMembership(user.id) : null;
+
+    if (user?.id && !mayBindQuickBooks(membership)) {
+      const forwardedHost = request.headers.get("x-forwarded-host");
+      const host = forwardedHost ?? request.headers.get("host") ?? url.host;
+      const forwardedProto = request.headers.get("x-forwarded-proto");
+      const proto = isLocalhostHost(host) ? "http" : (forwardedProto ?? "https");
+      const forbiddenUrl = new URL("/settings", `${proto}://${host}`);
+      forbiddenUrl.searchParams.set("tab", "integrations");
+      forbiddenUrl.searchParams.set("qb", QB_FORBIDDEN_ROLE_PARAM);
+      const forbiddenRes = NextResponse.redirect(forbiddenUrl.toString());
+      forbiddenRes.cookies.delete("qb_oauth_state");
+      forbiddenRes.cookies.delete("qb_confirm_realm_move");
+      return forbiddenRes;
+    }
+
     const redirectUri = getQBRedirectUriFromRequest(request);
     console.log("[QB callback] redirectUri:", redirectUri);
     const oauthClient = createQBOAuthClient(redirectUri);
@@ -79,20 +110,13 @@ export async function GET(request: Request) {
     const storedRefreshToken = encryptQbToken(refreshToken);
 
     const admin = createAdminClient();
-    const serverSupabase = await createServerSupabaseClient();
-    const {
-      data: { user },
-    } = await serverSupabase.auth.getUser();
 
     let orgId: string | null = null;
 
     if (user?.id) {
       // Authenticated user: update their EXISTING org with QB tokens
-      // instead of creating a second org via upsert-on-realm-id.
-      // pickBestMembership prefers the shared org, matching getCurrentUserOrg —
-      // a multi-org user must never bind tokens to an org sync won't run against.
-      const membership = await pickBestMembership(user.id);
-
+      // instead of creating a second org via upsert-on-realm-id. The role
+      // gate above already refused plain members.
       if (membership?.organization_id) {
         // Realm-takeover guard (P2-D): if this QB company is already linked
         // to a different Vantage org, moving it silently would cut off that
@@ -206,7 +230,40 @@ export async function GET(request: Request) {
         });
       }
     } else {
-      // Not authenticated: upsert org by realm ID (pending org cookie flow)
+      // Not authenticated: upsert org by realm ID (pending org cookie flow).
+      // Never overwrite tokens on an org someone has already claimed — its
+      // owner/admin reconnects from Settings. Only an unknown realm or a
+      // still-unclaimed org may be written here.
+      const { data: realmOrg, error: realmOrgError } = await admin
+        .from("organizations")
+        .select("id")
+        .eq("qb_realm_id", realmId)
+        .maybeSingle();
+      if (realmOrgError) throw new Error("Failed to look up QuickBooks company.");
+
+      let realmOrgMemberCount: number | null = null;
+      if (realmOrg) {
+        const { count, error: countError } = await admin
+          .from("organization_members")
+          .select("user_id", { count: "exact", head: true })
+          .eq("organization_id", realmOrg.id);
+        if (countError) throw new Error("Failed to look up QuickBooks company.");
+        realmOrgMemberCount = count ?? 0;
+      }
+
+      if (!maySignedOutBindRealm(realmOrgMemberCount)) {
+        const forwardedHost = request.headers.get("x-forwarded-host");
+        const host = forwardedHost ?? request.headers.get("host") ?? url.host;
+        const forwardedProto = request.headers.get("x-forwarded-proto");
+        const proto = isLocalhostHost(host) ? "http" : (forwardedProto ?? "https");
+        const loginUrl = new URL("/login", `${proto}://${host}`);
+        loginUrl.searchParams.set("error", QB_REALM_CLAIMED_LOGIN_ERROR);
+        const claimedRes = NextResponse.redirect(loginUrl.toString());
+        claimedRes.cookies.delete("qb_oauth_state");
+        claimedRes.cookies.delete("qb_confirm_realm_move");
+        return claimedRes;
+      }
+
       const { data: orgRow, error } = await admin
         .from("organizations")
         .upsert(

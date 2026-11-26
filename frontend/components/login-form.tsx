@@ -29,6 +29,7 @@ export function LoginForm({
   const qbNotConfigured = qbError === "qb_not_configured"
   const qbStateError = qbError === "qb_state"
   const qbOtherError = qbError === "qb_error"
+  const qbRealmClaimed = qbError === "qb_realm_claimed"
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
@@ -86,6 +87,15 @@ export function LoginForm({
             QuickBooks connection expired. Please try again — if the issue
             persists, check that your browser allows cookies and disable any
             ad blockers.
+          </AlertDescription>
+        </Alert>
+      )}
+      {qbRealmClaimed && (
+        <Alert variant="destructive">
+          <AlertDescription>
+            This QuickBooks company is already connected to a Vantage
+            organization. Sign in with email — an owner or admin can reconnect
+            QuickBooks from Settings → Integrations.
           </AlertDescription>
         </Alert>
       )}

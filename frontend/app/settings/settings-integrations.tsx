@@ -27,6 +27,8 @@ type QBStatus = {
   realmId?: string
   needsReconnect?: boolean
   lastSyncError?: string | null
+  /** Owners/admins only. Undefined until the status request settles. */
+  canManage?: boolean
 }
 type GmailStatus = { connected: boolean; email?: string; needsReauth?: boolean }
 type SyncState =
@@ -56,18 +58,22 @@ export function SettingsIntegrations() {
         realmId?: string
         needsReconnect?: boolean
         lastSyncError?: string | null
+        canManage?: boolean
       }
       setQbStatus({
         connected: !!data?.connected,
         realmId: data?.realmId ?? undefined,
         needsReconnect: !!data?.needsReconnect,
         lastSyncError: data?.lastSyncError ?? null,
+        // The OAuth routes enforce the role server-side; only hide the
+        // control when the server says no.
+        canManage: data?.canManage !== false,
       })
       if (data?.connected) {
         getQBWritebackEnabled().then(setWritebackEnabled).catch(() => {})
       }
     } catch {
-      setQbStatus({ connected: false })
+      setQbStatus({ connected: false, canManage: true })
     }
   }, [])
 
@@ -176,6 +182,12 @@ export function SettingsIntegrations() {
             window.location.href = "/api/quickbooks/auth?confirmRealmMove=1"
           },
         },
+      })
+    } else if (qb === "forbidden_role") {
+      toast.error("Owner or admin required", {
+        description:
+          "Only organization owners and admins can connect or reconnect QuickBooks. Ask one of them to do it from Settings → Integrations.",
+        duration: 10000,
       })
     } else if (qb === "realm_conflict_owner_only") {
       toast.error("Owner approval required", {
@@ -362,12 +374,14 @@ export function SettingsIntegrations() {
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-3">
-            <Button asChild>
-              <Link href="/api/quickbooks/auth">
-                {qbStatus.needsReconnect ? "Reconnect QuickBooks" : "Connect to QuickBooks"}
-              </Link>
-            </Button>
+          <div className="flex flex-wrap items-center gap-3">
+            {qbStatus.canManage === true && (
+              <Button asChild>
+                <Link href="/api/quickbooks/auth">
+                  {qbStatus.needsReconnect ? "Reconnect QuickBooks" : "Connect to QuickBooks"}
+                </Link>
+              </Button>
+            )}
             <Button
               variant="outline"
               onClick={() => runSync()}
@@ -383,6 +397,11 @@ export function SettingsIntegrations() {
               )}
             </Button>
           </div>
+          {qbStatus.canManage === false && (
+            <p className="text-xs text-muted-foreground">
+              Ask an owner or admin to {qbStatus.connected ? "reconnect" : "connect"} QuickBooks — only they can change your organization&apos;s QuickBooks connection.
+            </p>
+          )}
 
           {qbStatus.connected && (
             <div className="flex items-start justify-between gap-4 rounded-lg border p-3">

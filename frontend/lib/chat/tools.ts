@@ -4,6 +4,8 @@ import { z } from "zod"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { fetchAllByIds, fetchAllRows } from "@/lib/supabase/fetch-all"
 import { getDonorLifecycleStatus } from "@/lib/donor-lifecycle"
+import { logTouchpoint } from "@/lib/meter/log-touchpoint"
+import { listReadyToAsk } from "@/lib/meter/service"
 import { computeDonorHealthScore } from "@/lib/donor-score"
 import { buildAddressForGeocode, geocodeAddress } from "@/lib/geocode"
 import { recalcDonorTotals } from "@/lib/recalc-donor-totals"
@@ -91,7 +93,9 @@ export function buildTools(
    * each preview and only write a change previewed in the previous request.
    * Without one, nothing writes.
    */
-  gate: ConfirmGate = CLOSED_GATE
+  gate: ConfirmGate = CLOSED_GATE,
+  /** Per-organisation features, resolved by the caller from the session's org. */
+  features: { meter?: boolean } = {}
 ) {
   const supabase = createAdminClient()
 
@@ -1232,22 +1236,18 @@ export function buildTools(
           return { error: NOT_APPROVED }
         }
 
-        const { data: inserted, error } = await supabase
-          .from("interactions")
-          .insert({
-            donor_id,
-            type,
-            direction: null,
-            subject: preview.subject,
-            content: preview.content,
-            date: atMiddayUtc(date),
-            status: null,
-          })
-          .select("id")
-          .single()
+        const logged = await logTouchpoint(supabase, {
+          orgId,
+          userId,
+          donorId: donor_id,
+          type,
+          subject: preview.subject,
+          content: preview.content,
+          date: atMiddayUtc(date),
+        })
 
-        if (error) return { error: `Failed to log interaction: ${error.message}` }
-        return { success: true, action: "log_interaction", interaction_id: inserted.id, ...preview }
+        if (!logged.ok) return { error: `Failed to log interaction: ${logged.message}` }
+        return { success: true, action: "log_interaction", interaction_id: logged.interaction.id, ...preview }
       },
     }),
 
@@ -1298,22 +1298,19 @@ export function buildTools(
           return { error: NOT_APPROVED }
         }
 
-        const { data: inserted, error } = await supabase
-          .from("interactions")
-          .insert({
-            donor_id,
-            type: "task",
-            direction: null,
-            subject: preview.title,
-            content: preview.notes ?? "",
-            date: atMiddayUtc(due_date),
-            status: "pending",
-          })
-          .select("id")
-          .single()
+        const logged = await logTouchpoint(supabase, {
+          orgId,
+          userId,
+          donorId: donor_id,
+          type: "task",
+          subject: preview.title,
+          content: preview.notes ?? "",
+          date: atMiddayUtc(due_date),
+          status: "pending",
+        })
 
-        if (error) return { error: `Failed to create task: ${error.message}` }
-        return { success: true, action: "create_task", task_id: inserted.id, ...preview }
+        if (!logged.ok) return { error: `Failed to create task: ${logged.message}` }
+        return { success: true, action: "create_task", task_id: logged.interaction.id, ...preview }
       },
     }),
 
@@ -1807,9 +1804,49 @@ export function buildTools(
     }),
   }
 
-  if (!redactor) return rawTools
+  const meterTools = {
+    get_ready_to_ask: tool({
+      description:
+        "List donors by how full their touchpoint meter is, fullest first. A meter fills with points from " +
+        "touchpoints (emails, calls, coffees, visits); when it reaches the donor's capacity the relationship " +
+        "is ready for an ask. Use this for 'who is ready for an ask', 'who should I ask next', 'whose meter " +
+        "is full', or 'who is close to an ask'.",
+      inputSchema: z.object({
+        only_ready: z.boolean().optional().describe("Only donors whose meter is full (default false: also those filling up)"),
+        mine: z.boolean().optional().describe("Only donors assigned to the person asking (default false: everyone's)"),
+        limit: z.number().min(1).max(25).optional().describe("Max results (default 10)"),
+      }),
+      execute: async ({ only_ready = false, mine = false, limit = 10 }) => {
+        try {
+          const all = await listReadyToAsk(supabase, orgId, mine ? { assignedTo: userId } : {})
+          const readyCount = all.filter((r) => r.ready).length
+          const shown = (only_ready ? all.filter((r) => r.ready) : all).slice(0, limit)
+          return {
+            donors: shown.map((r) => ({
+              donor_id: r.donorId,
+              donor_name: r.name,
+              meter_fill: r.fill,
+              meter_capacity: r.capacity,
+              percent_full: r.percent,
+              ready_to_ask: r.ready,
+              last_donation_date: r.lastDonationDate,
+            })),
+            returned: shown.length,
+            ready_count: readyCount,
+            close_count: all.length - readyCount,
+          }
+        } catch {
+          return { error: "Failed to load the ready-to-ask list." }
+        }
+      },
+    }),
+  }
+
+  const allTools = features.meter ? { ...rawTools, ...meterTools } : rawTools
+
+  if (!redactor) return allTools
 
   // Redact what the model sees (toModelOutput) and restore placeholders in
   // tool arguments; the client still gets raw outputs for cards and charts.
-  return redactor.wrapTools(rawTools)
+  return redactor.wrapTools(allTools)
 }

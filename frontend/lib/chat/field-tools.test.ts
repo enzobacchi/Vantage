@@ -115,6 +115,9 @@ describe("log_interaction", () => {
         row: {
           donor_id: "11111111-1111-4111-8111-111111111111",
           type: "meeting",
+          touchpoint_type: "meeting",
+          points: 25,
+          created_by: "user-1",
           direction: null,
           subject: "Home visit",
           content: "Excited about the building fund.",
@@ -177,6 +180,9 @@ describe("create_task", () => {
         row: {
           donor_id: "11111111-1111-4111-8111-111111111111",
           type: "task",
+          touchpoint_type: "task",
+          points: 0,
+          created_by: "user-1",
           direction: null,
           subject: "Send thank-you note",
           content: "",

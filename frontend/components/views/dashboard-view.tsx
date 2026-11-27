@@ -7,6 +7,7 @@ import { RecentGifts } from "@/components/recent-gifts"
 import { TopDonorsWidget } from "@/components/top-donors-widget"
 import { SectionCards } from "@/components/section-cards"
 import { DailyInsights } from "@/components/daily-insights"
+import { ReadyToAskCard } from "@/components/meter/ready-to-ask-card"
 import { OnboardingChecklist } from "@/components/onboarding-checklist"
 import { DashboardCustomize } from "@/components/dashboard-customize"
 import type { DashboardPreferences } from "@/app/actions/dashboard-preferences"
@@ -35,6 +36,11 @@ export function DashboardView() {
           <h1 className="text-xl font-semibold">Dashboard</h1>
           <DashboardCustomize onPrefsChange={setPrefs} />
         </div>
+
+        {/* Who to ask next (touchpoint meter; renders nothing when the feature is off) */}
+        <section className="px-4 empty:hidden lg:px-6">
+          <ReadyToAskCard />
+        </section>
 
         {/* Row 1: Metric cards */}
         {prefs.show_metric_cards && (

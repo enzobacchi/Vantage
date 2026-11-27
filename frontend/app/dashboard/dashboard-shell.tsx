@@ -3,6 +3,7 @@
 import React from "react"
 
 import { AppHeader } from "@/components/app-header"
+import { QuickLogProvider } from "@/components/touchpoints/quick-log"
 import { AppSidebar } from "@/components/app-sidebar"
 import { ChatBar } from "@/components/chat/chat-bar"
 import { ChatOverlay } from "@/components/chat/chat-overlay"
@@ -64,6 +65,7 @@ export default function DashboardShell({
           }
         >
         <CommandMenuProvider>
+        <QuickLogProvider>
         <ChatProvider>
         <DonorPopupProvider>
           <AppSidebar />
@@ -82,6 +84,7 @@ export default function DashboardShell({
           {tosAccepted && <OnboardingWizard open={!onboardingDone} planSummary={planSummary} />}
         </DonorPopupProvider>
         </ChatProvider>
+        </QuickLogProvider>
         </CommandMenuProvider>
       </SidebarProvider>
     </NavProvider>

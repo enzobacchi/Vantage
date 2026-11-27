@@ -8,6 +8,7 @@ import {
   LogOut,
   MessageCircle,
   Moon,
+  Plus,
   Bell,
   Search,
   Sun,
@@ -19,6 +20,7 @@ import { toast } from "sonner"
 import { getOrganization } from "@/app/actions/settings"
 import { FeedbackDialog } from "@/components/feedback-dialog"
 import { useCommandMenu } from "@/components/command-menu"
+import { useQuickLog } from "@/components/touchpoints/quick-log"
 import { useAuthUser } from "@/hooks/use-auth-user"
 import { useChatOverlay } from "@/components/chat/chat-provider"
 import { useNav } from "@/components/nav-context"
@@ -63,6 +65,7 @@ function getInitials(name: string, email: string): string {
 export function AppHeader() {
   const { setOpen: openCommandMenu } = useCommandMenu()
   const { open: openChat } = useChatOverlay()
+  const quickLog = useQuickLog()
   const { user: authUser, loading } = useAuthUser()
   const { setActiveView } = useNav()
   const router = useRouter()
@@ -140,10 +143,30 @@ export function AppHeader() {
 
         <div className="flex-1" />
 
+        {/* Quick log (design-partner feature) */}
+        {quickLog.enabled && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="sm"
+                className="h-9 shrink-0 px-2.5 2xl:px-3"
+                aria-label="Log touchpoint"
+                onClick={() => quickLog.open()}
+              >
+                <Plus className="size-4" />
+                <span className="hidden 2xl:inline">Log touchpoint</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="2xl:hidden">
+              Log touchpoint
+            </TooltipContent>
+          </Tooltip>
+        )}
+
         {/* Search */}
         <Button
           variant="outline"
-          className="h-9 w-52 justify-start text-muted-foreground bg-muted/30 border-border/60 shadow-none text-sm font-normal"
+          className="h-9 w-52 min-w-0 shrink justify-start text-muted-foreground bg-muted/30 border-border/60 shadow-none text-sm font-normal"
           onClick={() => openCommandMenu(true)}
         >
           <Search className="mr-2 size-4 shrink-0" />

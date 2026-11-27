@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { requireUserOrg } from "@/lib/auth"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { logTouchpoint } from "@/lib/meter/log-touchpoint"
 import { emailEnabledServer } from "@/lib/features"
 import {
   GmailNeedsReauthError,
@@ -161,17 +162,18 @@ export async function POST(request: Request) {
     )
   }
 
-  const { error: insertError } = await supabase.from("interactions").insert({
-    donor_id: donorId,
-    type: "email",
+  const logged = await logTouchpoint(supabase, {
+    orgId: auth.orgId,
+    userId: auth.userId,
+    donorId,
+    kind: "email",
     direction: "outbound",
     subject: subject.trim(),
     content: message.trim(),
-    date: new Date().toISOString(),
   })
 
-  if (insertError) {
-    console.error("[email/send] Failed to log interaction:", insertError.message)
+  if (!logged.ok) {
+    console.error("[email/send] Failed to log interaction:", logged.message)
     return NextResponse.json(
       { error: "Email sent but failed to log to timeline." },
       { status: 500 }

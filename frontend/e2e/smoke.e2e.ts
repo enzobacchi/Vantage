@@ -1,4 +1,21 @@
 import { expect, test } from "@playwright/test"
+import { createClient } from "@supabase/supabase-js"
+
+// These are the paths an organisation WITHOUT any design-partner feature uses
+// every day, so the per-organisation switches are turned off for this file and
+// back on afterwards (the feature suites and local development expect them on).
+const admin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
+  process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+  { auth: { persistSession: false } }
+)
+async function setSampleOrgFeatures(enabled: boolean) {
+  const { data: org } = await admin.from("organizations").select("id").eq("name", "Sample Outreach (Local)").single()
+  if (!org) throw new Error("Sample org not seeded")
+  await admin.from("org_features").update({ enabled }).eq("org_id", org.id)
+}
+test.beforeAll(() => setSampleOrgFeatures(false))
+test.afterAll(() => setSampleOrgFeatures(true))
 
 /**
  * Everyday paths, run against the seeded 3,000-donor sample organisation on the

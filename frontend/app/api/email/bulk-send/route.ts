@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { requireUserOrg } from "@/lib/auth"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { loadTouchpointKinds, logTouchpoint } from "@/lib/meter/log-touchpoint"
 import { emailEnabledServer } from "@/lib/features"
 import {
   GmailNeedsReauthError,
@@ -112,6 +113,8 @@ export async function POST(request: Request) {
   // injection into the raw RFC-822 To: field).
   const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
+  const touchpointKinds = await loadTouchpointKinds(supabase, auth.orgId)
+
   for (const recipient of recipients) {
     const donor = donorById.get(recipient.donorId)
     if (!donor) {
@@ -166,14 +169,18 @@ export async function POST(request: Request) {
         html,
       })
 
-      await supabase.from("interactions").insert({
-        donor_id: recipient.donorId,
-        type: "email",
+      // A mass mailing counts zero points, so it cannot fill every meter at once.
+      const logged = await logTouchpoint(supabase, {
+        orgId: auth.orgId,
+        userId: auth.userId,
+        donorId: recipient.donorId,
+        kind: "bulk_email",
         direction: "outbound",
         subject: personalizedSubject.trim(),
         content: personalizedMessage.trim(),
-        date: new Date().toISOString(),
+        kinds: touchpointKinds,
       })
+      if (!logged.ok) console.error("[email/bulk-send] timeline log failed:", logged.message)
 
       sent++
     } catch (err) {

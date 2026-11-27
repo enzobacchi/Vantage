@@ -22,7 +22,9 @@ import {
   type OpportunityStatus,
   type PipelineOpportunity,
 } from "@/app/actions/pipeline"
+import { getMeterForDonor } from "@/app/actions/meter"
 import type { SearchDonorResult } from "@/app/actions/search"
+import { RecordAskDialog, type RecordAskProps } from "@/components/meter/record-ask-dialog"
 
 // Status list defined locally; do not import from "use server" (becomes a server reference, not an array)
 const PIPELINE_STATUSES: OpportunityStatus[] = [
@@ -195,6 +197,35 @@ export default function PipelinePage() {
   const [editExpectedDate, setEditExpectedDate] = React.useState("")
   const [editSubmitting, setEditSubmitting] = React.useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false)
+  const [askPrompt, setAskPrompt] = React.useState<Pick<
+    RecordAskProps,
+    "donorId" | "donorName" | "meter" | "opportunity"
+  > | null>(null)
+
+  /**
+   * After an opportunity is closed, offer to record the ask on the donor's
+   * meter. Nothing changes on the meter unless the user records it. Does
+   * nothing for organisations without the touchpoint meter.
+   */
+  const promptForAsk = React.useCallback(
+    async (opp: PipelineOpportunity, from: OpportunityStatus, to: OpportunityStatus, amount: number) => {
+      const closed = (s: OpportunityStatus) => s === "closed_won" || s === "closed_lost"
+      if (!closed(to) || closed(from)) return
+      try {
+        const result = await getMeterForDonor(opp.donor_id)
+        if (!result.enabled || !result.ok) return
+        setAskPrompt({
+          donorId: opp.donor_id,
+          donorName: opp.donor?.display_name ?? "this donor",
+          meter: result.meter,
+          opportunity: { id: opp.id, title: opp.title, amount, won: to === "closed_won" },
+        })
+      } catch {
+        // The opportunity is already saved; the prompt is optional.
+      }
+    },
+    []
+  )
 
   const donorSearchDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   React.useEffect(() => {
@@ -284,7 +315,9 @@ export default function PipelinePage() {
         prevList.map((o) => (o.id === oppId ? { ...o, status: prev.status } : o))
       )
       toast.error("Failed to update", { description: result.error })
+      return
     }
+    void promptForAsk(prev, prev.status, newStatus, prev.amount)
   }
 
   const openNewDialog = () => {
@@ -392,6 +425,7 @@ export default function PipelinePage() {
             ? { ...o, title: editTitle.trim() || "Opportunity", amount, status: editStatus, expected_date: editExpectedDate || null }
             : o
         ))
+        void promptForAsk({ ...editingOpp, title: editTitle.trim() || "Opportunity" }, editingOpp.status, editStatus, amount)
       } else {
         toast.error("Failed to update", { description: result.error })
       }
@@ -709,6 +743,17 @@ export default function PipelinePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {askPrompt && (
+        <RecordAskDialog
+          {...askPrompt}
+          open
+          onOpenChange={(open) => {
+            if (!open) setAskPrompt(null)
+          }}
+          onSaved={() => setAskPrompt(null)}
+        />
+      )}
     </div>
   )
 }

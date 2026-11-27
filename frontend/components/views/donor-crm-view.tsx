@@ -64,6 +64,8 @@ import {
 } from "@/components/ui/sheet"
 import { DataTable, type DataTableRef } from "@/components/ui/data-table"
 import { createDonorColumns, type Donor } from "@/components/views/donor-crm/columns"
+import { getMeterFillsForDonors, type MeterFillMap } from "@/app/actions/meter"
+import { useQuickLog } from "@/components/touchpoints/quick-log"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -595,14 +597,33 @@ export function DonorCRMView() {
     setEmailDialogOpen(true)
   }, [])
 
+  // Touchpoint meters for the donors on this page: one request per page, and
+  // again whenever a touchpoint is quick-logged. Null while the feature is off.
+  const [meterFills, setMeterFills] = React.useState<MeterFillMap | null>(null)
+  const quickLogVersion = useQuickLog().version
+  const pageDonorIds = React.useMemo(() => donors.map((d) => d.id).join(","), [donors])
+  React.useEffect(() => {
+    if (!pageDonorIds) return
+    let cancelled = false
+    getMeterFillsForDonors(pageDonorIds.split(","))
+      .then((result) => {
+        if (!cancelled) setMeterFills(result.enabled ? result.fills : null)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [pageDonorIds, quickLogVersion])
+
   const donorColumns = React.useMemo(
     () =>
       createDonorColumns({
         onOpenDonorSheet: openDonorSheet,
         onSendEmail: emailEnabled ? handleSendEmailFromRow : undefined,
         assigneeMap,
+        meterFills,
       }),
-    [openDonorSheet, handleSendEmailFromRow, assigneeMap]
+    [openDonorSheet, handleSendEmailFromRow, assigneeMap, meterFills]
   )
 
   const handleBulkAddTag = React.useCallback(

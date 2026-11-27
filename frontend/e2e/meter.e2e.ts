@@ -159,6 +159,30 @@ test("an ask can be recorded for a donor whose meter was never opened", async ()
   expect(fills).toMatchObject([{ fill: 0, capacity: 80, ready: false }])
 })
 
+test("an ask can be tied to a pipeline opportunity, but only the donor's own", async () => {
+  await resetMeters()
+  const john = donors["John Underhill"]
+  const matt = donors["Matt Delgado"]
+  const { data: opp, error } = await admin
+    .from("opportunities")
+    .insert({ organization_id: matt.org_id, donor_id: matt.id, title: "Meter test gift", amount: 5000, status: "closed_won" })
+    .select("id")
+    .single()
+  if (error || !opp) throw new Error(error?.message ?? "no opportunity")
+  try {
+    const wrongDonor = await recordMeterAsk(admin, { ...ctx(john), outcome: { kind: "gave_full" }, opportunityId: opp.id })
+    expect(wrongDonor).toMatchObject({ ok: false, reason: "invalid" })
+
+    await log(matt, "coffee")
+    const ask = await recordMeterAsk(admin, { ...ctx(matt), outcome: { kind: "gave_full" }, opportunityId: opp.id })
+    if (!ask.ok) throw new Error(ask.message)
+    const { data: saved } = await admin.from("meter_asks").select("opportunity_id, fill_before").eq("id", ask.askId).single()
+    expect(saved).toMatchObject({ opportunity_id: opp.id, fill_before: 50 })
+  } finally {
+    await admin.from("opportunities").delete().eq("id", opp.id)
+  }
+})
+
 test("the database's suggested capacity matches the app's for a spread of donors", async () => {
   await resetMeters()
   const orgId = donors["Matt Delgado"].org_id

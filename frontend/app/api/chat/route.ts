@@ -9,6 +9,7 @@ import {
 import { NextResponse } from "next/server"
 
 import { requireUserOrg } from "@/lib/auth"
+import { isFeatureEnabled } from "@/lib/org-features"
 import {
   ChatPIIRedactor,
   redactReplayedText,
@@ -170,11 +171,12 @@ export async function POST(request: Request) {
   // The same wrapped tools must reach convertToModelMessages: tool outputs
   // replayed from earlier turns are raw in the UI messages, and only the
   // tools' toModelOutput redacts them before they reach the model.
-  const tools = buildTools(auth.orgId, auth.userId, redactor, gate)
+  const meter = await isFeatureEnabled(auth.orgId, "touchpoint_meter")
+  const tools = buildTools(auth.orgId, auth.userId, redactor, gate, { meter })
 
   const result = streamText({
     model: anthropic("claude-haiku-4-5-20251001"),
-    system: buildSystemPrompt(auth.orgId, timeZone),
+    system: buildSystemPrompt(auth.orgId, timeZone, { meter }),
     messages: await convertToModelMessages(messages as AiUIMessage[], { tools }),
     tools,
     maxOutputTokens: 16384,

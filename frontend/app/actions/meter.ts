@@ -102,6 +102,7 @@ export async function recordAsk(
     amountAsked?: number | null
     amountGiven?: number | null
     note?: string | null
+    opportunityId?: string | null
   }
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const session = await meterSession()
@@ -119,6 +120,7 @@ export async function recordAsk(
     amountAsked: input.amountAsked,
     amountGiven: input.amountGiven,
     note: input.note,
+    opportunityId: input.opportunityId,
   })
   if (!result.ok) return { ok: false, error: result.message }
 
@@ -129,7 +131,7 @@ export async function recordAsk(
     entityType: "donor",
     entityId: donorId,
     summary: `Ask recorded: ${input.outcome.kind.replace("_", " ")}`,
-    details: { outcome: input.outcome.kind, askId: result.askId },
+    details: { outcome: input.outcome.kind, askId: result.askId, opportunityId: input.opportunityId },
   })
   revalidatePath(`/dashboard/donors/${donorId}`)
   return { ok: true }

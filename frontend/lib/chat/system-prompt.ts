@@ -10,7 +10,7 @@ function localToday(timeZone?: string): string {
   }
 }
 
-export function buildSystemPrompt(orgId: string, timeZone?: string): string {
+export function buildSystemPrompt(orgId: string, timeZone?: string, features: { meter?: boolean } = {}): string {
   // Midnight UTC of the user's local calendar date — the UTC getters below
   // then read the user's date, not the server's.
   const TODAY = localToday(timeZone)
@@ -253,7 +253,12 @@ NEVER fabricate IDs. If you truly don't have an ID, write the name as plain text
 - When discussing donor lifecycle status: New (first donation within 6 months), Active (giving within 12 months), Lapsed (no donation in 12-24 months), Lost (no donation in 24+ months).
 - Use get_donor_health_score to answer questions about individual donor health, engagement, or suggested ask amounts. The score is 0-100 with labels: Excellent (80+), Good (60-79), Fair (40-59), At Risk (20-39), Cold (0-19).
 - Use get_at_risk_donors to find donors who may lapse soon. This is useful for retention questions and proactive outreach planning.
-- If a query returns no results, suggest alternative searches or explain possible reasons.
+${
+    features.meter
+      ? `- Use get_ready_to_ask for "who is ready for an ask", "who should I ask next" or "whose meter is full". Each donor has a touchpoint meter that fills with points from logged touchpoints; at capacity the relationship is ready for an ask. Lead with donors whose meter is full, give each as "fill / capacity", then mention any that are close. The meter is about relationship readiness, not giving risk — don't mix it with health scores unless asked.
+`
+      : ""
+  }- If a query returns no results, suggest alternative searches or explain possible reasons.
 
 ## Privacy
 - Tool results intentionally exclude contact details (email, phone, address) to protect donor privacy.

@@ -12,6 +12,7 @@ describe("parseAskInput", () => {
       amountAsked: null,
       amountGiven: null,
       note: "ok",
+      opportunityId: null,
     })
     expect(parseAskInput({ outcome: { kind: "declined", adjust: "lower_meter", newFill: 10 } })?.outcome).toEqual({
       kind: "declined",
@@ -29,9 +30,20 @@ describe("parseAskInput", () => {
       orgId: "other-org",
       userId: "someone-else",
       donorId: "another-donor",
-      opportunityId: "x",
     })
-    expect(parsed).toEqual({ outcome: { kind: "gave_full" }, amountAsked: null, amountGiven: null, note: null })
+    expect(parsed).toEqual({
+      outcome: { kind: "gave_full" },
+      amountAsked: null,
+      amountGiven: null,
+      note: null,
+      opportunityId: null,
+    })
+  })
+
+  it("carries a pipeline opportunity id only when it is a real id", () => {
+    const id = "3f0c2a0e-6b1d-4c58-9a51-0d6a4f1f2b77"
+    expect(parseAskInput({ outcome: { kind: "gave_full" }, opportunityId: id })?.opportunityId).toBe(id)
+    expect(parseAskInput({ outcome: { kind: "gave_full" }, opportunityId: "x" })).toBeNull()
   })
 
   it("rejects malformed input", () => {

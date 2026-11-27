@@ -274,6 +274,17 @@ export async function recordMeterAsk(
     }
   }
   if (!(await donorInOrg(admin, input))) return NOT_FOUND
+  if (input.opportunityId) {
+    // The opportunity must be this organisation's and this donor's.
+    const { data: opp } = await admin
+      .from("opportunities")
+      .select("id")
+      .eq("id", input.opportunityId)
+      .eq("organization_id", input.orgId)
+      .eq("donor_id", input.donorId)
+      .maybeSingle()
+    if (!opp) return { ok: false, reason: "invalid", message: "That opportunity does not belong to this donor." }
+  }
 
   try {
     const row = await ensureMeterRow(admin, input, await suggestedCapacityFor(admin, input))

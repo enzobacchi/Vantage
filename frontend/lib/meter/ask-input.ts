@@ -33,6 +33,7 @@ const askSchema = z.object({
   amountAsked: money.nullish(),
   amountGiven: money.nullish(),
   note: z.string().max(2000).nullish(),
+  opportunityId: z.string().uuid().nullish(),
 })
 
 export type AskInput = {
@@ -40,6 +41,8 @@ export type AskInput = {
   amountAsked: number | null
   amountGiven: number | null
   note: string | null
+  /** The pipeline opportunity this ask closed, if any. Ownership is checked by the service. */
+  opportunityId: string | null
 }
 
 function parseOutcome(raw: unknown): AskOutcome | null {
@@ -70,6 +73,7 @@ export function parseAskInput(raw: unknown): AskInput | null {
     amountAsked: parsed.data.amountAsked ?? null,
     amountGiven: parsed.data.amountGiven ?? null,
     note: parsed.data.note ?? null,
+    opportunityId: parsed.data.opportunityId ?? null,
   }
 }
 
